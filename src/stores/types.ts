@@ -41,7 +41,10 @@ export interface IdempotencyRecord {
   providerMessageId?: string;
   /** Unix milliseconds. */
   claimedAt: number;
-  /** Unix milliseconds. */
+  /**
+   * The last write, in Unix milliseconds. A `touch` renews it. The stale check of `claim`
+   * measures from this time.
+   */
   updatedAt: number;
   /** Set only for `sent` and `not_sent`. `purgeExpired` deletes the record after this time. */
   expiresAt?: number;
@@ -55,7 +58,7 @@ export interface IdempotencyClaimInput {
   claimId: string;
   /** Unix milliseconds. */
   now: number;
-  /** A `pending` record older than this is stale. */
+  /** A `pending` record whose `updatedAt` is older than this is stale. */
   pendingTimeoutMs: number;
 }
 
@@ -64,8 +67,9 @@ export interface IdempotencyClaimInput {
  *
  * 1. No record, a `not_sent` record, or an expired `sent` record: the store writes a new
  *    `pending` record and returns `claimed`.
- * 2. A `pending` record older than the timeout: the store changes it to `unknown`. This is
- *    a conditional update, so only one reader converts it.
+ * 2. A `pending` record whose last write (`updatedAt`) is older than the timeout: the
+ *    store changes it to `unknown`. This is a conditional update, so only one reader
+ *    converts it.
  * 3. A record with a different payload hash: `conflict`.
  * 4. A record that this call converted in step 2: `stale`.
  * 5. A `pending` record: `pending`.
@@ -78,12 +82,14 @@ export type IdempotencyClaimOutcome =
   | { kind: "stale"; record: IdempotencyRecord }
   | { kind: "conflict"; record: IdempotencyRecord };
 
-/** The input of `IdempotencyStore.appendAttempt`. */
-export interface IdempotencyAppendInput {
+/** The input of `IdempotencyStore.touch`. */
+export interface IdempotencyTouchInput {
   key: string;
   claimId: string;
-  attempt: IdempotencyAttempt;
+  /** Unix milliseconds. The new `updatedAt`. */
   now: number;
+  /** An attempt that ended since the last write. The store appends it to the list. */
+  attempt?: IdempotencyAttempt;
 }
 
 /** The input of `IdempotencyStore.finish`. */
@@ -111,8 +117,13 @@ export interface IdempotencyFinishInput {
  */
 export interface IdempotencyStore {
   claim(input: IdempotencyClaimInput): Promise<IdempotencyClaimOutcome>;
-  /** Adds one attempt to a `pending` record. */
-  appendAttempt(input: IdempotencyAppendInput): Promise<boolean>;
+  /**
+   * The heartbeat of a claim. The pipeline calls it before each provider call. It sets
+   * `updatedAt` to `now` and appends `attempt` when given. It applies only where the claim
+   * ID matches and the state is `pending`. False means that the claim is lost: do not
+   * call the provider.
+   */
+  touch(input: IdempotencyTouchInput): Promise<boolean>;
   /** Writes the final state of a `pending` record. */
   finish(input: IdempotencyFinishInput): Promise<boolean>;
   /**

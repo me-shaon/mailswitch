@@ -84,7 +84,9 @@ export type FailureReason =
   /** A claim for the idempotency key did not finish in time. The earlier send may have gone out. */
   | "stale_pending"
   /** Another request holds a claim for the same key now. */
-  | "in_flight";
+  | "in_flight"
+  /** A store call (idempotency, daily cap, or rate limit) failed before the provider call. */
+  | "store_error";
 
 /** A successful send. */
 export interface SentResult {

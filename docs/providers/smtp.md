@@ -127,6 +127,8 @@ The `providerMessageId` is the queue id from the reply to the final dot, for exa
 
 The boundary is the `354` reply to `DATA`. Before it, the server has no message. After it, the message may have gone out.
 
+One SMTP session has one deadline: the `timeoutMs` of the mailer. Every read and write of the session shares it, so a slow server cannot make one attempt last longer than `timeoutMs`. A `sendBatch` call is one session, so set `timeoutMs` high enough for the whole batch.
+
 | SMTP outcome | Status and reason |
 |---|---|
 | `250` to the final dot | `sent` |

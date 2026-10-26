@@ -58,6 +58,7 @@ mailswitch refuses some messages before any network call. These results are alwa
 | The message breaks a validation rule | `not_sent` | `invalid_message` |
 | The provider cannot send the message, for example it is too large | `not_sent` | `unsupported` |
 | The daily cap of the provider is reached | `not_sent` | `daily_cap`, with `resetAt` |
+| A store call failed before any provider call for the message | `not_sent` | `store_error` |
 
 The idempotency store can also answer before any network call:
 
@@ -66,6 +67,7 @@ The idempotency store can also answer before any network call:
 | The key is `sent` with the same message | `sent` | none. The stored provider and message ID come back. |
 | Another request holds the claim now | `unknown` | `in_flight` |
 | A claim did not finish in time | `unknown` | `stale_pending` |
+| The claim of this send was lost before a fallback call | `unknown` | `stale_pending` |
 | The key ended as `unknown` before | `unknown` | The reason of the earlier attempt |
 | The key was used with a different message | `unknown` | `idempotency_conflict` |
 
@@ -88,17 +90,31 @@ This means that the fallback runs less often during network faults. That is the 
 1. **Validation.** A message that breaks a rule returns `not_sent/invalid_message`. No provider runs.
 2. **One idempotency claim.** This step runs only when the mailer has an `idempotency` store and the message has an `idempotencyKey`. A claim that does not proceed returns the store answer from the table above.
 3. **The provider chain.** For each provider, in order:
-   1. The capability check.
-   2. The daily cap reserve, when the provider has a cap.
-   3. The send.
-   4. The `onAttempt` observe hook.
+   1. The claim heartbeat, when step 2 made a claim. See [Claim heartbeat](#claim-heartbeat).
+   2. The capability check.
+   3. The daily cap reserve, when the provider has a cap.
+   4. The rate limit, when the provider has a rate.
+   5. The send.
+   6. The `onAttempt` observe hook.
 4. **One final record.** This step runs only when step 2 made a claim.
 
 The chain stops on `sent` or `unknown`. It goes on to the next provider only after `not_sent`.
 
 The cap reserve comes after the claim, so a duplicate retry uses no cap. A `not_sent` result refunds the reserved unit. A `sent` or `unknown` result keeps it. For a provider with a cap, an answer with the reason `quota` fills the cap counter. Later sends then skip that provider until the window has room.
 
-Every exit after a claim writes a final state. When the daily cap store throws, mailswitch writes the final state from the attempts so far, and then the error leaves `send`.
+Every exit after a claim writes a final state, except after a lost claim.
+
+### Store failures
+
+A store failure is a result, not an exception. The rule is the same for `send` and `sendBatch`:
+
+- The message stops at the failed store call. It makes no further provider call.
+- When the message had no attempt yet, the result is `not_sent/store_error`. No email went out, so a retry is safe.
+- When the message had an attempt, the result is the result of its last attempt.
+- In `sendBatch`, the other messages go on and keep their results. A cap unit that a stopped message reserved goes back.
+- mailswitch writes the final record from the attempts so far. The logger gets a warning with the error name only.
+
+The final record can also fail to write after the provider answered. Then the provider result still comes back, and the logger gets a warning. The record stays `pending`, and it goes stale after the pending timeout. A retry gets `unknown`, so a stale record cannot cause a duplicate.
 
 The `onAttempt` hook gets a redacted view: the provider ID, the status, the reason, the time, and the message key. It never gets recipients, the subject, bodies, attachments, or credentials. A hook error is caught and logged. It cannot change the result.
 
@@ -139,11 +155,19 @@ One record per key covers the whole provider chain. The record holds no PII: onl
 | `not_sent` | Every attempt is `not_sent`, or no attempt ran. | Yes, at once. The next claim takes the key. | 1 day after the send |
 | `unknown` | No attempt is `sent` and at least one is `unknown`. Or a `pending` record went stale. | No, until an operator releases it. | Never |
 
-A `pending` record goes stale after the pending timeout. The default is 10 minutes (`DEFAULT_PENDING_TIMEOUT_MS`). The first claim after the timeout changes the record to `unknown` and gets `unknown/stale_pending`. An expired claim means "possibly sent", so mailswitch never takes it over.
+A `pending` record goes stale when its last write (the claim or a heartbeat) is older than the pending timeout. The default is 10 minutes (`DEFAULT_PENDING_TIMEOUT_MS`). The first claim after the timeout changes the record to `unknown` and gets `unknown/stale_pending`. An expired claim means "possibly sent", so mailswitch never takes it over.
 
 The pending timeout must be at least the request timeout multiplied by the chain length (`minPendingTimeout`). A smaller value throws a `RangeError` in `createMailer`.
 
 Each claim writes a random claim ID. The final record is written only where the claim ID matches and the state is still `pending`. This stops a slow Worker from overwriting a record after a stale conversion and a release.
+
+### Claim heartbeat
+
+Before each provider call, mailswitch calls `IdempotencyStore.touch`. The call sets `updatedAt` to the current time, and it writes the attempt that ended since the last call. It applies only where the claim ID matches and the state is still `pending`.
+
+- The stale check measures from `updatedAt`, not from the claim time. A long `sendBatch` therefore keeps the claims of its later messages current.
+- When `touch` returns `false`, the claim is lost. For example, a retry found it stale and an operator released the key. The message then makes no further provider call. It gets `unknown/stale_pending`, and mailswitch writes no further record for it. The logger gets a warning.
+- The attempts reach the record while the chain runs. So a record that went stale shows which providers ran before it went stale.
 
 A `sent` record blocks a repeat for 7 days. After that time, `purgeExpired` can delete it, and a retry with the same key sends again.
 

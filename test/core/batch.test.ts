@@ -6,6 +6,7 @@ import { createMailer, type MailerOptions } from "../../src/core/pipeline";
 import type { OutgoingMessage, SendResult } from "../../src/core/types";
 import { resend } from "../../src/providers/resend/index";
 import { MemoryDailyCapStore, MemoryIdempotencyStore } from "../../src/stores/memory";
+import type { DailyCapStore } from "../../src/stores/types";
 import { type FakeOutcome, fakeMeta, fakeProvider } from "../../src/testing/fake-provider";
 import { T0 } from "../stores/daily-cap-suite";
 
@@ -308,5 +309,163 @@ describe("sendBatch: daily caps", () => {
     // a was refunded, so one unit is free.
     const next = await m.sendBatch([message("d@x.org")]);
     expect(next[0]?.provider).toBe("batcher");
+  });
+});
+
+describe("sendBatch: input", () => {
+  it("throws a TypeError for an argument that is not an array", async () => {
+    const m = mailer([batchProvider().adapter]);
+    await expect(m.sendBatch("a@x.org" as never)).rejects.toThrow(TypeError);
+    await expect(m.sendBatch(undefined as never)).rejects.toThrow(
+      "sendBatch expects an array of messages.",
+    );
+  });
+});
+
+describe("sendBatch: claim heartbeat", () => {
+  /** A provider whose every call takes 900 ms of clock time and then runs `during`. */
+  function slowProvider(
+    clock: { now: number },
+    batch: boolean,
+    during: (list: readonly OutgoingMessage[]) => Promise<void>,
+  ): ProviderAdapter {
+    const base = batchProvider({ batchSize: 2 }).adapter;
+    const send: ProviderAdapter["send"] = async (m, ctx) => {
+      clock.now += 900;
+      await during([m]);
+      return base.send(m, ctx);
+    };
+    const { sendBatch, ...single } = base;
+    if (!batch) return defineProvider({ ...single, send });
+    return defineProvider({
+      ...base,
+      send,
+      async sendBatch(list, ctx) {
+        clock.now += 900;
+        await during(list);
+        return (sendBatch as NonNullable<ProviderAdapter["sendBatch"]>)(list, ctx);
+      },
+    });
+  }
+
+  for (const path of ["batch chunks", "single sends"] as const) {
+    it(`keeps the later claims of a long call pending, not stale (${path})`, async () => {
+      const clock = { now: T0 };
+      const idempotency = new MemoryIdempotencyStore();
+      const probes: SendResult[] = [];
+      const last = message("f@x.org", { idempotencyKey: "k-f" });
+      const adapter = slowProvider(clock, path === "batch chunks", async (list) => {
+        // A concurrent retry of the last message, while its own call runs.
+        if (list.some((x) => x.to[0] === "f@x.org")) probes.push(await m.send(last));
+      });
+      const m = mailer([adapter], {
+        namespace: NAMESPACE,
+        idempotency,
+        now: () => clock.now,
+        pendingTimeoutMs: 1000,
+      });
+      const list = [
+        ...["a", "b", "c", "d", "e"].map((x) =>
+          message(`${x}@x.org`, { idempotencyKey: `k-${x}` }),
+        ),
+        last,
+      ];
+      const results = await m.sendBatch(list);
+      // The call ran far past the pending timeout.
+      expect(clock.now - T0).toBeGreaterThan(2000);
+      expect(results.map((r) => r.status)).toEqual(Array(6).fill("sent"));
+      expect(probes).toEqual([expect.objectContaining({ status: "unknown", reason: "in_flight" })]);
+      expect((await idempotency.get(`${NAMESPACE}:k-f`))?.state).toBe("sent");
+    });
+  }
+});
+
+describe("sendBatch: store failures", () => {
+  it("returns every result and warns when the final record fails to write", async () => {
+    const warn = vi.fn();
+    const idempotency = new MemoryIdempotencyStore();
+    idempotency.finish = async () => {
+      throw new Error("D1 down");
+    };
+    const primary = batchProvider();
+    const results = await mailer([primary.adapter], {
+      namespace: NAMESPACE,
+      idempotency,
+      logger: { warn },
+    }).sendBatch([
+      message("a@x.org", { idempotencyKey: "k-a" }),
+      message("b@x.org", { idempotencyKey: "k-b" }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["sent", "sent"]);
+    expect(
+      warn.mock.calls.filter(
+        (call) => call[0] === "mailswitch: the store failed to write the final record.",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("stops only the message whose cap store throws and finishes every claim", async () => {
+    const memory = new MemoryDailyCapStore();
+    let reserves = 0;
+    const dailyCaps: DailyCapStore = {
+      reserve: async (input) => {
+        reserves++;
+        if (reserves === 2) throw new Error("D1 down");
+        return memory.reserve(input);
+      },
+      release: (input) => memory.release(input),
+      fill: (input) => memory.fill(input),
+      used: (scope, now) => memory.used(scope, now),
+    };
+    const primary = batchProvider();
+    const idempotency = new MemoryIdempotencyStore();
+    const m = createMailer({
+      providers: [{ adapter: primary.adapter, credentials: { apiKey: "fk_test" }, dailyCap: 10 }],
+      dailyCaps,
+      idempotency,
+      namespace: NAMESPACE,
+      now: () => T0,
+      logger: { warn: () => {} },
+    });
+    const results = await m.sendBatch([
+      message("a@x.org", { idempotencyKey: "k-a" }),
+      message("b@x.org", { idempotencyKey: "k-b" }),
+      message("c@x.org", { idempotencyKey: "k-c" }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["sent", "not_sent", "sent"]);
+    expect(results[1]).toMatchObject({ reason: "store_error" });
+    expect(primary.batches[0]?.map((x) => x.to[0])).toEqual(["a@x.org", "c@x.org"]);
+    expect((await idempotency.get(`${NAMESPACE}:k-a`))?.state).toBe("sent");
+    expect((await idempotency.get(`${NAMESPACE}:k-b`))?.state).toBe("not_sent");
+    expect((await idempotency.get(`${NAMESPACE}:k-c`))?.state).toBe("sent");
+    expect(await memory.used("batcher", T0)).toBe(2);
+  });
+
+  it("refunds the cap unit of a message whose heartbeat fails before its chunk", async () => {
+    const dailyCaps = new MemoryDailyCapStore();
+    const idempotency = new MemoryIdempotencyStore();
+    const touch = idempotency.touch.bind(idempotency);
+    idempotency.touch = async (input) => {
+      if (input.key === `${NAMESPACE}:k-b`) throw new Error("D1 down");
+      return touch(input);
+    };
+    const primary = batchProvider();
+    const m = createMailer({
+      providers: [{ adapter: primary.adapter, credentials: { apiKey: "fk_test" }, dailyCap: 10 }],
+      dailyCaps,
+      idempotency,
+      namespace: NAMESPACE,
+      now: () => T0,
+      logger: { warn: () => {} },
+    });
+    const results = await m.sendBatch([
+      message("a@x.org", { idempotencyKey: "k-a" }),
+      message("b@x.org", { idempotencyKey: "k-b" }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["sent", "not_sent"]);
+    expect(results[1]).toMatchObject({ reason: "store_error" });
+    expect(primary.batches[0]?.map((x) => x.to[0])).toEqual(["a@x.org"]);
+    expect(await dailyCaps.used("batcher", T0)).toBe(1);
+    expect((await idempotency.get(`${NAMESPACE}:k-b`))?.state).toBe("not_sent");
   });
 });

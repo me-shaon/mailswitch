@@ -229,7 +229,7 @@ statusMap: defineStatusMap({
 | `timeout`, `network` | Transport failures. `callProvider` gives them. |
 | `idempotency_conflict` | A key used before with a different payload. |
 
-The core pipeline sets `daily_cap`, `stale_pending`, and `in_flight`. An adapter does not.
+The core pipeline sets `daily_cap`, `stale_pending`, `in_flight`, and `store_error`. An adapter does not.
 
 ## Tiers
 

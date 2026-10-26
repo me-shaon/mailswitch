@@ -238,7 +238,7 @@ export function idempotencyStoreSuite(name: string, setup: () => Promise<StoreHa
       });
       expect(lateAgain.applied).toBe(false);
       expect(
-        await store.appendAttempt({
+        await store.touch({
           key: old.key,
           claimId: old.claimId,
           attempt: late[0] as IdempotencyAttempt,
@@ -249,7 +249,7 @@ export function idempotencyStoreSuite(name: string, setup: () => Promise<StoreHa
       expect(record).toMatchObject({ state: "pending", claimId: fresh.claimId, attempts: [] });
     });
 
-    it("appends attempts to the current claim only", async () => {
+    it("touches the current claim only, with an optional attempt", async () => {
       const { store } = await setup();
       const begin = await beginIdempotency(store, NAMESPACE, message(), { now: T0 });
       if (!begin.proceed) throw new Error("expected a claim");
@@ -259,16 +259,74 @@ export function idempotencyStoreSuite(name: string, setup: () => Promise<StoreHa
         reason: "daily_cap",
         at: T0 + 1,
       };
+      expect(await store.touch({ key: begin.key, claimId: begin.claimId, now: T0 + 1 })).toBe(true);
+      expect((await store.get(KEY))?.attempts).toEqual([]);
       expect(
-        await store.appendAttempt({ key: begin.key, claimId: begin.claimId, attempt, now: T0 + 1 }),
+        await store.touch({ key: begin.key, claimId: begin.claimId, attempt, now: T0 + 2 }),
       ).toBe(true);
-      expect(
-        await store.appendAttempt({ key: begin.key, claimId: "other", attempt, now: T0 + 1 }),
-      ).toBe(false);
+      expect(await store.touch({ key: begin.key, claimId: "other", attempt, now: T0 + 3 })).toBe(
+        false,
+      );
       const record = await store.get(KEY);
       expect(record?.attempts).toEqual([attempt]);
-      expect(record?.updatedAt).toBe(T0 + 1);
+      expect(record?.updatedAt).toBe(T0 + 2);
+      expect(record?.claimedAt).toBe(T0);
       expect(record?.state).toBe("pending");
+    });
+
+    it("refuses a touch on a record that is not pending", async () => {
+      const { store } = await setup();
+      const begin = await beginIdempotency(store, NAMESPACE, message(), {
+        now: T0,
+        pendingTimeoutMs: TIMEOUT,
+      });
+      if (!begin.proceed) throw new Error("expected a claim");
+      await finalizeIdempotency(store, {
+        key: begin.key,
+        claimId: begin.claimId,
+        attempts: [{ provider: "fake", status: "sent", at: T0 + 1 }],
+        now: T0 + 1,
+      });
+      expect(await store.touch({ key: begin.key, claimId: begin.claimId, now: T0 + 2 })).toBe(
+        false,
+      );
+      const record = await store.get(KEY);
+      expect(record).toMatchObject({ state: "sent", updatedAt: T0 + 1 });
+
+      // A claim that went stale is unknown, so its owner cannot touch it either.
+      const other = message({ idempotencyKey: "stale" });
+      const stale = await beginIdempotency(store, NAMESPACE, other, { now: T0 });
+      if (!stale.proceed) throw new Error("expected a claim");
+      await beginIdempotency(store, NAMESPACE, other, {
+        now: T0 + TIMEOUT + 1,
+        pendingTimeoutMs: TIMEOUT,
+      });
+      expect(await store.touch({ key: stale.key, claimId: stale.claimId, now: T0 + 2 })).toBe(
+        false,
+      );
+      expect((await store.get(stale.key))?.state).toBe("unknown");
+    });
+
+    it("measures staleness from the last touch, not from the claim", async () => {
+      const { store } = await setup();
+      const network: Network = { calls: 0, status: "sent" };
+      const begin = await beginIdempotency(store, NAMESPACE, message(), {
+        now: T0,
+        pendingTimeoutMs: TIMEOUT,
+      });
+      if (!begin.proceed) throw new Error("expected a claim");
+      const touched = T0 + TIMEOUT - 1;
+      expect(await store.touch({ key: begin.key, claimId: begin.claimId, now: touched })).toBe(
+        true,
+      );
+      // The claim is older than the timeout, but its last touch is not.
+      const repeat = await send(store, message(), T0 + TIMEOUT + 10, network);
+      expect(repeat).toMatchObject({ status: "unknown", reason: "in_flight" });
+      expect((await store.get(KEY))?.state).toBe("pending");
+      // After a full timeout with no touch, the claim is stale.
+      const late = await send(store, message(), touched + TIMEOUT + 1, network);
+      expect(late).toMatchObject({ status: "unknown", reason: "stale_pending" });
+      expect(network.calls).toBe(0);
     });
 
     it("purges expired sent and not_sent rows and keeps pending and unknown rows", async () => {

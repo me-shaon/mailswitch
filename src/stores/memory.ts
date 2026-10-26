@@ -14,12 +14,12 @@ import type {
   DedupeCommitInput,
   DedupeReleaseInput,
   DedupeStore,
-  IdempotencyAppendInput,
   IdempotencyClaimInput,
   IdempotencyClaimOutcome,
   IdempotencyFinishInput,
   IdempotencyRecord,
   IdempotencyStore,
+  IdempotencyTouchInput,
   RateLimitAcquireInput,
   RateLimitGrant,
   RateLimitStore,
@@ -36,7 +36,6 @@ export type {
   DedupeCommitInput,
   DedupeReleaseInput,
   DedupeStore,
-  IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
   IdempotencyClaimOutcome,
@@ -45,6 +44,7 @@ export type {
   IdempotencyRecord,
   IdempotencyState,
   IdempotencyStore,
+  IdempotencyTouchInput,
   RateLimitAcquireInput,
   RateLimitGrant,
   RateLimitStore,
@@ -81,7 +81,7 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
       return { kind: "claimed" };
     }
     let converted = false;
-    if (current.state === "pending" && current.claimedAt < now - pendingTimeoutMs) {
+    if (current.state === "pending" && current.updatedAt < now - pendingTimeoutMs) {
       current.state = "unknown";
       current.updatedAt = now;
       converted = true;
@@ -98,10 +98,10 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
     return record && record.claimId === claimId && record.state === "pending" ? record : undefined;
   }
 
-  async appendAttempt(input: IdempotencyAppendInput): Promise<boolean> {
+  async touch(input: IdempotencyTouchInput): Promise<boolean> {
     const record = this.#fenced(input.key, input.claimId);
     if (!record) return false;
-    record.attempts.push({ ...input.attempt });
+    if (input.attempt) record.attempts.push({ ...input.attempt });
     record.updatedAt = input.now;
     return true;
   }

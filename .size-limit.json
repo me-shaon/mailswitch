@@ -2,7 +2,7 @@
   {
     "name": "core (mailswitch)",
     "path": "dist/index.js",
-    "limit": "8 KB",
+    "limit": "9 KB",
     "gzip": true
   },
   {

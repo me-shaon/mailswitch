@@ -26,12 +26,12 @@ import { type TokenBucket, takeToken } from "../core/rate-limit";
 import type {
   DailyCapReservation,
   DailyCapStore,
-  IdempotencyAppendInput,
   IdempotencyClaimInput,
   IdempotencyClaimOutcome,
   IdempotencyFinishInput,
   IdempotencyRecord,
   IdempotencyStore,
+  IdempotencyTouchInput,
   RateLimitGrant,
   RateLimitStore,
 } from "./types";
@@ -42,7 +42,6 @@ export type {
   DailyCapReservation,
   DailyCapReserveInput,
   DailyCapStore,
-  IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
   IdempotencyClaimOutcome,
@@ -51,6 +50,7 @@ export type {
   IdempotencyRecord,
   IdempotencyState,
   IdempotencyStore,
+  IdempotencyTouchInput,
   RateLimitAcquireInput,
   RateLimitGrant,
   RateLimitStore,
@@ -279,8 +279,8 @@ export class MailswitchIdempotency {
     switch (op) {
       case "claim":
         return reply(await this.#claim(body as unknown as IdempotencyClaimInput));
-      case "append":
-        return reply(await this.#append(body as unknown as IdempotencyAppendInput));
+      case "touch":
+        return reply(await this.#touch(body as unknown as IdempotencyTouchInput));
       case "finish":
         return reply(await this.#finish(body as unknown as IdempotencyFinishInput));
       case "release":
@@ -331,7 +331,7 @@ export class MailswitchIdempotency {
       return { kind: "claimed" };
     }
     let converted = false;
-    if (current.state === "pending" && current.claimedAt < now - pendingTimeoutMs) {
+    if (current.state === "pending" && current.updatedAt < now - pendingTimeoutMs) {
       current.state = "unknown";
       current.updatedAt = now;
       await this.#storage.put("record", current);
@@ -348,10 +348,10 @@ export class MailswitchIdempotency {
     return record && record.claimId === claimId && record.state === "pending" ? record : undefined;
   }
 
-  async #append(input: IdempotencyAppendInput): Promise<boolean> {
+  async #touch(input: IdempotencyTouchInput): Promise<boolean> {
     const record = await this.#fenced(input.claimId);
     if (!record) return false;
-    record.attempts.push(input.attempt);
+    if (input.attempt) record.attempts.push(input.attempt);
     record.updatedAt = input.now;
     await this.#storage.put("record", record);
     return true;
@@ -407,7 +407,7 @@ export function durableObjectIdempotencyStore<Id>(
   const stub = (key: string) => namespace.get(namespace.idFromName(key));
   return {
     claim: (input) => call(stub(input.key), "claim", { ...input }),
-    appendAttempt: (input) => call(stub(input.key), "append", { ...input }),
+    touch: (input) => call(stub(input.key), "touch", { ...input }),
     finish: (input) => call(stub(input.key), "finish", { ...input }),
     release: async (key, options) => {
       if (options?.expectedState !== "unknown") {

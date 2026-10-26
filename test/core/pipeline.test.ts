@@ -387,7 +387,7 @@ describe("createMailer: daily caps", () => {
     ]);
   });
 
-  it("a cap store that throws still writes a final state, then throws", async () => {
+  it("a cap store that throws gives not_sent/store_error and writes a final state", async () => {
     const broken: DailyCapStore = {
       reserve: async () => {
         throw new Error("D1 down");
@@ -397,7 +397,10 @@ describe("createMailer: daily caps", () => {
       used: async () => 0,
     };
     const { idempotency, mailer } = capped(["sent"], 5, { dailyCaps: broken });
-    await expect(mailer.send(message({ idempotencyKey: "down" }))).rejects.toThrow("D1 down");
+    expect(await mailer.send(message({ idempotencyKey: "down" }))).toMatchObject({
+      status: "not_sent",
+      reason: "store_error",
+    });
     const record = await idempotency.get(`${NAMESPACE}:down`);
     expect(record?.state).toBe("not_sent");
   });
@@ -605,5 +608,148 @@ describe("createMailer: options", () => {
     });
     createMailer({ providers: [a()], logger: { warn: quiet } });
     expect(quiet).not.toHaveBeenCalled();
+  });
+});
+
+describe("createMailer: claim fence", () => {
+  it("does not call the fallback after a stale conversion and a release", async () => {
+    let now = T0;
+    const warn = vi.fn();
+    const idempotency = new MemoryIdempotencyStore();
+    const backup = fakeProvider({ id: "backup" });
+    let calls = 0;
+    const late: SendResult[] = [];
+    const base = fakeProvider({ id: "a" });
+    const primary: ProviderAdapter = defineProvider({
+      ...base,
+      send: async (msg, ctx) => {
+        calls++;
+        if (calls > 1) return base.send(msg, ctx);
+        // The first attempt runs long. A retry finds the claim stale, an operator
+        // releases the key, and a new send claims the key and sends.
+        now += 2001;
+        late.push(await mailer.send(msg));
+        expect(await idempotency.release(`${NAMESPACE}:F`, { expectedState: "unknown" })).toBe(
+          true,
+        );
+        late.push(await mailer.send(msg));
+        return { status: "not_sent", reason: "auth", message: "Refused." };
+      },
+    });
+    const mailer = createMailer({
+      providers: [
+        { adapter: primary, credentials: { apiKey: "fk_a" } },
+        { adapter: backup, credentials: { apiKey: "fk_b" } },
+      ],
+      namespace: NAMESPACE,
+      idempotency,
+      timeoutMs: 1000,
+      pendingTimeoutMs: 2000,
+      now: () => now,
+      logger: { warn },
+    });
+    const result = await mailer.send(message({ idempotencyKey: "F" }));
+    expect(late[0]).toMatchObject({ status: "unknown", reason: "stale_pending" });
+    expect(late[1]?.status).toBe("sent");
+    expect(result).toMatchObject({ status: "unknown", reason: "stale_pending" });
+    expect(backup.sends).toHaveLength(0);
+    expect(warn.mock.calls.map((call) => String(call[0]))).toContain(
+      "mailswitch: the claim was no longer current. The record did not change.",
+    );
+    // The record of the new claim stays as that claim wrote it.
+    const record = await idempotency.get(`${NAMESPACE}:F`);
+    expect(record?.state).toBe("sent");
+    expect(record?.attempts).toHaveLength(1);
+  });
+
+  it("writes each attempt with the heartbeat before the next provider call", async () => {
+    const idempotency = new MemoryIdempotencyStore();
+    const touch = vi.spyOn(idempotency, "touch");
+    const a = fakeProvider({ id: "a", outcomes: ["not_sent"] });
+    const b = fakeProvider({ id: "b" });
+    const mailer = createMailer({
+      providers: [
+        { adapter: a, credentials: { apiKey: "fk_a" } },
+        { adapter: b, credentials: { apiKey: "fk_b" } },
+      ],
+      namespace: NAMESPACE,
+      idempotency,
+      now: () => T0,
+    });
+    await mailer.send(message({ idempotencyKey: "beat" }));
+    expect(touch).toHaveBeenCalledTimes(2);
+    expect(touch.mock.calls[0]?.[0].attempt).toBeUndefined();
+    expect(touch.mock.calls[1]?.[0].attempt).toMatchObject({ provider: "a", status: "not_sent" });
+  });
+});
+
+describe("createMailer: store failures", () => {
+  it("returns the sent result and warns when the final record fails to write", async () => {
+    const warn = vi.fn();
+    const idempotency = new MemoryIdempotencyStore();
+    idempotency.finish = async () => {
+      throw new Error(`D1 down ${RESEND_KEY}`);
+    };
+    const a = fakeProvider({ id: "a" });
+    const mailer = createMailer({
+      providers: [{ adapter: a, credentials: { apiKey: "fk_a" } }],
+      namespace: NAMESPACE,
+      idempotency,
+      now: () => T0,
+      logger: { warn },
+    });
+    const result = await mailer.send(message({ idempotencyKey: "fin" }));
+    expect(result).toMatchObject({ status: "sent", provider: "a" });
+    expect(warn).toHaveBeenCalledWith("mailswitch: the store failed to write the final record.", {
+      provider: "a",
+      status: "sent",
+      error: "Error",
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(RESEND_KEY);
+    // The claim stays pending, so a retry cannot send a second copy.
+    expect((await idempotency.get(`${NAMESPACE}:fin`))?.state).toBe("pending");
+  });
+
+  it("returns not_sent/store_error when the claim throws, with no provider call", async () => {
+    const idempotency = new MemoryIdempotencyStore();
+    idempotency.claim = async () => {
+      throw new Error("D1 down");
+    };
+    const a = fakeProvider({ id: "a" });
+    const mailer = createMailer({
+      providers: [{ adapter: a, credentials: { apiKey: "fk_a" } }],
+      namespace: NAMESPACE,
+      idempotency,
+    });
+    expect(await mailer.send(message({ idempotencyKey: "c" }))).toMatchObject({
+      status: "not_sent",
+      reason: "store_error",
+    });
+    expect(a.sends).toHaveLength(0);
+  });
+
+  it("keeps the provider result when a store fails before the fallback", async () => {
+    const idempotency = new MemoryIdempotencyStore();
+    const touch = idempotency.touch.bind(idempotency);
+    let touches = 0;
+    idempotency.touch = async (input) => {
+      touches++;
+      if (touches === 2) throw new Error("D1 down");
+      return touch(input);
+    };
+    const a = fakeProvider({ id: "a", outcomes: ["not_sent"] });
+    const b = fakeProvider({ id: "b" });
+    const mailer = createMailer({
+      providers: [
+        { adapter: a, credentials: { apiKey: "fk_a" } },
+        { adapter: b, credentials: { apiKey: "fk_b" } },
+      ],
+      namespace: NAMESPACE,
+      idempotency,
+    });
+    const result = await mailer.send(message({ idempotencyKey: "fb" }));
+    expect(result).toMatchObject({ status: "not_sent", provider: "a" });
+    expect(b.sends).toHaveLength(0);
+    expect((await idempotency.get(`${NAMESPACE}:fb`))?.state).toBe("not_sent");
   });
 });
