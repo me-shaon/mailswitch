@@ -11,8 +11,14 @@
     "node": ">=22"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin",
+    "templates",
+    "docs/guides/add-a-provider.md"
   ],
+  "bin": {
+    "mailswitch-scaffold": "./bin/scaffold.mjs"
+  },
   "publishConfig": {
     "access": "public",
     "provenance": true

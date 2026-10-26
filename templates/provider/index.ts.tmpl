@@ -1,0 +1,125 @@
+// The {{Name}} adapter. TODO(scaffold): write `send` and set the endpoints from the
+// {{Name}} API reference. Read the guide "Add a provider" (docs/guides/add-a-provider.md).
+
+import {
+  bytesToBase64,
+  callProvider,
+  classifyResponse,
+  defineProvider,
+  discardBody,
+  type ProviderAdapter,
+  type SendContext,
+  type VerifyResult,
+} from "{{import:kit}}";
+import { validateMessage } from "{{import:core:message}}";
+import type {
+  AddressInput,
+  NotSentResult,
+  OutgoingMessage,
+  SendResult,
+  UnknownResult,
+} from "{{import:core:types}}";
+import { {{camel}}Meta } from "{{import:meta}}";
+
+export { {{camel}}Meta } from "{{import:meta}}";
+
+/** The {{Name}} API origin. TODO(scaffold): set the real origin. */
+export const {{CONST}}_API_BASE = "https://api.{{id}}.example";
+
+/** Options of `{{camel}}`. */
+export interface {{Pascal}}Options {
+  /** The API key. The key in `SendContext.credentials` takes precedence. */
+  apiKey?: string;
+  /** The API origin. Tests and proxies change it. */
+  baseUrl?: string;
+}
+
+const PROVIDER = {{camel}}Meta.id;
+
+function tag<T extends NotSentResult | UnknownResult>(result: T): T {
+  return { ...result, provider: PROVIDER };
+}
+
+/** One address as header text. `validateMessage` has already checked it. */
+function address(input: AddressInput): string {
+  if (typeof input === "string") return input;
+  if (!input.name) return input.email;
+  return `"${input.name.replace(/(["\\])/g, "\\$1")}" <${input.email}>`;
+}
+
+/** The JSON body of one send request. TODO(scaffold): change it to the {{Name}} shape. */
+export function {{camel}}Payload(message: OutgoingMessage): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    from: address(message.from),
+    to: message.to.map(address),
+    subject: message.subject,
+  };
+  if (message.cc?.length) body.cc = message.cc.map(address);
+  if (message.bcc?.length) body.bcc = message.bcc.map(address);
+  if (message.replyTo !== undefined) body.reply_to = address(message.replyTo);
+  if (message.html !== undefined) body.html = message.html;
+  if (message.text !== undefined) body.text = message.text;
+  if (message.headers && Object.keys(message.headers).length > 0) body.headers = message.headers;
+  if (message.attachments?.length) {
+    body.attachments = message.attachments.map((item) => ({
+      filename: item.filename,
+      content: typeof item.content === "string" ? item.content : bytesToBase64(item.content),
+      content_type: item.contentType,
+    }));
+  }
+  return body;
+}
+
+/** Creates the {{Name}} adapter. Throws a TypeError for invalid options. */
+export function {{camel}}(options: {{Pascal}}Options = {}): ProviderAdapter {
+  const base = (options.baseUrl ?? {{CONST}}_API_BASE).replace(/\/+$/, "");
+  if (!/^https?:\/\//.test(base)) {
+    throw new TypeError("{{id}}: baseUrl must be an http or https URL.");
+  }
+
+  function headers(ctx: SendContext): Record<string, string> {
+    return {
+      authorization: `Bearer ${ctx.credentials.apiKey || options.apiKey || ""}`,
+      "content-type": "application/json",
+    };
+  }
+
+  async function send(message: OutgoingMessage, _ctx: SendContext): Promise<SendResult> {
+    const checked = validateMessage(message, {{camel}}Meta.capabilities);
+    if (!checked.ok) return tag(checked.result);
+    // SCAFFOLD STUB. Replace this return with the real send:
+    // 1. POST {{camel}}Payload(message) with callProvider. Pass headers(ctx),
+    //    ctx.fetch, and ctx.timeoutMs.
+    // 2. When the call fails, return tag(call.result). It is unknown.
+    // 3. Classify the response with classifyResponse and {{camel}}Meta.statusMap.
+    // 4. On a 2xx, return sent with the provider message id from the body.
+    return tag({
+      status: "not_sent",
+      reason: "unsupported",
+      message: "SCAFFOLD STUB: the {{Name}} send is not written yet.",
+    });
+  }
+
+  async function verify(ctx: SendContext): Promise<VerifyResult> {
+    // TODO(scaffold): use the cheapest authenticated read call. It must send no email.
+    const call = await callProvider({
+      url: `${base}/v1/account`,
+      method: "GET",
+      headers: headers(ctx),
+      timeoutMs: ctx.timeoutMs,
+      fetch: ctx.fetch,
+    });
+    if (!call.ok) return { ...tag(call.result), ok: false };
+    const outcome = classifyResponse(
+      call.response.status,
+      call.response.headers,
+      {{camel}}Meta.statusMap,
+      { now: ctx.now },
+    );
+    await discardBody(call.response);
+    if (outcome.status === "sent") return { ok: true };
+    return { ...tag(outcome), ok: false };
+  }
+
+  return defineProvider({ meta: {{camel}}Meta, send, verify });
+}

@@ -1,0 +1,59 @@
+// The conformance fixture of the {{Name}} adapter.
+// TODO(scaffold): replace each response with a recorded {{Name}} exchange. Change ids,
+// keys, and addresses to made-up values. Name the source URL and the date of each one.
+
+import type { ConformanceFixture } from "{{import:conformance}}";
+import { {{CONST}}_API_BASE } from "{{import:adapter}}";
+
+const NOW = Date.parse("2026-01-01T12:00:00.000Z");
+const MESSAGE_ID = "{{id}}-msg-1";
+
+interface SentBody {
+  headers?: Record<string, string>;
+  attachments?: { filename: string; content: string }[];
+}
+
+/** The fixture that drives `{{camel}}()` through every conformance check. */
+export function {{camel}}Fixture(): ConformanceFixture {
+  return {
+    credentials: { apiKey: "test_key_0123456789" },
+    now: NOW,
+    send: {
+      request: { method: "POST", url: `${{{CONST}}_API_BASE}/v1/send` },
+      success: { status: 200, body: { id: MESSAGE_ID } },
+      providerMessageId: MESSAGE_ID,
+      authFailure: { status: 401, body: { message: "The API key is not valid." } },
+      validationFailure: { status: 422, body: { message: "The from address is not valid." } },
+      serverError: { status: 503, body: "Service Unavailable" },
+      rateLimited: {
+        status: 429,
+        headers: { "retry-after": "2" },
+        body: { message: "Too many requests." },
+      },
+    },
+    readHeaders: (request) => (JSON.parse(request.body) as SentBody).headers ?? {},
+    readAttachments: (request) =>
+      ((JSON.parse(request.body) as SentBody).attachments ?? []).map((item) => ({
+        filename: item.filename,
+        content: item.content,
+      })),
+    verify: {
+      ok: [
+        {
+          label: "GET /v1/account with a good key",
+          method: "GET",
+          url: `${{{CONST}}_API_BASE}/v1/account`,
+          response: { status: 200, body: { id: "account-1" } },
+        },
+      ],
+      badKey: [
+        {
+          label: "GET /v1/account with a wrong key",
+          method: "GET",
+          url: `${{{CONST}}_API_BASE}/v1/account`,
+          response: { status: 401, body: { message: "The API key is not valid." } },
+        },
+      ],
+    },
+  };
+}

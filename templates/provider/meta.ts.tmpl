@@ -1,0 +1,37 @@
+// {{Name}} provider data. Pure data: a catalog imports this file without the adapter.
+// TODO(scaffold): set every value from the {{Name}} API reference. Read the guide
+// "Add a provider" (docs/guides/add-a-provider.md) for the rules of each field.
+
+import { defineStatusMap } from "{{import:kit:classify}}";
+import { defineProviderMeta, type ProviderMeta } from "{{import:kit:meta}}";
+
+export const {{camel}}Meta: ProviderMeta = defineProviderMeta({
+  id: "{{id}}",
+  name: "{{Name}}",
+  // Tier 2: send, attachments, and verify. Every 5xx stays unknown.
+  tier: 2,
+  capabilities: {
+    attachments: true,
+    // The largest message after base64 encoding, in bytes. Use null when the provider states none.
+    maxMessageBytes: 10_000_000,
+    cc: true,
+    bcc: true,
+    replyTo: true,
+    customHeaders: true,
+    idempotency: false,
+    // 1 when the provider has no batch endpoint.
+    batchSize: 1,
+  },
+  credentialFields: [
+    {
+      name: "apiKey",
+      label: "API key",
+      secret: true,
+      required: true,
+    },
+  ],
+  docsUrl: "https://{{id}}.example/docs",
+  // Add an override only with a source URL that proves it. A tier 2 provider keeps every 5xx unknown.
+  statusMap: defineStatusMap({}),
+  nativeIdempotency: false,
+});
