@@ -19,6 +19,8 @@ export const resendMeta: ProviderMeta = defineProviderMeta({
     customHeaders: true,
     idempotency: true,
     batchSize: 50,
+    // POST /emails/batch refuses attachments.
+    batchAttachments: false,
     maxRecipients: 50,
   },
   credentialFields: [
