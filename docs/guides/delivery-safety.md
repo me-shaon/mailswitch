@@ -120,6 +120,24 @@ The `onAttempt` hook gets a redacted view: the provider ID, the status, the reas
 
 `mailer.sendBatch(messages)` runs the same steps for each message. See the JSDoc of `createMailer` for the batch rules.
 
+### Batch store calls and D1 limits
+
+In `sendBatch`, the store calls of different messages run at the same time, at most 8 at once. These are the claims, the cap reserves, the heartbeats, and the final records. The provider calls stay sequential. The results keep the input order. A key that is used twice in one call waits for the first claim, so the second message gets `unknown/in_flight`.
+
+Each message still makes its own store calls. With the D1 stores, a keyed message that goes out on the first try uses these statements:
+
+| Step | D1 statements | When |
+|---|---|---|
+| Claim | 4, in one `batch` call | The message has a key and the mailer has an `idempotency` store. |
+| Cap reserve | 3, in one `batch` call | The provider has a daily cap. |
+| Heartbeat | 1 | The message has a claim. |
+| Final record | 1 | The message has a claim. |
+| Cap refund | 1, or 2 after a `quota` answer | The provider has a cap and the result is `not_sent`. |
+
+A keyed message with a daily cap therefore uses 9 statements. Each fallback attempt adds 1 heartbeat and, when that provider has a cap, 3 more for its reserve.
+
+D1 limits the queries of one Worker invocation: 50 on the Workers Free plan and 1,000 on the Workers Paid plan. Count each statement as one query. Divide the limit by the statements per message to size a batch. For example, on the Paid plan, send at most about 100 keyed messages with a cap in one invocation. A batch that goes over the limit fails partway, and its later messages get `not_sent/store_error` or keep a `pending` record. See the [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
+
 ## Fallback
 
 The default rule falls back after `not_sent` and never after `sent` or `unknown`.
