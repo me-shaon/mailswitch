@@ -33,14 +33,16 @@ const ALLOWED =
   /^(\.\.\/core\/(meta|types)|\.\.\/providers\/[a-z0-9-]+\/meta|\.\.\/\.\.\/core\/(meta|classify|types))$/;
 
 describe("catalog", () => {
-  it("lists Resend, toSend, both Cloudflare transports, and Mailgun at tier 1", () => {
+  it("lists every provider at tier 1", () => {
     expect(catalog.map((meta) => [meta.id, meta.tier])).toEqual([
       ["resend", 1],
       ["tosend", 1],
       ["cloudflare-rest", 1],
       ["cloudflare-binding", 1],
       ["mailgun", 1],
+      ["postmark", 1],
     ]);
+    expect(getProviderMeta("postmark")?.webhooks).toBe(true);
     expect(getProviderMeta("resend")?.name).toBe("Resend");
     expect(getProviderMeta("tosend")?.capabilities.idempotency).toBe(false);
     expect(getProviderMeta("nope")).toBeUndefined();
@@ -68,6 +70,7 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/tosend/meta.ts");
     expect(files).toContain("../../src/providers/cloudflare/meta.ts");
     expect(files).toContain("../../src/providers/mailgun/meta.ts");
+    expect(files).toContain("../../src/providers/postmark/meta.ts");
     for (const [file, text] of Object.entries(sources)) {
       for (const spec of importsOf(text)) {
         expect(spec, `${file} imports ${spec}`).toMatch(ALLOWED);

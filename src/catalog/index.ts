@@ -4,6 +4,7 @@
 import type { ProviderMeta } from "../core/meta";
 import { cloudflareBindingMeta, cloudflareRestMeta } from "../providers/cloudflare/meta";
 import { mailgunMeta } from "../providers/mailgun/meta";
+import { postmarkMeta } from "../providers/postmark/meta";
 import { resendMeta } from "../providers/resend/meta";
 import { toSendMeta } from "../providers/tosend/meta";
 
@@ -16,6 +17,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   cloudflareRestMeta,
   cloudflareBindingMeta,
   mailgunMeta,
+  postmarkMeta,
 ]);
 
 /** Returns the meta of a built-in provider, or undefined for an unknown id. */

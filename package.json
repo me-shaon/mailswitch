@@ -72,6 +72,10 @@
       "types": "./dist/providers/mailgun/index.d.ts",
       "import": "./dist/providers/mailgun/index.js"
     },
+    "./postmark": {
+      "types": "./dist/providers/postmark/index.d.ts",
+      "import": "./dist/providers/postmark/index.js"
+    },
     "./stores/memory": {
       "types": "./dist/stores/memory.d.ts",
       "import": "./dist/stores/memory.js"
