@@ -20,6 +20,7 @@ const config: ViteUserConfig = defineConfig({
           cloudflareTest({
             miniflare: {
               compatibilityDate: "2026-10-01",
+              d1Databases: ["DB"],
             },
           }),
         ],

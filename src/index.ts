@@ -53,3 +53,14 @@ export type {
   SentResult,
   UnknownResult,
 } from "./core/types";
+export type {
+  IdempotencyAppendInput,
+  IdempotencyAttempt,
+  IdempotencyClaimInput,
+  IdempotencyClaimOutcome,
+  IdempotencyFinalState,
+  IdempotencyFinishInput,
+  IdempotencyRecord,
+  IdempotencyState,
+  IdempotencyStore,
+} from "./stores/types";

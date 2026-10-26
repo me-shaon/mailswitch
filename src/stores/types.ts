@@ -1,0 +1,127 @@
+// Store interfaces. Each concern has its own interface, so a store implements only what it
+// supports. Later units add `DailyCapStore` (U14) and `DedupeStore` (U8) to this file.
+
+import type { DeliveryStatus, FailureReason } from "../core/types";
+
+/**
+ * The state of one idempotency record.
+ * - `pending`: a send holds the claim now.
+ * - `sent`: an attempt was sent. A repeat returns the stored result.
+ * - `not_sent`: every attempt was `not_sent`. The key is free again.
+ * - `unknown`: an attempt was `unknown`, or the claim went stale. Only `release` frees the key.
+ */
+export type IdempotencyState = "pending" | "sent" | "not_sent" | "unknown";
+
+/** A state that ends a claim. */
+export type IdempotencyFinalState = Exclude<IdempotencyState, "pending">;
+
+/** One provider attempt inside a claim. It holds no recipient, subject, or response body. */
+export interface IdempotencyAttempt {
+  /** The provider id. */
+  provider: string;
+  status: DeliveryStatus;
+  reason?: FailureReason;
+  /** When the attempt ended, in Unix milliseconds. */
+  at: number;
+}
+
+/** One stored record. A record holds no PII. */
+export interface IdempotencyRecord {
+  /** The namespaced key, `${namespace}:${idempotencyKey}`. */
+  key: string;
+  /** The SHA-256 hex of the canonical message payload. */
+  payloadHash: string;
+  state: IdempotencyState;
+  /** The random fencing token of the claim that wrote this record. */
+  claimId: string;
+  attempts: IdempotencyAttempt[];
+  providerMessageId?: string;
+  /** Unix milliseconds. */
+  claimedAt: number;
+  /** Unix milliseconds. */
+  updatedAt: number;
+  /** Set only for `sent` and `not_sent`. `purgeExpired` deletes the record after this time. */
+  expiresAt?: number;
+}
+
+/** The input of `IdempotencyStore.claim`. */
+export interface IdempotencyClaimInput {
+  key: string;
+  payloadHash: string;
+  /** A random fencing token. Later writes for this claim must give the same value. */
+  claimId: string;
+  /** Unix milliseconds. */
+  now: number;
+  /** A `pending` record older than this is stale. */
+  pendingTimeoutMs: number;
+}
+
+/**
+ * The outcome of `IdempotencyStore.claim`. The store checks the cases in this order:
+ *
+ * 1. No record, a `not_sent` record, or an expired `sent` record: the store writes a new
+ *    `pending` record and returns `claimed`.
+ * 2. A `pending` record older than the timeout: the store changes it to `unknown`. This is
+ *    a conditional update, so only one reader converts it.
+ * 3. A record with a different payload hash: `conflict`.
+ * 4. A record that this call converted in step 2: `stale`.
+ * 5. A `pending` record: `pending`.
+ * 6. A `sent` or `unknown` record: `existing`.
+ */
+export type IdempotencyClaimOutcome =
+  | { kind: "claimed" }
+  | { kind: "existing"; record: IdempotencyRecord }
+  | { kind: "pending"; record: IdempotencyRecord }
+  | { kind: "stale"; record: IdempotencyRecord }
+  | { kind: "conflict"; record: IdempotencyRecord };
+
+/** The input of `IdempotencyStore.appendAttempt`. */
+export interface IdempotencyAppendInput {
+  key: string;
+  claimId: string;
+  attempt: IdempotencyAttempt;
+  now: number;
+}
+
+/** The input of `IdempotencyStore.finish`. */
+export interface IdempotencyFinishInput {
+  key: string;
+  claimId: string;
+  state: IdempotencyFinalState;
+  /** The full attempt list. It replaces the stored list. */
+  attempts: readonly IdempotencyAttempt[];
+  providerMessageId?: string;
+  now: number;
+  /** Give it for `sent` and `not_sent` only. */
+  expiresAt?: number;
+}
+
+/**
+ * Stores one record per idempotency key. The record covers the whole provider chain.
+ *
+ * Every write after the claim is fenced: it applies only when the record has the same
+ * `claimId` and the state is `pending`. A write that does not apply returns false and
+ * changes nothing.
+ *
+ * Implementations must make `claim` atomic. An eventually consistent store, such as KV,
+ * is not safe.
+ */
+export interface IdempotencyStore {
+  claim(input: IdempotencyClaimInput): Promise<IdempotencyClaimOutcome>;
+  /** Adds one attempt to a `pending` record. */
+  appendAttempt(input: IdempotencyAppendInput): Promise<boolean>;
+  /** Writes the final state of a `pending` record. */
+  finish(input: IdempotencyFinishInput): Promise<boolean>;
+  /**
+   * Frees a key in the expected state. Only `unknown` can be released. Confirm with the
+   * provider that the email did not go out before a release.
+   */
+  release(key: string, options: { expectedState: "unknown" }): Promise<boolean>;
+  /** Reads a record. For operators and tests. It never changes the record. */
+  get(key: string): Promise<IdempotencyRecord | null>;
+  /**
+   * Deletes `sent` and `not_sent` records with `expiresAt` before `now`. It never deletes
+   * `pending` or `unknown` records. Returns the number of deleted records.
+   */
+  purgeExpired(now: number): Promise<number>;
+}

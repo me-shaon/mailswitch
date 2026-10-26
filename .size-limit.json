@@ -18,5 +18,12 @@
     "path": "dist/providers/tosend/index.js",
     "limit": "8 KB",
     "gzip": true
-  }
+  },
+  {
+    "name": "mailswitch/stores/memory",
+    "path": "dist/stores/memory.js",
+    "limit": "2 KB",
+    "gzip": true
+  },
+  { "name": "mailswitch/stores/d1", "path": "dist/stores/d1.js", "limit": "3 KB", "gzip": true }
 ]
