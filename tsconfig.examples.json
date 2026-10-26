@@ -1,0 +1,32 @@
+{
+  // The compiler options for code that imports mailswitch by its package name: the
+  // example Workers and the README code blocks. The paths map each subpath export to its
+  // source file, so the examples typecheck with no build.
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2023"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["@cloudflare/workers-types"],
+    "paths": {
+      "mailswitch": ["./src/index.ts"],
+      "mailswitch/catalog": ["./src/catalog/index.ts"],
+      "mailswitch/provider-kit": ["./src/provider-kit/index.ts"],
+      "mailswitch/webhooks": ["./src/webhooks/index.ts"],
+      "mailswitch/crypto": ["./src/crypto/index.ts"],
+      "mailswitch/testing": ["./src/testing/index.ts"],
+      "mailswitch/conformance": ["./src/conformance/index.ts"],
+      "mailswitch/resend": ["./src/providers/resend/index.ts"],
+      "mailswitch/tosend": ["./src/providers/tosend/index.ts"],
+      "mailswitch/stores/memory": ["./src/stores/memory.ts"],
+      "mailswitch/stores/d1": ["./src/stores/d1.ts"]
+    }
+  },
+  "files": []
+}

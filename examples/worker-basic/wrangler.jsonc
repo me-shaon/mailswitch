@@ -1,0 +1,17 @@
+{
+  "name": "mailswitch-worker-basic",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "vars": {
+    "MAIL_FROM": "Studio One <billing@studio.example>"
+  },
+  // Set the secrets with `wrangler secret put`:
+  // RESEND_API_KEY, TOSEND_API_KEY, RESEND_WEBHOOK_SECRET.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mailswitch-worker-basic",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
+}
