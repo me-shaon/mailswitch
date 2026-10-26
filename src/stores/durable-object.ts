@@ -92,7 +92,41 @@ export interface DurableObjectRequestLike {
 
 const ORIGIN = "https://mailswitch.internal/";
 
-type Body = Record<string, unknown>;
+/** The operations of `MailswitchLimiter`. The clients send one as the JSON body. */
+type LimiterRequest =
+  | { op: "acquire"; ratePerSecond: number; burst: number; now: number }
+  | { op: "reserve"; cap: number; now: number }
+  | { op: "release"; bucketStart: number; now: number }
+  | { op: "fill"; cap: number; now: number }
+  | { op: "used"; now: number };
+
+/** The operations of `MailswitchIdempotency`. The client sends one as the JSON body. */
+type IdempotencyRequest =
+  | ({ op: "claim" } & IdempotencyClaimInput)
+  | ({ op: "touch" } & IdempotencyTouchInput)
+  | ({ op: "finish" } & IdempotencyFinishInput)
+  | { op: "release" }
+  | { op: "get" }
+  | { op: "purge"; now: number };
+
+/** One request from a client to a Durable Object. */
+type DoRequest = LimiterRequest | IdempotencyRequest;
+
+const LIMITER_OPS: readonly string[] = ["acquire", "reserve", "release", "fill", "used"];
+const IDEMPOTENCY_OPS: readonly string[] = ["claim", "touch", "finish", "release", "get", "purge"];
+
+/** Whether a parsed body names one of `ops`. The client of the same file wrote the rest. */
+function isRequest<R extends DoRequest>(body: unknown, ops: readonly string[]): body is R {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "op" in body &&
+    typeof body.op === "string" &&
+    ops.includes(body.op)
+  );
+}
+
+const UNKNOWN_OP = (): Response => reply({ error: "unknown operation" }, 404);
 
 function reply(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value ?? null), {
@@ -102,10 +136,15 @@ function reply(value: unknown, status = 200): Response {
 }
 
 /** Sends one operation to an object. A failed call is an infrastructure error, so it throws. */
-async function call<T>(stub: DurableObjectStubLike, op: string, body: Body): Promise<T> {
-  const response = await stub.fetch(ORIGIN + op, { method: "POST", body: JSON.stringify(body) });
+async function call<T>(stub: DurableObjectStubLike, request: DoRequest): Promise<T> {
+  const response = await stub.fetch(ORIGIN + request.op, {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
   if (!response.ok) {
-    throw new Error(`mailswitch: the Durable Object call "${op}" failed (${response.status}).`);
+    throw new Error(
+      `mailswitch: the Durable Object call "${request.op}" failed (${response.status}).`,
+    );
   }
   return (await response.json()) as T;
 }
@@ -150,24 +189,22 @@ export class MailswitchLimiter {
   }
 
   async fetch(request: DurableObjectRequestLike): Promise<Response> {
-    const op = new URL(request.url).pathname.slice(1);
-    const body = (await request.json()) as Body;
-    const now = body.now as number;
-    switch (op) {
+    const body: unknown = await request.json();
+    if (!isRequest<LimiterRequest>(body, LIMITER_OPS)) return UNKNOWN_OP();
+    const { now } = body;
+    switch (body.op) {
       case "acquire":
-        return reply(await this.#acquire(body.ratePerSecond as number, body.burst as number, now));
+        return reply(await this.#acquire(body.ratePerSecond, body.burst, now));
       case "reserve":
-        return reply(await this.#reserve(body.cap as number, now));
+        return reply(await this.#reserve(body.cap, now));
       case "release":
-        await this.#release(body.bucketStart as number, now);
+        await this.#release(body.bucketStart, now);
         return reply(null);
       case "fill":
-        await this.#fill(body.cap as number, now);
+        await this.#fill(body.cap, now);
         return reply(null);
       case "used":
         return reply(sum(inWindow(await this.#storage.get<Buckets>("daily"), now)));
-      default:
-        return reply({ error: "unknown operation" }, 404);
     }
   }
 
@@ -220,14 +257,18 @@ export function durableObjectDailyCapStore<Id>(
   checkNamespace(namespace, "durableObjectDailyCapStore");
   const stub = (scope: string) => namespace.get(namespace.idFromName(scope));
   return {
-    reserve: (input) => call(stub(input.scope), "reserve", { cap: input.cap, now: input.now }),
+    reserve: (input) => call(stub(input.scope), { op: "reserve", cap: input.cap, now: input.now }),
     release: async (input) => {
-      await call(stub(input.scope), "release", { bucketStart: input.bucketStart, now: input.now });
+      await call(stub(input.scope), {
+        op: "release",
+        bucketStart: input.bucketStart,
+        now: input.now,
+      });
     },
     fill: async (input) => {
-      await call(stub(input.scope), "fill", { cap: input.cap, now: input.now });
+      await call(stub(input.scope), { op: "fill", cap: input.cap, now: input.now });
     },
-    used: (scope, now) => call(stub(scope), "used", { now }),
+    used: (scope, now) => call(stub(scope), { op: "used", now }),
   };
 }
 
@@ -243,7 +284,8 @@ export function durableObjectRateLimitStore<Id>(
   checkNamespace(namespace, "durableObjectRateLimitStore");
   return {
     acquire: (input) =>
-      call(namespace.get(namespace.idFromName(input.scope)), "acquire", {
+      call(namespace.get(namespace.idFromName(input.scope)), {
+        op: "acquire",
         ratePerSecond: input.ratePerSecond,
         burst: input.burst,
         now: input.now,
@@ -274,23 +316,21 @@ export class MailswitchIdempotency {
   }
 
   async fetch(request: DurableObjectRequestLike): Promise<Response> {
-    const op = new URL(request.url).pathname.slice(1);
-    const body = (await request.json()) as Body;
-    switch (op) {
+    const body: unknown = await request.json();
+    if (!isRequest<IdempotencyRequest>(body, IDEMPOTENCY_OPS)) return UNKNOWN_OP();
+    switch (body.op) {
       case "claim":
-        return reply(await this.#claim(body as unknown as IdempotencyClaimInput));
+        return reply(await this.#claim(body));
       case "touch":
-        return reply(await this.#touch(body as unknown as IdempotencyTouchInput));
+        return reply(await this.#touch(body));
       case "finish":
-        return reply(await this.#finish(body as unknown as IdempotencyFinishInput));
+        return reply(await this.#finish(body));
       case "release":
         return reply(await this.#releaseUnknown());
       case "get":
         return reply((await this.#storage.get<IdempotencyRecord>("record")) ?? null);
       case "purge":
-        return reply(await this.#purge(body.now as number));
-      default:
-        return reply({ error: "unknown operation" }, 404);
+        return reply(await this.#purge(body.now));
     }
   }
 
@@ -406,17 +446,17 @@ export function durableObjectIdempotencyStore<Id>(
   checkNamespace(namespace, "durableObjectIdempotencyStore");
   const stub = (key: string) => namespace.get(namespace.idFromName(key));
   return {
-    claim: (input) => call(stub(input.key), "claim", { ...input }),
-    touch: (input) => call(stub(input.key), "touch", { ...input }),
-    finish: (input) => call(stub(input.key), "finish", { ...input }),
+    claim: (input) => call(stub(input.key), { ...input, op: "claim" }),
+    touch: (input) => call(stub(input.key), { ...input, op: "touch" }),
+    finish: (input) => call(stub(input.key), { ...input, op: "finish" }),
     release: async (key, options) => {
       if (options?.expectedState !== "unknown") {
         throw new TypeError("release only frees a key in the unknown state.");
       }
-      return call(stub(key), "release", {});
+      return call(stub(key), { op: "release" });
     },
-    get: (key) => call(stub(key), "get", {}),
+    get: (key) => call(stub(key), { op: "get" }),
     purgeExpired: async () => 0,
-    purgeKey: (key, now) => call(stub(key), "purge", { now }),
+    purgeKey: (key, now) => call(stub(key), { op: "purge", now }),
   };
 }

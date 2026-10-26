@@ -6,7 +6,7 @@ import { createMailer, type MailerOptions } from "../../src/core/pipeline";
 import type { OutgoingMessage, SendResult } from "../../src/core/types";
 import { resend } from "../../src/providers/resend/index";
 import { MemoryDailyCapStore, MemoryIdempotencyStore } from "../../src/stores/memory";
-import type { DailyCapStore } from "../../src/stores/types";
+import type { DailyCapStore, IdempotencyStore } from "../../src/stores/types";
 import { type FakeOutcome, fakeMeta, fakeProvider } from "../../src/testing/fake-provider";
 import { T0 } from "../stores/daily-cap-suite";
 
@@ -467,5 +467,106 @@ describe("sendBatch: store failures", () => {
     expect(primary.batches[0]?.map((x) => x.to[0])).toEqual(["a@x.org"]);
     expect(await dailyCaps.used("batcher", T0)).toBe(1);
     expect((await idempotency.get(`${NAMESPACE}:k-b`))?.state).toBe("not_sent");
+  });
+});
+
+describe("sendBatch: store concurrency", () => {
+  /** Wraps the store calls of memory stores. Counts the calls that run at the same time. */
+  function countingStores() {
+    const stats = { inFlight: 0, max: 0, calls: 0 };
+    async function track<T>(work: () => Promise<T>): Promise<T> {
+      stats.calls++;
+      stats.inFlight++;
+      stats.max = Math.max(stats.max, stats.inFlight);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return await work();
+      } finally {
+        stats.inFlight--;
+      }
+    }
+    const memory = new MemoryIdempotencyStore();
+    const idempotency: IdempotencyStore = {
+      claim: (input) => track(() => memory.claim(input)),
+      touch: (input) => track(() => memory.touch(input)),
+      finish: (input) => track(() => memory.finish(input)),
+      release: (key, options) => track(() => memory.release(key, options)),
+      get: (key) => track(() => memory.get(key)),
+      purgeExpired: (now) => memory.purgeExpired(now),
+    };
+    const caps = new MemoryDailyCapStore();
+    const dailyCaps: DailyCapStore = {
+      reserve: (input) => track(() => caps.reserve(input)),
+      release: (input) => track(() => caps.release(input)),
+      fill: (input) => track(() => caps.fill(input)),
+      used: (scope, now) => caps.used(scope, now),
+    };
+    return { stats, memory, idempotency, caps, dailyCaps };
+  }
+
+  it("overlaps the store calls of a batch, at most 8 at once, and keeps the input order", async () => {
+    const { stats, memory, idempotency, dailyCaps } = countingStores();
+    const primary = batchProvider({ batchSize: 50 });
+    const m = createMailer({
+      providers: [{ adapter: primary.adapter, credentials: { apiKey: "fk_test" }, dailyCap: 100 }],
+      dailyCaps,
+      idempotency,
+      namespace: NAMESPACE,
+      now: () => T0,
+      logger: { warn: () => {} },
+    });
+    const names = Array.from({ length: 30 }, (_, i) => `m${i}@x.org`);
+    const results = await m.sendBatch(
+      names.map((to, i) => message(to, { idempotencyKey: `k-${i}` })),
+    );
+    expect(stats.max).toBeGreaterThan(1);
+    expect(stats.max).toBeLessThanOrEqual(8);
+    // One claim, one reserve, one heartbeat, and one final record per message.
+    expect(stats.calls).toBe(30 * 4);
+    expect(results.map((r) => r.status === "sent" && r.providerMessageId)).toEqual(
+      names.map((to) => `batcher-${to}`),
+    );
+    expect(primary.batches[0]?.map((x) => x.to[0])).toEqual(names);
+    expect((await memory.get(`${NAMESPACE}:k-29`))?.state).toBe("sent");
+  });
+
+  it("gives unknown/in_flight to a repeated key with concurrent store calls", async () => {
+    const { idempotency } = countingStores();
+    const primary = batchProvider();
+    const m = mailer([primary.adapter], { namespace: NAMESPACE, idempotency });
+    const results = await m.sendBatch([
+      message("a@x.org", { idempotencyKey: "dup" }),
+      message("b@x.org", { idempotencyKey: "other" }),
+      message("a@x.org", { idempotencyKey: "dup" }),
+      message("a@x.org", { idempotencyKey: "dup" }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["sent", "sent", "unknown", "unknown"]);
+    expect(results.slice(2).map((r) => r.status === "unknown" && r.reason)).toEqual([
+      "in_flight",
+      "in_flight",
+    ]);
+    expect(primary.batches[0]?.map((x) => x.to[0])).toEqual(["a@x.org", "b@x.org"]);
+  });
+
+  it("grants the last cap unit to exactly one message of a batch", async () => {
+    const { caps, dailyCaps } = countingStores();
+    for (let i = 0; i < 99; i++) await caps.reserve({ scope: "batcher", cap: 100, now: T0 });
+    const primary = batchProvider({ batchSize: 100 });
+    const fallback = fakeProvider({ id: "backup" });
+    const m = createMailer({
+      providers: [
+        { adapter: primary.adapter, credentials: { apiKey: "fk_test" }, dailyCap: 100 },
+        { adapter: fallback, credentials: { apiKey: "fk_test" } },
+      ],
+      dailyCaps,
+      now: () => T0,
+      logger: { warn: () => {} },
+    });
+    const results = await m.sendBatch(
+      Array.from({ length: 100 }, (_, i) => message(`m${i}@x.org`)),
+    );
+    expect(results.filter((r) => r.provider === "batcher")).toHaveLength(1);
+    expect(results.filter((r) => r.provider === "backup")).toHaveLength(99);
+    expect(await caps.used("batcher", T0)).toBe(100);
   });
 });
