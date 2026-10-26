@@ -8,6 +8,7 @@
 
 import type { ProviderAdapter } from "../core/adapter";
 import type { NormalizedEvent, WebhookRejection } from "../core/events";
+import { sha256Hex } from "../internal/sha256";
 import type { DedupeStore } from "../stores/types";
 
 export type {
@@ -49,6 +50,17 @@ export const REJECTION_STATUS: Readonly<Record<WebhookRejection, number>> = {
 /** An adapter whose webhooks need a dedupe store, such as the toSend adapter. */
 export interface DedupeRequiredAdapter extends ProviderAdapter {
   readonly requiresDedupe: true;
+}
+
+/**
+ * An adapter whose event keys are bound to the raw body, such as the Mailgun adapter. Its
+ * signature does not cover the body, so the router claims each key twice: once alone,
+ * and once with the SHA-256 of the body. A key that is claimed or committed with another
+ * body is refused as `bad_signature`. `minDedupeTtlMs` is the shortest allowed `ttlMs`.
+ */
+export interface BodyBoundAdapter extends DedupeRequiredAdapter {
+  readonly bodyBoundKeys: true;
+  readonly minDedupeTtlMs?: number;
 }
 
 /** The options of `handleWebhook`. */
@@ -156,9 +168,12 @@ const NOOP = async (): Promise<void> => undefined;
  * 3. Only after a valid signature, each event key is claimed with a lease. A duplicate is
  *    left out. When another request holds a key, the result is `in_flight` (409), and
  *    the keys of this request are released.
+ * 4. For an adapter with `bodyBoundKeys`, each key is also claimed with the SHA-256 of the
+ *    body. A key that another body holds or used is refused as `bad_signature`.
  *
  * @throws TypeError for a programmer error: an adapter with no webhooks, a missing
- * dedupe store for an adapter with `requiresDedupe`, or an invalid option.
+ * dedupe store for an adapter with `requiresDedupe`, a `ttlMs` below the adapter
+ * `minDedupeTtlMs`, or an invalid option.
  */
 export function handleWebhook(
   request: Request,
@@ -199,6 +214,13 @@ export function handleWebhook(
     "ttlMs",
     hooks.signedTimestamp === true ? DEFAULT_DEDUPE_TTL_MS : UNSIGNED_TIMESTAMP_TTL_MS,
   );
+  const marks = adapter as { bodyBoundKeys?: unknown; minDedupeTtlMs?: unknown };
+  const bodyBound = marks.bodyBoundKeys === true;
+  if (typeof marks.minDedupeTtlMs === "number" && ttlMs < marks.minDedupeTtlMs) {
+    throw new TypeError(
+      `handleWebhook: ttlMs must be at least ${marks.minDedupeTtlMs} for provider "${id}".`,
+    );
+  }
   const maxBodyBytes = positive(options.maxBodyBytes, "maxBodyBytes", DEFAULT_MAX_BODY_BYTES);
   const now = options.now ?? Date.now;
 
@@ -223,16 +245,30 @@ export function handleWebhook(
     };
     const events: NormalizedEvent[] = [];
     const seen = new Set<string>();
+    const fingerprint = bodyBound ? sha256Hex(body) : undefined;
     let busy = false;
+    let otherBody = false;
     try {
       for (const event of parsed) {
         const key = `${event.provider}:${endpointId}:${event.eventKey}`;
         // One body can repeat a key. The first copy stands for all of them.
         if (seen.has(key)) continue;
         seen.add(key);
-        const outcome = await dedupe.claim({ key, leaseMs, now: now() });
+        let outcome = await dedupe.claim({ key, leaseMs, now: now() });
+        if (outcome === "new") claimed.push(key);
+        if (fingerprint !== undefined) {
+          // The second key binds the event key to this body.
+          const boundKey = `${key}#${fingerprint}`;
+          const bound = await dedupe.claim({ key: boundKey, leaseMs, now: now() });
+          if (bound === "new") claimed.push(boundKey);
+          if (bound === "new" && outcome !== "new") {
+            // Another body holds or used this key.
+            otherBody = true;
+            break;
+          }
+          if (bound !== "new") outcome = outcome === "in_flight" ? outcome : bound;
+        }
         if (outcome === "new") {
-          claimed.push(key);
           events.push(event);
         } else if (outcome === "in_flight") {
           busy = true;
@@ -242,6 +278,10 @@ export function handleWebhook(
     } catch (error) {
       await releaseAll().catch(() => undefined);
       throw error;
+    }
+    if (otherBody) {
+      await releaseAll();
+      return refuse("bad_signature");
     }
     if (busy) {
       await releaseAll();

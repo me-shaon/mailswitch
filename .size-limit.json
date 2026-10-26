@@ -30,6 +30,12 @@
     "gzip": true
   },
   {
+    "name": "mailswitch/mailgun",
+    "path": "dist/providers/mailgun/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/stores/memory",
     "path": "dist/stores/memory.js",
     "limit": "2 KB",

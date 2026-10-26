@@ -64,6 +64,10 @@
       "types": "./dist/providers/tosend/index.d.ts",
       "import": "./dist/providers/tosend/index.js"
     },
+    "./mailgun": {
+      "types": "./dist/providers/mailgun/index.d.ts",
+      "import": "./dist/providers/mailgun/index.js"
+    },
     "./stores/memory": {
       "types": "./dist/stores/memory.d.ts",
       "import": "./dist/stores/memory.js"

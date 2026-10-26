@@ -14,6 +14,7 @@ const config: UserConfig = defineConfig({
     "conformance/vitest": "src/conformance/vitest.ts",
     "providers/resend/index": "src/providers/resend/index.ts",
     "providers/tosend/index": "src/providers/tosend/index.ts",
+    "providers/mailgun/index": "src/providers/mailgun/index.ts",
     "stores/memory": "src/stores/memory.ts",
     "stores/d1": "src/stores/d1.ts",
   },
