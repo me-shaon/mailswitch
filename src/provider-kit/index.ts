@@ -15,6 +15,13 @@ export {
   type StatusOverride,
 } from "../core/classify";
 export {
+  type CredentialField,
+  defineProviderMeta,
+  type ProviderMeta,
+  type ProviderPreset,
+  type ProviderTier,
+} from "../core/meta";
+export {
   base64ToBytes,
   bytesToBase64,
   bytesToHex,
