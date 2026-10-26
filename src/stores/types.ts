@@ -210,11 +210,15 @@ export interface RateLimitStore {
 
 /**
  * The outcome of `DedupeStore.claim`.
- * - `new`: this call holds the lease now. Commit the key after the event is handled.
+ * - `new`: this call holds the lease now. Commit the key with `leaseId` after the event is
+ *   handled, or release it with `leaseId`.
  * - `duplicate`: the key was committed before and its TTL has not passed.
  * - `in_flight`: another request holds a lease on the key that has not expired.
  */
-export type DedupeClaimOutcome = "new" | "duplicate" | "in_flight";
+export type DedupeClaimOutcome =
+  | { status: "new"; leaseId: string }
+  | { status: "duplicate" }
+  | { status: "in_flight" };
 
 /** The input of `DedupeStore.claim`. */
 export interface DedupeClaimInput {
@@ -229,6 +233,8 @@ export interface DedupeClaimInput {
 /** The input of `DedupeStore.commit`. */
 export interface DedupeCommitInput {
   key: string;
+  /** The lease id that `claim` returned with `new`. */
+  leaseId: string;
   /** How long the committed key blocks a replay, in milliseconds. */
   ttlMs: number;
   /** Unix milliseconds. */
@@ -238,6 +244,8 @@ export interface DedupeCommitInput {
 /** The input of `DedupeStore.release`. */
 export interface DedupeReleaseInput {
   key: string;
+  /** The lease id that `claim` returned with `new`. */
+  leaseId: string;
 }
 
 /**
@@ -245,14 +253,26 @@ export interface DedupeReleaseInput {
  * TTL. A lease that expires without a commit frees the key, so a provider retry delivers
  * the event again. A committed key is a duplicate until its TTL passes.
  *
+ * Each lease has a random id. `commit` and `release` act only on the lease with that id.
+ * When a lease expires and a newer request claims the key, the old holder can no longer
+ * release or commit the key. The newer holder owns it.
+ *
  * Implementations must make `claim` atomic: two parallel claims cannot both get `new`.
  */
 export interface DedupeStore {
   /** Takes a lease on a free key, a key whose lease expired, or a key whose TTL passed. */
   claim(input: DedupeClaimInput): Promise<DedupeClaimOutcome>;
-  /** Marks the key as handled. A later claim gets `duplicate` until the TTL passes. */
-  commit(input: DedupeCommitInput): Promise<void>;
-  /** Frees a key that is not committed. It never frees a committed key. */
+  /**
+   * Marks the key as handled. A later claim gets `duplicate` until the TTL passes.
+   * The commit applies when the row holds this lease id (expired or not, committed or
+   * not) or when no row exists. When another lease holds the key, the commit does
+   * nothing and returns `false`, because the newer holder commits or releases it.
+   */
+  commit(input: DedupeCommitInput): Promise<boolean>;
+  /**
+   * Frees the key when it is not committed and this lease id still holds it. It never
+   * frees a committed key or a key that another lease holds.
+   */
   release(input: DedupeReleaseInput): Promise<void>;
   /**
    * Deletes committed keys whose TTL passed and leases that expired. Both are free for a

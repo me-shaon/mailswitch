@@ -214,23 +214,34 @@ export class MemoryDailyCapStore implements DailyCapStore {
  * claim is atomic inside one isolate.
  */
 export class MemoryDedupeStore implements DedupeStore {
-  readonly #keys = new Map<string, { committed: boolean; expiresAt: number }>();
+  readonly #keys = new Map<string, { committed: boolean; expiresAt: number; leaseId: string }>();
 
   async claim(input: DedupeClaimInput): Promise<DedupeClaimOutcome> {
     const current = this.#keys.get(input.key);
     if (current && current.expiresAt > input.now) {
-      return current.committed ? "duplicate" : "in_flight";
+      return { status: current.committed ? "duplicate" : "in_flight" };
     }
-    this.#keys.set(input.key, { committed: false, expiresAt: input.now + input.leaseMs });
-    return "new";
+    const leaseId = crypto.randomUUID();
+    this.#keys.set(input.key, { committed: false, expiresAt: input.now + input.leaseMs, leaseId });
+    return { status: "new", leaseId };
   }
 
-  async commit(input: DedupeCommitInput): Promise<void> {
-    this.#keys.set(input.key, { committed: true, expiresAt: input.now + input.ttlMs });
+  async commit(input: DedupeCommitInput): Promise<boolean> {
+    const current = this.#keys.get(input.key);
+    if (current && current.leaseId !== input.leaseId) return false;
+    this.#keys.set(input.key, {
+      committed: true,
+      expiresAt: input.now + input.ttlMs,
+      leaseId: input.leaseId,
+    });
+    return true;
   }
 
   async release(input: DedupeReleaseInput): Promise<void> {
-    if (this.#keys.get(input.key)?.committed === false) this.#keys.delete(input.key);
+    const current = this.#keys.get(input.key);
+    if (current?.committed === false && current.leaseId === input.leaseId) {
+      this.#keys.delete(input.key);
+    }
   }
 
   async purgeExpired(now: number): Promise<number> {
