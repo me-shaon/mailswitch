@@ -12,6 +12,7 @@
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
 import { base64ToBytes, bytesToBase64, utf8 } from "../../internal/encoding";
+import { decodeJsonBytes, timingSafeEqualText } from "../../internal/webhook-bytes";
 
 /** The default Basic auth username of a Postmark webhook. */
 export const POSTMARK_WEBHOOK_USERNAME = "mailswitch";
@@ -63,29 +64,6 @@ function decodeText(body: Uint8Array): string | undefined {
   }
 }
 
-function decodeJson(text: string | undefined): unknown {
-  if (text === undefined) return undefined;
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-async function digest(text: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(text)));
-}
-
-/**
- * Compares two SHA-256 digests. Both are 32 bytes, so the loop always runs 32 times and
- * its time does not depend on where the inputs differ. The digests also hide the inputs.
- */
-function sameDigest(a: Uint8Array, b: Uint8Array): number {
-  let diff = 0;
-  for (let i = 0; i < 32; i++) diff |= (a[i] as number) ^ (b[i] as number);
-  return diff === 0 ? 1 : 0;
-}
-
 /** The options of the Postmark webhook verifier. */
 export interface PostmarkWebhookOptions {
   /** The Basic auth username. Defaults to `POSTMARK_WEBHOOK_USERNAME`. */
@@ -128,18 +106,15 @@ function verifier(
     const pair = bytes === null ? undefined : decodeText(bytes);
     const cut = pair?.indexOf(":") ?? -1;
     if (pair === undefined || cut < 0) return { ok: false, reason: "malformed" };
-    const [user, pass, wantUser, wantPass, wantPrevious] = await Promise.all([
-      digest(pair.slice(0, cut)),
-      digest(pair.slice(cut + 1)),
-      digest(username),
-      digest(input.secret),
-      digest(previous ?? input.secret),
+    const pass = pair.slice(cut + 1);
+    // All three comparisons run before the result is combined.
+    const [userOk, passOk, previousOk] = await Promise.all([
+      timingSafeEqualText(pair.slice(0, cut), username),
+      timingSafeEqualText(pass, input.secret),
+      timingSafeEqualText(pass, previous ?? input.secret),
     ]);
-    // Bitwise operators, so every comparison runs.
-    const valid =
-      sameDigest(user, wantUser) & (sameDigest(pass, wantPass) | sameDigest(pass, wantPrevious));
-    if (valid !== 1) return { ok: false, reason: "bad_signature" };
-    const value = decodeJson(decodeText(input.body));
+    if (!(userOk && (passOk || previousOk))) return { ok: false, reason: "bad_signature" };
+    const value = decodeJsonBytes(input.body);
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
       return { ok: false, reason: "malformed" };
     }
@@ -202,7 +177,7 @@ function eventId(body: string, record: Fields): string | undefined {
  */
 export function parsePostmarkEvents(provider: string, body: Uint8Array): NormalizedEvent[] {
   const raw = decodeText(body);
-  const value = decodeJson(raw);
+  const value = decodeJsonBytes(body);
   if (raw === undefined || typeof value !== "object" || value === null || Array.isArray(value)) {
     return [];
   }

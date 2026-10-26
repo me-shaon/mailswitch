@@ -10,6 +10,7 @@ import type { WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
 import { base64ToBytes, utf8 } from "../../internal/encoding";
 import { hmacVerify } from "../../internal/hmac";
+import { decodeJsonBytes } from "../../internal/webhook-bytes";
 
 /** The Svix timestamp window, in both directions, in milliseconds. */
 export const SVIX_TOLERANCE_MS: number = 5 * 60 * 1000;
@@ -35,10 +36,6 @@ export function svixSignedPayload(id: string, timestamp: string, body: Uint8Arra
   out.set(prefix, 0);
   out.set(body, prefix.length);
   return out;
-}
-
-function decodeJson(body: Uint8Array): unknown {
-  return JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body));
 }
 
 /**
@@ -80,12 +77,9 @@ export function svixVerifier(secret: string): SvixVerifier {
       }
       if (!valid) return { ok: false, reason: "bad_signature" };
       // The signature covers the raw bytes. Only a verified body is decoded.
-      try {
-        decodeJson(body);
-      } catch {
-        return { ok: false, reason: "malformed" };
-      }
-      return { ok: true };
+      return decodeJsonBytes(body) === undefined
+        ? { ok: false, reason: "malformed" }
+        : { ok: true };
     },
   };
 }
@@ -133,12 +127,8 @@ const TYPES: Readonly<Record<string, NormalizedEventType>> = {
  * - Event types that mailswitch does not map give `unknown` with the raw type.
  */
 export function parseResendEvents(body: Uint8Array, headers: Headers): NormalizedEvent[] {
-  let event: ResendEvent;
-  try {
-    event = decodeJson(body) as ResendEvent;
-  } catch {
-    return [];
-  }
+  const event = decodeJsonBytes(body) as ResendEvent | undefined;
+  if (event === undefined) return [];
   if (typeof event !== "object" || event === null || typeof event.type !== "string") return [];
   const rawType = event.type;
   const data = typeof event.data === "object" && event.data !== null ? event.data : {};

@@ -25,7 +25,8 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent } from "../../core/events";
-import { bytesToBase64, utf8 } from "../../internal/encoding";
+import { bytesToBase64 } from "../../internal/encoding";
+import { decodeJsonBytes, timingSafeEqualText } from "../../internal/webhook-bytes";
 
 /** The shortest token, in characters, when it is not hex only. 22 base64url characters hold 128 bits. */
 export const BREVO_MIN_TOKEN_LENGTH = 22;
@@ -61,27 +62,6 @@ export function generateBrevoWebhookToken(): string {
   return text.replace(/[+/=]/g, (c) => (c === "+" ? "-" : c === "/" ? "_" : ""));
 }
 
-const fatal = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
-
-function decodeJson(body: Uint8Array): unknown {
-  try {
-    return JSON.parse(fatal.decode(body)) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-async function digest(text: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(text)));
-}
-
-/** Compares two 32-byte digests. The loop always runs 32 times. */
-function sameDigest(a: Uint8Array, b: Uint8Array): boolean {
-  let diff = 0;
-  for (let i = 0; i < 32; i++) diff |= (a[i] as number) ^ (b[i] as number);
-  return diff === 0;
-}
-
 /** Checks the bearer token and the body shape. It never throws for a bad request. */
 export async function verifyBrevoWebhook(input: WebhookVerifyInput): Promise<WebhookVerifyResult> {
   if (input.secret === "") return { ok: false, reason: "bad_signature" };
@@ -94,9 +74,9 @@ export async function verifyBrevoWebhook(input: WebhookVerifyInput): Promise<Web
   if ((match[1] as string).toLowerCase() !== "bearer") {
     return { ok: false, reason: "bad_signature" };
   }
-  const [got, want] = await Promise.all([digest(match[2] as string), digest(input.secret)]);
-  if (!sameDigest(got, want)) return { ok: false, reason: "bad_signature" };
-  const value = decodeJson(input.body);
+  if (!(await timingSafeEqualText(match[2] as string, input.secret)))
+    return { ok: false, reason: "bad_signature" };
+  const value = decodeJsonBytes(input.body);
   if (typeof value !== "object" || value === null) return { ok: false, reason: "malformed" };
   return { ok: true };
 }
@@ -149,7 +129,7 @@ function eventOf(provider: string, record: Fields): NormalizedEvent | null {
  * entry with no event name is skipped. A repeated event key is kept once.
  */
 export function parseBrevoEvents(provider: string, body: Uint8Array): NormalizedEvent[] {
-  const value = decodeJson(body);
+  const value = decodeJsonBytes(body);
   const list = Array.isArray(value) ? value.slice(0, MAX_EVENTS) : [value];
   const events: NormalizedEvent[] = [];
   const keys = new Set<string>();

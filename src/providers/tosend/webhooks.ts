@@ -9,6 +9,7 @@ import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
 import { bytesToHex } from "../../internal/encoding";
 import { hmacSign, hmacVerify } from "../../internal/hmac";
 import { sha256Hex } from "../../internal/sha256";
+import { decodeJsonBytes, hexToBytes } from "../../internal/webhook-bytes";
 
 /** The header that carries the toSend signature. */
 export const TOSEND_SIGNATURE_HEADER = "x-tosend-signature";
@@ -26,31 +27,19 @@ export async function toSendSignature(secret: string, body: Uint8Array): Promise
   return `sha256=${bytesToHex(await hmacSign(secret, body))}`;
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
-}
-
-function decodeJson(body: Uint8Array): unknown {
-  try {
-    return JSON.parse(
-      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body),
-    ) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
 async function verify(input: WebhookVerifyInput): Promise<WebhookVerifyResult> {
   if (input.secret === "") return { ok: false, reason: "bad_signature" };
   const header = input.headers.get(TOSEND_SIGNATURE_HEADER);
   if (header === null) return { ok: false, reason: "bad_signature" };
   const match = SIGNATURE.exec(header.trim());
   if (!match) return { ok: false, reason: "malformed" };
-  const valid = await hmacVerify(input.secret, hexToBytes(match[1] as string), input.body);
+  const valid = await hmacVerify(
+    input.secret,
+    hexToBytes(match[1] as string) ?? new Uint8Array(0),
+    input.body,
+  );
   if (!valid) return { ok: false, reason: "bad_signature" };
-  const value = decodeJson(input.body);
+  const value = decodeJsonBytes(input.body);
   if (typeof value !== "object" || value === null) return { ok: false, reason: "malformed" };
   return { ok: true };
 }
@@ -97,7 +86,7 @@ function toEvent(provider: string, item: unknown, eventKey: string): NormalizedE
  * so two recipients of one message give two keys.
  */
 function parse(provider: string, body: Uint8Array): NormalizedEvent[] {
-  const value = decodeJson(body);
+  const value = decodeJsonBytes(body);
   if (typeof value !== "object" || value === null) return [];
   const key = sha256Hex(body);
   if (!Array.isArray(value)) return [toEvent(provider, value, key)];
