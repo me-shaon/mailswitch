@@ -1,6 +1,16 @@
 [
-  { "name": "core (mailswitch)", "path": "dist/index.js", "limit": "8 KB", "gzip": true },
-  { "name": "mailswitch/catalog", "path": "dist/catalog/index.js", "limit": "3 KB", "gzip": true },
+  {
+    "name": "core (mailswitch)",
+    "path": "dist/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/catalog",
+    "path": "dist/catalog/index.js",
+    "limit": "3 KB",
+    "gzip": true
+  },
   {
     "name": "mailswitch/provider-kit",
     "path": "dist/provider-kit/index.js",
@@ -25,5 +35,11 @@
     "limit": "2 KB",
     "gzip": true
   },
-  { "name": "mailswitch/stores/d1", "path": "dist/stores/d1.js", "limit": "3 KB", "gzip": true }
+  { "name": "mailswitch/stores/d1", "path": "dist/stores/d1.js", "limit": "3 KB", "gzip": true },
+  {
+    "name": "mailswitch/crypto",
+    "path": "dist/crypto/index.js",
+    "limit": "3 KB",
+    "gzip": true
+  }
 ]

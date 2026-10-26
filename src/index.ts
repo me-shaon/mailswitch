@@ -39,6 +39,12 @@ export type {
   SocketConnect,
   SocketTarget,
 } from "./core/socket";
+export {
+  sendTestEmail,
+  TEST_EMAIL_SUBJECT,
+  TEST_EMAIL_TEXT,
+  type TestEmailOptions,
+} from "./core/test-send";
 export type {
   Address,
   AddressInput,
