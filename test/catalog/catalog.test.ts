@@ -33,11 +33,13 @@ const ALLOWED =
   /^(\.\.\/core\/(meta|types)|\.\.\/providers\/[a-z0-9-]+\/meta|\.\.\/\.\.\/core\/(meta|classify|types))$/;
 
 describe("catalog", () => {
-  it("lists Resend and toSend at tier 1", () => {
+  it("lists Resend, toSend, and Amazon SES at tier 1", () => {
     expect(catalog.map((meta) => [meta.id, meta.tier])).toEqual([
       ["resend", 1],
       ["tosend", 1],
+      ["ses", 1],
     ]);
+    expect(getProviderMeta("ses")?.name).toBe("Amazon SES");
     expect(getProviderMeta("resend")?.name).toBe("Resend");
     expect(getProviderMeta("tosend")?.capabilities.idempotency).toBe(false);
     expect(getProviderMeta("nope")).toBeUndefined();
@@ -63,6 +65,7 @@ describe("catalog", () => {
     expect(files).toContain("../../src/catalog/index.ts");
     expect(files).toContain("../../src/providers/resend/meta.ts");
     expect(files).toContain("../../src/providers/tosend/meta.ts");
+    expect(files).toContain("../../src/providers/ses/meta.ts");
     for (const [file, text] of Object.entries(sources)) {
       for (const spec of importsOf(text)) {
         expect(spec, `${file} imports ${spec}`).toMatch(ALLOWED);

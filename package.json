@@ -64,6 +64,10 @@
       "types": "./dist/providers/tosend/index.d.ts",
       "import": "./dist/providers/tosend/index.js"
     },
+    "./ses": {
+      "types": "./dist/providers/ses/index.d.ts",
+      "import": "./dist/providers/ses/index.js"
+    },
     "./stores/memory": {
       "types": "./dist/stores/memory.d.ts",
       "import": "./dist/stores/memory.js"
