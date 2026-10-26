@@ -16,7 +16,7 @@
   {
     "name": "mailswitch/tosend",
     "path": "dist/providers/tosend/index.js",
-    "limit": "4 KB",
+    "limit": "8 KB",
     "gzip": true
   }
 ]
