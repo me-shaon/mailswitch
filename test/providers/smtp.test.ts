@@ -15,11 +15,10 @@ import {
   checkBrevoWebhookToken,
   generateBrevoWebhookToken,
 } from "../../src/providers/smtp/brevo-webhooks";
+import { dotStuff, queueId } from "../../src/providers/smtp/client";
 import {
   BREVO_FREE_DAILY_CAP,
-  dotStuff,
   GMAIL_DAILY_CAP,
-  queueId,
   resolveSmtpSettings,
   smtp,
   smtpMeta,

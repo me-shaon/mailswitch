@@ -13,13 +13,11 @@ import type { OutgoingMessage } from "../../src/core/types";
 import { bytesToBase64, utf8 } from "../../src/internal/encoding";
 import { sha256Hex } from "../../src/internal/sha256";
 import {
-  encodeMultipart,
-  escapeDispositionValue,
   MAILGUN_MIN_DEDUPE_TTL_MS,
   MAILGUN_REGIONS,
   mailgun,
-  requiresDedupe,
 } from "../../src/providers/mailgun/index";
+import { encodeMultipart, escapeDispositionValue } from "../../src/providers/mailgun/payload";
 import { MemoryDedupeStore } from "../../src/stores/memory";
 import type { DedupeStore } from "../../src/stores/types";
 import { DEFAULT_LEASE_MS, handleWebhook, type WebhookAccepted } from "../../src/webhooks/index";
@@ -231,7 +229,6 @@ const TOKEN = "a".repeat(50);
 describe("mailgun webhooks through handleWebhook", () => {
   it("is marked as needing a dedupe store and binding keys to the body", () => {
     const adapter = mailgun();
-    expect(requiresDedupe).toBe(true);
     expect(adapter.requiresDedupe).toBe(true);
     expect(adapter.bodyBoundKeys).toBe(true);
     expect(adapter.webhooks.signedTimestamp).toBe(true);

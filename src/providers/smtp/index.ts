@@ -21,12 +21,13 @@ import { defineProviderMeta, type ProviderMeta } from "../../core/meta";
 import type { SocketConnect } from "../../core/socket";
 import type { AddressInput, NotSentResult, OutgoingMessage, SendResult } from "../../core/types";
 import { parseAddress } from "../../internal/address";
+import { withProvider } from "../../internal/http";
 import { buildMime } from "../../internal/mime";
 import { checkSmtp, HOST_NAME, type SmtpEnvelope, type SmtpSettings, sendSmtp } from "./client";
 import { smtpMeta } from "./meta";
 import { resolveSmtpSettings, type SmtpConnectionOptions } from "./presets";
 
-export { dotStuff, queueId, type SmtpSecurity, type SmtpSettings } from "./client";
+export type { SmtpSecurity, SmtpSettings } from "./client";
 export {
   BREVO_FREE_DAILY_CAP,
   GMAIL_DAILY_CAP,
@@ -72,10 +73,6 @@ const webhookMeta: ProviderMeta = defineProviderMeta({ ...smtpMeta, webhooks: tr
 
 const PROVIDER = smtpMeta.id;
 
-function tag<T extends SendResult>(result: T): T {
-  return { ...result, provider: PROVIDER };
-}
-
 function emailOf(input: AddressInput): string {
   // validateMessage has checked every address, so parseAddress cannot return null here.
   return parseAddress(input)?.email ?? "";
@@ -115,18 +112,24 @@ export function smtp(options: SmtpOptions = {}): ProviderAdapter {
     if (!connect) {
       return {
         ok: false,
-        result: tag({
-          status: "not_sent",
-          reason: "unsupported",
-          message: "SMTP needs a socket connect function. Pass connect from cloudflare:sockets.",
-        }),
+        result: withProvider(
+          {
+            status: "not_sent",
+            reason: "unsupported",
+            message: "SMTP needs a socket connect function. Pass connect from cloudflare:sockets.",
+          },
+          PROVIDER,
+        ),
       };
     }
     const resolved = resolveSmtpSettings(ctx.credentials, options);
     if (!resolved.ok) {
       return {
         ok: false,
-        result: tag({ status: "not_sent", reason: "auth", message: resolved.message }),
+        result: withProvider(
+          { status: "not_sent", reason: "auth", message: resolved.message },
+          PROVIDER,
+        ),
       };
     }
     const settings: SmtpSettings = { ...resolved.settings };
@@ -145,7 +148,7 @@ export function smtp(options: SmtpOptions = {}): ProviderAdapter {
     }
     const results: (SendResult | undefined)[] = messages.map((message) => {
       const checked = validateMessage(message, smtpMeta.capabilities);
-      return checked.ok ? undefined : tag(checked.result);
+      return checked.ok ? undefined : withProvider(checked.result, PROVIDER);
     });
     const slots = results.flatMap((result, index) => (result === undefined ? [index] : []));
     if (slots.length === 0) return results as SendResult[];
@@ -157,7 +160,7 @@ export function smtp(options: SmtpOptions = {}): ProviderAdapter {
       timeoutMs: ctx.timeoutMs,
     });
     slots.forEach((index, position) => {
-      results[index] = tag(sent[position] as SendResult);
+      results[index] = withProvider(sent[position] as SendResult, PROVIDER);
     });
     return results as SendResult[];
   }
@@ -173,7 +176,7 @@ export function smtp(options: SmtpOptions = {}): ProviderAdapter {
       connect: ready.connect,
       timeoutMs: ctx.timeoutMs,
     });
-    return check.ok ? check : { ...tag(check), ok: false };
+    return check.ok ? check : { ...withProvider(check, PROVIDER), ok: false };
   }
 
   if (!webhooks) return defineProvider({ meta: smtpMeta, send, sendBatch, verify });

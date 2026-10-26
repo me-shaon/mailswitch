@@ -3,7 +3,7 @@
 // provider before the error.
 
 import { classifyThrown } from "../core/classify";
-import type { UnknownResult } from "../core/types";
+import type { SendResult, UnknownResult } from "../core/types";
 
 /** The default request timeout, in milliseconds. */
 export const DEFAULT_TIMEOUT_MS = 15_000;
@@ -75,4 +75,37 @@ export async function discardBody(response: Response): Promise<void> {
   } catch {
     // The body is already used or closed.
   }
+}
+
+/** Returns a copy of a result with the provider id set. */
+export function withProvider<T extends SendResult>(result: T, provider: string): T {
+  return { ...result, provider };
+}
+
+/**
+ * Checks an API origin option and removes trailing slashes. Returns `fallback` when
+ * `value` is undefined. The URL must be https, or http on a loopback host (`localhost`,
+ * `127.x.x.x`, or `[::1]`) for tests. It must have no credentials, no query, and no
+ * fragment.
+ *
+ * @param label The option name in the error, for example `"resend: baseUrl"`.
+ * @throws TypeError for any other value.
+ */
+export function parseBaseUrl<D extends string | undefined>(
+  value: unknown,
+  fallback: D,
+  label: string,
+): string | D {
+  if (value === undefined) return fallback;
+  const url = typeof value === "string" && !/[?#@]/.test(value) ? URL.parse(value) : null;
+  if (
+    typeof value !== "string" ||
+    !(
+      url?.protocol === "https:" ||
+      (url?.protocol === "http:" && /^(localhost|127\.[\d.]+|\[::1\])$/.test(url.hostname))
+    )
+  ) {
+    throw new TypeError(`${label} must be an https URL.`);
+  }
+  return value.replace(/\/+$/, "");
 }

@@ -13,17 +13,16 @@ import {
 } from "../../core/adapter";
 import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
-import type {
-  AddressInput,
-  NotSentResult,
-  OutgoingMessage,
-  SendResult,
-  UnknownResult,
-} from "../../core/types";
-import { parseAddress } from "../../internal/address";
-import { bytesToBase64 } from "../../internal/encoding";
-import { callProvider, discardBody, readJson } from "../../internal/http";
+import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "../../core/types";
+import {
+  callProvider,
+  discardBody,
+  parseBaseUrl,
+  readJson,
+  withProvider,
+} from "../../internal/http";
 import { toSendMeta } from "./meta";
+import { toSendPayload } from "./payload";
 import { toSendWebhooks } from "./webhooks";
 
 export { toSendMeta } from "./meta";
@@ -31,13 +30,6 @@ export { TOSEND_SIGNATURE_HEADER, toSendSignature } from "./webhooks";
 
 /** The default base URL of the toSend API. */
 export const TOSEND_API_BASE = "https://api.tosend.com";
-
-/**
- * toSend webhooks sign no timestamp, and the signature check passes for a replayed body.
- * The webhook router requires a dedupe store in its types for every adapter that carries
- * this marker, and it throws at runtime when the store is missing.
- */
-export const requiresDedupe: true = true;
 
 /** Options of `tosend`. */
 export interface ToSendOptions {
@@ -56,52 +48,6 @@ export interface ToSendAdapter extends ProviderAdapter {
   readonly requiresDedupe: true;
 }
 
-interface ToSendAddress {
-  email: string;
-  name?: string;
-}
-
-function mailbox(input: AddressInput): ToSendAddress {
-  // validateMessage has checked every address, so parseAddress cannot return null here.
-  const parsed = parseAddress(input) ?? { email: "" };
-  return parsed.name === undefined
-    ? { email: parsed.email }
-    : { email: parsed.email, name: parsed.name };
-}
-
-/**
- * Maps a message to the toSend request shape. The toSend API is in early access, so
- * every toSend field name is in this one function.
- */
-export function toSendPayload(message: OutgoingMessage): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    from: mailbox(message.from),
-    to: message.to.map(mailbox),
-    subject: message.subject,
-  };
-  if (message.cc?.length) body.cc = message.cc.map(mailbox);
-  if (message.bcc?.length) body.bcc = message.bcc.map(mailbox);
-  if (message.replyTo !== undefined) body.reply_to = mailbox(message.replyTo);
-  if (message.html) body.html = message.html;
-  if (message.text) body.text = message.text;
-  if (message.headers && Object.keys(message.headers).length > 0) {
-    body.headers = { ...message.headers };
-  }
-  if (message.attachments?.length) {
-    body.attachments = message.attachments.map((item) => ({
-      type: item.contentType,
-      name: item.filename,
-      content: typeof item.content === "string" ? item.content : bytesToBase64(item.content),
-      ...(item.contentId === undefined ? {} : { content_id: item.contentId }),
-    }));
-  }
-  return body;
-}
-
-function tagged<T extends NotSentResult | UnknownResult>(result: T): T {
-  return { ...result, provider: toSendMeta.id };
-}
-
 /**
  * Classifies a failed response. A 403 means a wrong key or no credits, and only the body
  * text tells them apart. The body is read but never copied into the result.
@@ -112,21 +58,27 @@ async function failure(response: Response, now: number): Promise<NotSentResult |
   }) as NotSentResult | UnknownResult;
   if (response.status !== 403 || outcome.status !== "not_sent") {
     await discardBody(response);
-    return tagged(outcome);
+    return withProvider(outcome, toSendMeta.id);
   }
   const body = (await readJson(response)) as { message?: unknown } | null;
   const text = typeof body?.message === "string" ? body.message : "";
-  if (!/credit/i.test(text)) return tagged(outcome);
-  return tagged({
-    ...outcome,
-    reason: "credits",
-    message: "The provider answered with HTTP 403 (credits).",
-  });
+  if (!/credit/i.test(text)) return withProvider(outcome, toSendMeta.id);
+  return withProvider(
+    {
+      ...outcome,
+      reason: "credits",
+      message: "The provider answered with HTTP 403 (credits).",
+    },
+    toSendMeta.id,
+  );
 }
 
-/** Creates the toSend adapter. */
+/** Creates the toSend adapter. Throws a TypeError for invalid options. */
 export function tosend(options: ToSendOptions = {}): ToSendAdapter {
-  const base = (options.baseUrl ?? TOSEND_API_BASE).replace(/\/+$/, "");
+  if (typeof options !== "object" || options === null) {
+    throw new TypeError("tosend expects an options object.");
+  }
+  const base = parseBaseUrl(options.baseUrl, TOSEND_API_BASE, "tosend: baseUrl");
 
   function headers(ctx: SendContext): Record<string, string> {
     const key = ctx.credentials.apiKey || options.apiKey || "";
@@ -149,9 +101,9 @@ export function tosend(options: ToSendOptions = {}): ToSendAdapter {
 
   async function send(message: OutgoingMessage, ctx: SendContext): Promise<SendResult> {
     const checked = validateMessage(message, toSendMeta.capabilities);
-    if (!checked.ok) return tagged(checked.result);
+    if (!checked.ok) return withProvider(checked.result, toSendMeta.id);
     const call = await post("/v2/emails", toSendPayload(message), ctx);
-    if (!call.ok) return tagged(call.result);
+    if (!call.ok) return withProvider(call.result, toSendMeta.id);
     const { response } = call;
     if (!response.ok) return failure(response, ctx.now);
     const json = (await readJson(response)) as { message_id?: unknown } | null;
@@ -174,7 +126,7 @@ export function tosend(options: ToSendOptions = {}): ToSendAdapter {
     }
     const results: (SendResult | undefined)[] = messages.map((message) => {
       const checked = validateMessage(message, toSendMeta.capabilities);
-      return checked.ok ? undefined : tagged(checked.result);
+      return checked.ok ? undefined : withProvider(checked.result, toSendMeta.id);
     });
     const slots = results.flatMap((result, index) => (result === undefined ? [index] : []));
     if (slots.length === 0) return results as SendResult[];
@@ -182,7 +134,7 @@ export function tosend(options: ToSendOptions = {}): ToSendAdapter {
     const call = await post("/v2/emails/batch", { emails }, ctx);
     let fill: (position: number) => SendResult;
     if (!call.ok) {
-      const result = tagged(call.result);
+      const result = withProvider(call.result, toSendMeta.id);
       fill = () => result;
     } else if (!call.response.ok) {
       const result = await failure(call.response, ctx.now);
@@ -206,7 +158,7 @@ export function tosend(options: ToSendOptions = {}): ToSendAdapter {
       timeoutMs: ctx.timeoutMs,
       fetch: ctx.fetch,
     });
-    if (!call.ok) return { ...tagged(call.result), ok: false };
+    if (!call.ok) return { ...withProvider(call.result, toSendMeta.id), ok: false };
     if (!call.response.ok) return { ...(await failure(call.response, ctx.now)), ok: false };
     await discardBody(call.response);
     return { ok: true };
@@ -219,7 +171,7 @@ export function tosend(options: ToSendOptions = {}): ToSendAdapter {
     verify,
     webhooks: toSendWebhooks(toSendMeta.id),
   });
-  return { ...adapter, webhooks: adapter.webhooks as ProviderWebhooks, requiresDedupe };
+  return { ...adapter, webhooks: adapter.webhooks as ProviderWebhooks, requiresDedupe: true };
 }
 
 /** Maps one entry of a 200 or 207 batch response. A missing entry is `unknown`. */
@@ -240,23 +192,32 @@ function batchItem(item: unknown): SendResult {
     };
   }
   if (entry.status === "spam") {
-    return tagged({
-      status: "not_sent",
-      reason: "rejected",
-      message: "toSend refused this email as spam.",
-    });
+    return withProvider(
+      {
+        status: "not_sent",
+        reason: "rejected",
+        message: "toSend refused this email as spam.",
+      },
+      toSendMeta.id,
+    );
   }
   // An error entry is a 4xx refusal. An entry with a 5xx code may still go out.
   if (entry.status === "error" && code < 500) {
-    return tagged({
-      status: "not_sent",
-      reason: "invalid_message",
-      message: "toSend refused this email as invalid.",
-    });
+    return withProvider(
+      {
+        status: "not_sent",
+        reason: "invalid_message",
+        message: "toSend refused this email as invalid.",
+      },
+      toSendMeta.id,
+    );
   }
-  return tagged({
-    status: "unknown",
-    reason: "provider_error",
-    message: "toSend returned no clear result for this email.",
-  });
+  return withProvider(
+    {
+      status: "unknown",
+      reason: "provider_error",
+      message: "toSend returned no clear result for this email.",
+    },
+    toSendMeta.id,
+  );
 }

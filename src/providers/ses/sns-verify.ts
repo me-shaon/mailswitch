@@ -12,22 +12,7 @@ import type { WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter
 import { base64ToBytes, utf8 } from "../../internal/encoding";
 import type { FetchLike } from "../../internal/http";
 import { certificateSpki, pemToDer } from "./der";
-
-/** An SNS message as it arrives in a webhook body. */
-export interface SnsMessage {
-  Type: "Notification" | "SubscriptionConfirmation" | "UnsubscribeConfirmation";
-  MessageId: string;
-  TopicArn: string;
-  Message: string;
-  Timestamp: string;
-  SignatureVersion: string;
-  Signature: string;
-  SigningCertURL: string;
-  Subject?: string;
-  Token?: string;
-  SubscribeURL?: string;
-  UnsubscribeURL?: string;
-}
+import { isSnsMessageType, type SnsMessage, snsStringToSign } from "./sns-fields";
 
 /** The oldest `Timestamp` that verification accepts by default: 1 hour. */
 export const SNS_MAX_AGE_MS: number = 60 * 60 * 1000;
@@ -40,21 +25,6 @@ export const SNS_CERT_TIMEOUT_MS: number = 5000;
 /** The largest certificate response that verification reads. */
 export const SNS_CERT_MAX_BYTES: number = 16 * 1024;
 
-const CONFIRMATION_FIELDS = [
-  "Message",
-  "MessageId",
-  "SubscribeURL",
-  "Timestamp",
-  "Token",
-  "TopicArn",
-  "Type",
-];
-/** The signed fields of each message type, in signing order. */
-const FIELDS: Readonly<Record<string, readonly string[]>> = {
-  Notification: ["Message", "MessageId", "Subject", "Timestamp", "TopicArn", "Type"],
-  SubscriptionConfirmation: CONFIRMATION_FIELDS,
-  UnsubscribeConfirmation: CONFIRMATION_FIELDS,
-};
 const TOPIC_ARN =
   /^arn:(aws|aws-cn|aws-us-gov):sns:([a-z]{2}(?:-[a-z]+)+-\d{1,2}):\d{12}:[A-Za-z0-9_-]{1,256}(?:\.fifo)?$/;
 const CERT_PATH = /^\/SimpleNotificationService-[A-Za-z0-9]{1,64}\.pem$/;
@@ -69,10 +39,17 @@ export function parseSnsMessage(body: Uint8Array): SnsMessage | null {
   } catch {
     return null;
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  if (!isSnsShape(value)) return null;
+  // A message without SignatureVersion is version 1.
+  return { ...value, SignatureVersion: String(value.SignatureVersion ?? "1") };
+}
+
+/** True when a parsed body has the required string fields and a known message type. */
+function isSnsShape(value: unknown): value is SnsMessage {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const message = value as Record<string, unknown>;
+  // isSnsMessageType checks the Type field.
   for (const field of [
-    "Type",
     "MessageId",
     "TopicArn",
     "Message",
@@ -80,14 +57,9 @@ export function parseSnsMessage(body: Uint8Array): SnsMessage | null {
     "Signature",
     "SigningCertURL",
   ]) {
-    if (typeof message[field] !== "string") return null;
+    if (typeof message[field] !== "string") return false;
   }
-  if (!Object.hasOwn(FIELDS, message.Type as string)) return null;
-  // A message without SignatureVersion is version 1.
-  return {
-    ...(message as unknown as SnsMessage),
-    SignatureVersion: String(message.SignatureVersion ?? "1"),
-  };
+  return isSnsMessageType(message.Type);
 }
 
 /** The parts of an SNS topic ARN. */
@@ -132,22 +104,6 @@ export function isSnsCertUrl(value: string, topic: TopicArn): boolean {
 export function isSnsSubscribeUrl(value: string, topic: TopicArn): boolean {
   const url = snsUrl(value, topic);
   return url !== null && url.searchParams.get("Action") === "ConfirmSubscription";
-}
-
-/** The canonical string that SNS signs: `Key\nValue\n` for each field, in order. */
-export function snsStringToSign(message: SnsMessage): string {
-  const fields = FIELDS[message.Type] ?? [];
-  let text = "";
-  for (const field of fields) {
-    const value = (message as unknown as Record<string, unknown>)[field];
-    if (value === undefined || value === null) {
-      // Subject appears only when the publisher set one.
-      if (field === "Subject") continue;
-      return "";
-    }
-    text += `${field}\n${String(value)}\n`;
-  }
-  return text;
 }
 
 /**

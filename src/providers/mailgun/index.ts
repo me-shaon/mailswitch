@@ -14,17 +14,17 @@ import {
 } from "../../core/adapter";
 import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
-import type {
-  AddressInput,
-  NotSentResult,
-  OutgoingMessage,
-  SendResult,
-  UnknownResult,
-} from "../../core/types";
-import { formatAddress, parseAddress } from "../../internal/address";
-import { base64ToBytes, bytesToBase64, bytesToHex, utf8 } from "../../internal/encoding";
-import { callProvider, discardBody, readJson } from "../../internal/http";
+import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "../../core/types";
+import { bytesToBase64, bytesToHex, utf8 } from "../../internal/encoding";
+import {
+  callProvider,
+  discardBody,
+  parseBaseUrl,
+  readJson,
+  withProvider,
+} from "../../internal/http";
 import { mailgunMeta } from "./meta";
+import { encodeMultipart, mailgunFormParts } from "./payload";
 import { bareMessageId, MAILGUN_MIN_DEDUPE_TTL_MS, mailgunWebhooks } from "./webhooks";
 
 export { mailgunMeta } from "./meta";
@@ -45,12 +45,6 @@ export const MAILGUN_REGIONS: Readonly<{ us: string; eu: string }> = Object.free
 
 /** A Mailgun region. */
 export type MailgunRegion = "us" | "eu";
-
-/**
- * Mailgun webhooks have no signature over the body. The webhook router requires a dedupe
- * store in its types for every adapter that carries this marker.
- */
-export const requiresDedupe: true = true;
 
 /** Options of `mailgun`. */
 export interface MailgunOptions {
@@ -78,83 +72,6 @@ export interface MailgunAdapter extends ProviderAdapter {
 const PROVIDER = mailgunMeta.id;
 // Words of the Mailgun sending-limit errors, as opposed to a request rate limit.
 const QUOTA_TEXT = /\b(sending|message|daily|monthly|hourly|account|plan)\s+limit|\bquota\b/i;
-
-function tag<T extends NotSentResult | UnknownResult>(result: T): T {
-  return { ...result, provider: PROVIDER };
-}
-
-function address(input: AddressInput): string {
-  const parsed = parseAddress(input);
-  return parsed ? formatAddress(parsed) : "";
-}
-
-/**
- * Escapes a quoted parameter of a Content-Disposition header, as the HTML form encoding
- * does: `"` becomes `%22`, CR becomes `%0D`, and LF becomes `%0A`.
- */
-export function escapeDispositionValue(value: string): string {
-  return value.replace(/["\r\n]/g, (char) =>
-    char === '"' ? "%22" : char === "\r" ? "%0D" : "%0A",
-  );
-}
-
-/** One part of the form: a text field, or a file with a name and a type. */
-export type MailgunFormPart =
-  | { name: string; value: string }
-  | { name: string; filename: string; contentType: string; bytes: Uint8Array };
-
-/** The form fields of one message, in order. Attachments are file parts. */
-export function mailgunFormParts(message: OutgoingMessage): MailgunFormPart[] {
-  const parts: MailgunFormPart[] = [{ name: "from", value: address(message.from) }];
-  for (const to of message.to) parts.push({ name: "to", value: address(to) });
-  for (const cc of message.cc ?? []) parts.push({ name: "cc", value: address(cc) });
-  for (const bcc of message.bcc ?? []) parts.push({ name: "bcc", value: address(bcc) });
-  parts.push({ name: "subject", value: message.subject });
-  if (message.html !== undefined) parts.push({ name: "html", value: message.html });
-  if (message.text !== undefined) parts.push({ name: "text", value: message.text });
-  if (message.replyTo !== undefined) {
-    parts.push({ name: "h:Reply-To", value: address(message.replyTo) });
-  }
-  // Custom headers go as `h:` fields, unchanged.
-  for (const [name, value] of Object.entries(message.headers ?? {})) {
-    parts.push({ name: `h:${name}`, value });
-  }
-  for (const item of message.attachments ?? []) {
-    const bytes =
-      typeof item.content === "string"
-        ? (base64ToBytes(item.content) ?? new Uint8Array(0))
-        : item.content;
-    // Mailgun names an inline file by its filename, and the HTML refers to `cid:<filename>`.
-    parts.push(
-      item.contentId === undefined
-        ? { name: "attachment", filename: item.filename, contentType: item.contentType, bytes }
-        : { name: "inline", filename: item.contentId, contentType: item.contentType, bytes },
-    );
-  }
-  return parts;
-}
-
-/** Encodes form parts as a `multipart/form-data` body with the given boundary. */
-export function encodeMultipart(parts: readonly MailgunFormPart[], boundary: string): Uint8Array {
-  const chunks: Uint8Array[] = [];
-  for (const part of parts) {
-    let head = `--${boundary}\r\nContent-Disposition: form-data; name="${escapeDispositionValue(part.name)}"`;
-    if ("filename" in part) {
-      head += `; filename="${escapeDispositionValue(part.filename)}"\r\nContent-Type: ${part.contentType}`;
-    }
-    chunks.push(utf8(`${head}\r\n\r\n`));
-    chunks.push("filename" in part ? part.bytes : utf8(part.value));
-    chunks.push(utf8("\r\n"));
-  }
-  chunks.push(utf8(`--${boundary}--\r\n`));
-  const out = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.byteLength, 0));
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return out;
-}
 
 function newBoundary(): string {
   return `mailswitch-${bytesToHex(crypto.getRandomValues(new Uint8Array(16)))}`;
@@ -188,20 +105,23 @@ async function failure(response: Response, now: number): Promise<NotSentResult |
   }) as NotSentResult | UnknownResult;
   if (outcome.status === "unknown") {
     await discardBody(response);
-    return tag(outcome);
+    return withProvider(outcome, PROVIDER);
   }
   const result = retryAfter(outcome, response.headers, now);
   if (response.status !== 403 && response.status !== 429) {
     await discardBody(response);
-    return tag(result);
+    return withProvider(result, PROVIDER);
   }
   const text = await bodyText(response);
-  if (!QUOTA_TEXT.test(text) || /\brate limit/i.test(text)) return tag(result);
-  return tag({
-    ...result,
-    reason: "quota",
-    message: `The provider answered with HTTP ${response.status} (quota).`,
-  });
+  if (!QUOTA_TEXT.test(text) || /\brate limit/i.test(text)) return withProvider(result, PROVIDER);
+  return withProvider(
+    {
+      ...result,
+      reason: "quota",
+      message: `The provider answered with HTTP ${response.status} (quota).`,
+    },
+    PROVIDER,
+  );
 }
 
 function checkOptions(options: MailgunOptions): string | undefined {
@@ -211,11 +131,7 @@ function checkOptions(options: MailgunOptions): string | undefined {
   if (options.region !== undefined && options.region !== "us" && options.region !== "eu") {
     throw new TypeError('mailgun: region must be "us" or "eu".');
   }
-  if (options.baseUrl === undefined) return undefined;
-  if (typeof options.baseUrl !== "string" || !/^https?:\/\/[^/]/i.test(options.baseUrl)) {
-    throw new TypeError("mailgun: baseUrl must be an http or https URL.");
-  }
-  return options.baseUrl.replace(/\/+$/, "");
+  return parseBaseUrl(options.baseUrl, undefined, "mailgun: baseUrl");
 }
 
 /** Creates the Mailgun adapter. Throws a TypeError for invalid options. */
@@ -238,12 +154,15 @@ export function mailgun(options: MailgunOptions = {}): MailgunAdapter {
   }
 
   function noDomain(): NotSentResult {
-    return tag({ status: "not_sent", reason: "auth", message: "The Mailgun domain is missing." });
+    return withProvider(
+      { status: "not_sent", reason: "auth", message: "The Mailgun domain is missing." },
+      PROVIDER,
+    );
   }
 
   async function send(message: OutgoingMessage, ctx: SendContext): Promise<SendResult> {
     const checked = validateMessage(message, mailgunMeta.capabilities);
-    if (!checked.ok) return tag(checked.result);
+    if (!checked.ok) return withProvider(checked.result, PROVIDER);
     const name = domain(ctx);
     if (name === "") return noDomain();
     const boundary = newBoundary();
@@ -258,7 +177,7 @@ export function mailgun(options: MailgunOptions = {}): MailgunAdapter {
       timeoutMs: ctx.timeoutMs,
       fetch: ctx.fetch,
     });
-    if (!call.ok) return tag(call.result);
+    if (!call.ok) return withProvider(call.result, PROVIDER);
     const { response } = call;
     if (!response.ok) return failure(response, ctx.now);
     const id = bareMessageId(((await readJson(response)) as { id?: unknown } | null)?.id);
@@ -276,7 +195,7 @@ export function mailgun(options: MailgunOptions = {}): MailgunAdapter {
       timeoutMs: ctx.timeoutMs,
       fetch: ctx.fetch,
     });
-    if (!call.ok) return { ...tag(call.result), ok: false };
+    if (!call.ok) return { ...withProvider(call.result, PROVIDER), ok: false };
     if (!call.response.ok) return { ...(await failure(call.response, ctx.now)), ok: false };
     await discardBody(call.response);
     return { ok: true };
@@ -291,7 +210,7 @@ export function mailgun(options: MailgunOptions = {}): MailgunAdapter {
   return {
     ...adapter,
     webhooks: adapter.webhooks as ProviderWebhooks,
-    requiresDedupe,
+    requiresDedupe: true,
     bodyBoundKeys: true,
     minDedupeTtlMs: MAILGUN_MIN_DEDUPE_TTL_MS,
   };

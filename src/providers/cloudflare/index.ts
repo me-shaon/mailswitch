@@ -14,7 +14,7 @@ import {
   type SendContext,
   type VerifyResult,
 } from "../../core/adapter";
-import { classifyResponse, classifyThrown } from "../../core/classify";
+import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type {
   Address,
@@ -23,13 +23,29 @@ import type {
   NotSentResult,
   OutgoingMessage,
   SendResult,
-  UnknownResult,
 } from "../../core/types";
 import { parseAddress } from "../../internal/address";
-import { base64ToBytes, bytesToBase64 } from "../../internal/encoding";
-import { callProvider, discardBody, readJson } from "../../internal/http";
+import { bytesToBase64 } from "../../internal/encoding";
+import {
+  callProvider,
+  discardBody,
+  parseBaseUrl,
+  readJson,
+  withProvider,
+} from "../../internal/http";
+import {
+  type CloudflareSendEmail,
+  classifyBindingError,
+  cloudflareBindingMessage,
+} from "./binding";
 import { cloudflareBindingMeta, cloudflareRestMeta } from "./meta";
 
+export type {
+  CloudflareEmailAddress,
+  CloudflareEmailAttachment,
+  CloudflareEmailBuilder,
+  CloudflareSendEmail,
+} from "./binding";
 export { cloudflareBindingMeta, cloudflareRestMeta } from "./meta";
 
 /** The Cloudflare API origin, with the version path. */
@@ -38,10 +54,6 @@ export const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 const REST = cloudflareRestMeta.id;
 const BINDING = cloudflareBindingMeta.id;
 const CONCURRENCY = 5;
-
-function tag<T extends NotSentResult | UnknownResult>(result: T, provider: string): T {
-  return { ...result, provider };
-}
 
 function parsed(input: AddressInput): Address {
   // validateMessage has checked every address, so parseAddress cannot fail here.
@@ -184,17 +196,7 @@ function checkRestOptions(options: CloudflareRestOptions): string {
       throw new TypeError(`cloudflareRest: ${key} must be a string.`);
     }
   }
-  const base = options.baseUrl ?? CLOUDFLARE_API_BASE;
-  let url: URL;
-  try {
-    url = new URL(base);
-  } catch {
-    throw new TypeError("cloudflareRest: baseUrl must be an absolute URL.");
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new TypeError("cloudflareRest: baseUrl must be an http or https URL.");
-  }
-  return base.replace(/\/+$/, "");
+  return parseBaseUrl(options.baseUrl, CLOUDFLARE_API_BASE, "cloudflareRest: baseUrl");
 }
 
 /** Creates the REST transport adapter. Throws a TypeError for invalid options. */
@@ -214,7 +216,7 @@ export function cloudflareRest(options: CloudflareRestOptions = {}): ProviderAda
 
   async function send(message: OutgoingMessage, ctx: SendContext): Promise<SendResult> {
     const checked = validateMessage(message, cloudflareRestMeta.capabilities);
-    if (!checked.ok) return tag(checked.result, REST);
+    if (!checked.ok) return withProvider(checked.result, REST);
     const call = await callProvider({
       url: `${base}/accounts/${account(ctx)}/email/sending/send`,
       headers: headers(ctx),
@@ -222,7 +224,7 @@ export function cloudflareRest(options: CloudflareRestOptions = {}): ProviderAda
       timeoutMs: ctx.timeoutMs,
       fetch: ctx.fetch,
     });
-    if (!call.ok) return tag(call.result, REST);
+    if (!call.ok) return withProvider(call.result, REST);
     const response = call.response;
     const outcome = classifyResponse(
       response.status,
@@ -234,10 +236,10 @@ export function cloudflareRest(options: CloudflareRestOptions = {}): ProviderAda
     );
     if (outcome.status === "unknown") {
       await discardBody(response);
-      return tag(outcome, REST);
+      return withProvider(outcome, REST);
     }
     const body = (await readJson(response)) as RestBody | null;
-    if (outcome.status === "not_sent") return tag(refineRest(outcome, body), REST);
+    if (outcome.status === "not_sent") return withProvider(refineRest(outcome, body), REST);
     return restAccepted(message, body);
   }
 
@@ -292,7 +294,7 @@ export function cloudflareRest(options: CloudflareRestOptions = {}): ProviderAda
         timeoutMs: ctx.timeoutMs,
         fetch: ctx.fetch,
       });
-      if (!call.ok) return { ...tag(call.result, REST), ok: false };
+      if (!call.ok) return { ...withProvider(call.result, REST), ok: false };
       const response = call.response;
       last = response.status;
       const outcome = classifyResponse(
@@ -305,7 +307,7 @@ export function cloudflareRest(options: CloudflareRestOptions = {}): ProviderAda
       );
       if (outcome.status === "unknown") {
         await discardBody(response);
-        return { ...tag(outcome, REST), ok: false };
+        return { ...withProvider(outcome, REST), ok: false };
       }
       if (outcome.status === "sent") {
         const body = (await readJson(response)) as { result?: { status?: unknown } } | null;
@@ -339,85 +341,11 @@ export function cloudflareRest(options: CloudflareRestOptions = {}): ProviderAda
 // Workers binding transport
 // ---------------------------------------------------------------------------------------
 
-/** A mailbox with a display name, in the binding shape. */
-export interface CloudflareEmailAddress {
-  email: string;
-  name: string;
-}
-
-/** One attachment, in the binding shape. An inline attachment needs a content id. */
-export type CloudflareEmailAttachment =
-  | {
-      disposition: "inline";
-      contentId: string;
-      filename: string;
-      type: string;
-      content: string | ArrayBuffer | ArrayBufferView;
-    }
-  | {
-      disposition: "attachment";
-      contentId?: undefined;
-      filename: string;
-      type: string;
-      content: string | ArrayBuffer | ArrayBufferView;
-    };
-
-/** The structured message that `send_email` accepts, so no raw MIME is needed. */
-export interface CloudflareEmailBuilder {
-  from: string | CloudflareEmailAddress;
-  to: (string | CloudflareEmailAddress)[];
-  cc?: (string | CloudflareEmailAddress)[];
-  bcc?: (string | CloudflareEmailAddress)[];
-  replyTo?: string | CloudflareEmailAddress;
-  subject: string;
-  text?: string;
-  html?: string;
-  headers?: Record<string, string>;
-  attachments?: CloudflareEmailAttachment[];
-}
-
-/**
- * The part of the Workers `send_email` binding (`SendEmail` in
- * `@cloudflare/workers-types`) that mailswitch uses. A local type, so mailswitch needs no
- * Workers types and imports no `cloudflare:*` module.
- */
-export interface CloudflareSendEmail {
-  send(message: CloudflareEmailBuilder): Promise<{ messageId?: string } | undefined>;
-}
-
 /** Where `cloudflareBinding` finds the binding. */
 export type CloudflareBindingSource =
   | CloudflareSendEmail
   /** The Worker `env`. The adapter reads the binding named by `credentials.bindingName`. */
   | { env: Readonly<Record<string, unknown>> };
-
-/**
- * The binding error codes that prove that Cloudflare did not accept the message, with the
- * reason of each. Every other code, and an error with no code, is `unknown`. This includes
- * `E_DELIVERY_FAILED` and `E_INTERNAL_SERVER_ERROR`.
- * https://developers.cloudflare.com/email-service/api/send-emails/workers-api/
- */
-export const CLOUDFLARE_BINDING_NOT_SENT: Readonly<Record<string, FailureReason>> = Object.freeze({
-  E_VALIDATION_ERROR: "invalid_message",
-  E_FIELD_MISSING: "invalid_message",
-  E_TOO_MANY_RECIPIENTS: "invalid_message",
-  E_TOO_MANY_ATTACHMENTS: "invalid_message",
-  E_CONTENT_TOO_LARGE: "invalid_message",
-  E_HEADER_NOT_ALLOWED: "invalid_message",
-  E_HEADER_USE_API_FIELD: "invalid_message",
-  E_HEADER_VALUE_INVALID: "invalid_message",
-  E_HEADER_VALUE_TOO_LONG: "invalid_message",
-  E_HEADER_NAME_INVALID: "invalid_message",
-  E_HEADERS_TOO_LARGE: "invalid_message",
-  E_HEADERS_TOO_MANY: "invalid_message",
-  E_SENDER_NOT_VERIFIED: "rejected",
-  E_SENDER_DOMAIN_NOT_AVAILABLE: "rejected",
-  E_RECIPIENT_NOT_ALLOWED: "rejected",
-  E_RECIPIENT_SUPPRESSED: "rejected",
-  E_ACCOUNT_SUSPENDED: "auth",
-  E_RATE_LIMIT_EXCEEDED: "rate_limited",
-  E_DAILY_LIMIT_EXCEEDED: "quota",
-});
 
 const BINDING_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -427,71 +355,6 @@ function isBinding(value: unknown): value is CloudflareSendEmail {
     value !== null &&
     typeof (value as { send?: unknown }).send === "function"
   );
-}
-
-function bindingAddress(input: AddressInput): string | CloudflareEmailAddress {
-  const value = parsed(input);
-  return value.name ? { email: value.email, name: value.name } : value.email;
-}
-
-/** The structured message of one email, in the shape of the binding. */
-export function cloudflareBindingMessage(message: OutgoingMessage): CloudflareEmailBuilder {
-  const out: CloudflareEmailBuilder = {
-    from: bindingAddress(message.from),
-    to: message.to.map(bindingAddress),
-    subject: message.subject,
-  };
-  if (message.cc?.length) out.cc = message.cc.map(bindingAddress);
-  if (message.bcc?.length) out.bcc = message.bcc.map(bindingAddress);
-  if (message.replyTo !== undefined) out.replyTo = bindingAddress(message.replyTo);
-  if (message.html !== undefined) out.html = message.html;
-  if (message.text !== undefined) out.text = message.text;
-  if (message.headers && Object.keys(message.headers).length > 0) {
-    out.headers = { ...message.headers };
-  }
-  if (message.attachments?.length) {
-    out.attachments = message.attachments.map((item) => {
-      // A string is base64. The binding reads a string as text, so it gets the bytes.
-      const content =
-        typeof item.content === "string"
-          ? (base64ToBytes(item.content) ?? new Uint8Array(0))
-          : item.content;
-      return item.contentId === undefined
-        ? { disposition: "attachment", filename: item.filename, type: item.contentType, content }
-        : {
-            disposition: "inline",
-            contentId: item.contentId,
-            filename: item.filename,
-            type: item.contentType,
-            content,
-          };
-    });
-  }
-  return out;
-}
-
-/** Classifies an error that the binding threw. */
-export function classifyBindingError(error: unknown): NotSentResult | UnknownResult {
-  const code =
-    typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
-  const reason = typeof code === "string" ? CLOUDFLARE_BINDING_NOT_SENT[code] : undefined;
-  if (reason !== undefined) {
-    return {
-      status: "not_sent",
-      reason,
-      message: `Cloudflare refused the message (${code as string}).`,
-      provider: BINDING,
-    };
-  }
-  if (typeof code === "string" && /^E_[A-Z_]{1,64}$/.test(code)) {
-    return {
-      status: "unknown",
-      reason: "provider_error",
-      message: `The send_email binding failed (${code}). The message may have gone out.`,
-      provider: BINDING,
-    };
-  }
-  return { ...classifyThrown(error), provider: BINDING };
 }
 
 class BindingTimeout extends Error {
@@ -546,7 +409,7 @@ export function cloudflareBinding(source: CloudflareBindingSource): ProviderAdap
 
   async function send(message: OutgoingMessage, ctx: SendContext): Promise<SendResult> {
     const checked = validateMessage(message, cloudflareBindingMeta.capabilities);
-    if (!checked.ok) return tag(checked.result, BINDING);
+    if (!checked.ok) return withProvider(checked.result, BINDING);
     const binding = resolve(ctx);
     if (!binding) return missing();
     const payload = cloudflareBindingMessage(message);

@@ -3,52 +3,9 @@
 // the certificate (it trusts the HTTPS host), so the certificate needs no real issuer.
 
 import { bytesToBase64, utf8 } from "../internal/encoding";
+import { type SnsMessage, snsStringToSign } from "../providers/ses/sns-fields";
 
-/** An SNS message as it arrives in a webhook body. */
-export interface SnsMessage {
-  Type: "Notification" | "SubscriptionConfirmation" | "UnsubscribeConfirmation";
-  MessageId: string;
-  TopicArn: string;
-  Message: string;
-  Timestamp: string;
-  SignatureVersion: string;
-  Signature: string;
-  SigningCertURL: string;
-  Subject?: string;
-  Token?: string;
-  SubscribeURL?: string;
-  UnsubscribeURL?: string;
-}
-
-const NOTIFICATION_FIELDS = ["Message", "MessageId", "Subject", "Timestamp", "TopicArn", "Type"];
-const CONFIRMATION_FIELDS = [
-  "Message",
-  "MessageId",
-  "SubscribeURL",
-  "Timestamp",
-  "Token",
-  "TopicArn",
-  "Type",
-];
-
-/**
- * The text that SNS signs, from the documented field list. Returns an empty string when
- * a required field is missing.
- */
-export function snsStringToSign(message: SnsMessage): string {
-  const fields = message.Type === "Notification" ? NOTIFICATION_FIELDS : CONFIRMATION_FIELDS;
-  let text = "";
-  for (const field of fields) {
-    const value = (message as unknown as Record<string, unknown>)[field];
-    if (value === undefined || value === null) {
-      // Subject appears only when the publisher set one.
-      if (field === "Subject") continue;
-      return "";
-    }
-    text += `${field}\n${String(value)}\n`;
-  }
-  return text;
-}
+export type { SnsMessage };
 
 function derLength(length: number): number[] {
   if (length < 0x80) return [length];

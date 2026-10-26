@@ -4,12 +4,7 @@ import { mockFetch, type RecordedExchange } from "../../src/conformance/mock-fet
 import type { SendContext } from "../../src/core/adapter";
 import type { OutgoingMessage } from "../../src/core/types";
 import { bytesToBase64, utf8 } from "../../src/internal/encoding";
-import {
-  requiresDedupe,
-  TOSEND_API_BASE,
-  toSendSignature,
-  tosend,
-} from "../../src/providers/tosend/index";
+import { TOSEND_API_BASE, toSendSignature, tosend } from "../../src/providers/tosend/index";
 
 const SEND_URL = `${TOSEND_API_BASE}/v2/emails`;
 const SECRET = "tosend-webhook-secret-0123456789";
@@ -285,7 +280,6 @@ describe("tosend webhooks", () => {
   const hooks = tosend().webhooks;
 
   it("marks that the webhook router needs a dedupe store", () => {
-    expect(requiresDedupe).toBe(true);
     expect(tosend().requiresDedupe).toBe(true);
   });
 

@@ -44,7 +44,7 @@ const mailer = createMailer({
 `tosend()` takes two optional options:
 
 - `apiKey`: the key, for code that calls the adapter directly. A key in the credentials takes precedence.
-- `baseUrl`: the API base URL. It defaults to `https://api.tosend.com`.
+- `baseUrl`: the API base URL. It defaults to `https://api.tosend.com`. It must be an https URL. Plain http works only for a loopback host, for tests.
 
 ### Verify
 

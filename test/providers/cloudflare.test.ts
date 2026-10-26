@@ -7,10 +7,10 @@ import { type CapturedRequest, mockFetch } from "../../src/conformance/index";
 import type { SendContext } from "../../src/core/adapter";
 import type { OutgoingMessage } from "../../src/core/types";
 import { utf8 } from "../../src/provider-kit/index";
+import { classifyBindingError } from "../../src/providers/cloudflare/binding";
 import {
   type CloudflareEmailBuilder,
   type CloudflareSendEmail,
-  classifyBindingError,
   cloudflareBinding,
   cloudflareRest,
 } from "../../src/providers/cloudflare/index";

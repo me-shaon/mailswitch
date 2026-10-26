@@ -18,13 +18,8 @@ import { createMailer } from "../../src/index";
 import { bytesToBase64, bytesToHex, utf8 } from "../../src/internal/encoding";
 import type { FetchLike } from "../../src/internal/http";
 import { amzDate, canonicalRequest, signingKey } from "../../src/internal/sigv4";
-import {
-  isSnsCertUrl,
-  parseTopicArn,
-  type SnsMessage,
-  ses,
-  snsConfirmAction,
-} from "../../src/providers/ses/index";
+import { type SnsMessage, ses, snsConfirmAction } from "../../src/providers/ses/index";
+import { isSnsCertUrl, parseTopicArn } from "../../src/providers/ses/sns-verify";
 import { MemoryDedupeStore } from "../../src/stores/memory";
 import { handleWebhook } from "../../src/webhooks/index";
 
