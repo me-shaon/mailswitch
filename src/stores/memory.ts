@@ -1,7 +1,13 @@
 // In-memory stores for tests and single-isolate use. The data lives in one isolate only,
 // so do not use these stores in production: a second isolate does not see the claims.
 
+import { bucketExpiry, bucketStartOf, windowFloor } from "../core/daily-cap";
 import type {
+  DailyCapFillInput,
+  DailyCapReleaseInput,
+  DailyCapReservation,
+  DailyCapReserveInput,
+  DailyCapStore,
   IdempotencyAppendInput,
   IdempotencyClaimInput,
   IdempotencyClaimOutcome,
@@ -11,6 +17,11 @@ import type {
 } from "./types";
 
 export type {
+  DailyCapFillInput,
+  DailyCapReleaseInput,
+  DailyCapReservation,
+  DailyCapReserveInput,
+  DailyCapStore,
   IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
@@ -120,5 +131,63 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
       }
     }
     return deleted;
+  }
+}
+
+/**
+ * A `DailyCapStore` in a `Map` of buckets per scope. Each method runs to completion before
+ * it yields, so `reserve` is atomic inside one isolate.
+ */
+export class MemoryDailyCapStore implements DailyCapStore {
+  readonly #scopes = new Map<string, Map<number, number>>();
+
+  /** The buckets of a scope that are still in the window. It drops the others. */
+  #buckets(scope: string, now: number): Map<number, number> {
+    let buckets = this.#scopes.get(scope);
+    if (!buckets) {
+      buckets = new Map();
+      this.#scopes.set(scope, buckets);
+    }
+    const floor = windowFloor(now);
+    for (const [start, used] of buckets) {
+      if (start <= floor || used <= 0) buckets.delete(start);
+    }
+    return buckets;
+  }
+
+  #sum(buckets: Map<number, number>): number {
+    let used = 0;
+    for (const value of buckets.values()) used += value;
+    return used;
+  }
+
+  async reserve(input: DailyCapReserveInput): Promise<DailyCapReservation> {
+    const buckets = this.#buckets(input.scope, input.now);
+    if (this.#sum(buckets) >= input.cap) {
+      const oldest = Math.min(...buckets.keys());
+      return { ok: false, resetAt: bucketExpiry(oldest) };
+    }
+    const start = bucketStartOf(input.now);
+    buckets.set(start, (buckets.get(start) ?? 0) + 1);
+    return { ok: true, bucketStart: start };
+  }
+
+  async release(input: DailyCapReleaseInput): Promise<void> {
+    const buckets = this.#buckets(input.scope, input.now);
+    const used = buckets.get(input.bucketStart) ?? 0;
+    if (used > 1) buckets.set(input.bucketStart, used - 1);
+    else buckets.delete(input.bucketStart);
+  }
+
+  async fill(input: DailyCapFillInput): Promise<void> {
+    const buckets = this.#buckets(input.scope, input.now);
+    const missing = input.cap - this.#sum(buckets);
+    if (missing <= 0) return;
+    const start = bucketStartOf(input.now);
+    buckets.set(start, (buckets.get(start) ?? 0) + missing);
+  }
+
+  async used(scope: string, now: number): Promise<number> {
+    return this.#sum(this.#buckets(scope, now));
   }
 }
