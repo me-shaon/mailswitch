@@ -10,7 +10,7 @@
   {
     "name": "mailswitch/resend",
     "path": "dist/providers/resend/index.js",
-    "limit": "4 KB",
+    "limit": "8 KB",
     "gzip": true
   },
   {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resend } from "../../src/providers/resend/index";
 
 // Live smoke tests call real provider APIs. They run only when their env vars are set,
 // so CI makes no live calls. The provider units add a send test to each block:
@@ -6,7 +7,7 @@ import { describe, expect, it } from "vitest";
 // - Resend (U5): MAILSWITCH_LIVE_RESEND_KEY, MAILSWITCH_LIVE_RESEND_FROM, MAILSWITCH_LIVE_TO.
 // - toSend (U6): MAILSWITCH_LIVE_TOSEND_KEY, MAILSWITCH_LIVE_TOSEND_FROM, MAILSWITCH_LIVE_TO.
 //
-// No provider adapter exists yet. Each block only checks that its env vars are complete.
+// A block with an adapter sends one real email. Other blocks only check their env vars.
 
 const env: Readonly<Record<string, string | undefined>> =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
@@ -28,6 +29,28 @@ describe("live smoke gate", () => {
 describe.skipIf(!hasLiveEnv(RESEND[0] as string))("live smoke: Resend", () => {
   it("has the env vars of the Resend smoke test", () => {
     expect(hasLiveEnv(...RESEND)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...RESEND))("verifies the key and sends one email", async () => {
+    const adapter = resend();
+    const ctx = {
+      fetch: (input: string, init: RequestInit) => fetch(input, init),
+      timeoutMs: 15_000,
+      credentials: { apiKey: env.MAILSWITCH_LIVE_RESEND_KEY as string },
+      now: Date.now(),
+    };
+    expect(await adapter.verify(ctx)).toEqual({ ok: true });
+    const result = await adapter.send(
+      {
+        from: env.MAILSWITCH_LIVE_RESEND_FROM as string,
+        to: [env.MAILSWITCH_LIVE_TO as string],
+        subject: "mailswitch live smoke test (Resend)",
+        text: "This email comes from the mailswitch live smoke test.",
+        idempotencyKey: `mailswitch-smoke-${Date.now()}`,
+      },
+      ctx,
+    );
+    expect(result).toMatchObject({ status: "sent", provider: "resend" });
   });
 });
 
