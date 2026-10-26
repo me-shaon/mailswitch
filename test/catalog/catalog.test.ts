@@ -41,8 +41,10 @@ describe("catalog", () => {
       ["cloudflare-binding", 1],
       ["mailgun", 1],
       ["postmark", 1],
+      ["ses", 1],
     ]);
     expect(getProviderMeta("postmark")?.webhooks).toBe(true);
+    expect(getProviderMeta("ses")?.name).toBe("Amazon SES");
     expect(getProviderMeta("resend")?.name).toBe("Resend");
     expect(getProviderMeta("tosend")?.capabilities.idempotency).toBe(false);
     expect(getProviderMeta("nope")).toBeUndefined();
@@ -71,6 +73,7 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/cloudflare/meta.ts");
     expect(files).toContain("../../src/providers/mailgun/meta.ts");
     expect(files).toContain("../../src/providers/postmark/meta.ts");
+    expect(files).toContain("../../src/providers/ses/meta.ts");
     for (const [file, text] of Object.entries(sources)) {
       for (const spec of importsOf(text)) {
         expect(spec, `${file} imports ${spec}`).toMatch(ALLOWED);

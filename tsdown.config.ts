@@ -17,6 +17,7 @@ const config: UserConfig = defineConfig({
     "providers/cloudflare/index": "src/providers/cloudflare/index.ts",
     "providers/mailgun/index": "src/providers/mailgun/index.ts",
     "providers/postmark/index": "src/providers/postmark/index.ts",
+    "providers/ses/index": "src/providers/ses/index.ts",
     "stores/memory": "src/stores/memory.ts",
     "stores/d1": "src/stores/d1.ts",
     "stores/durable-object": "src/stores/durable-object.ts",

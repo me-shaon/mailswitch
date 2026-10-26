@@ -48,6 +48,12 @@
     "gzip": true
   },
   {
+    "name": "mailswitch/ses",
+    "path": "dist/providers/ses/index.js",
+    "limit": "10 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/stores/memory",
     "path": "dist/stores/memory.js",
     "limit": "2 KB",

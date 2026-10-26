@@ -6,6 +6,7 @@ import { cloudflareBindingMeta, cloudflareRestMeta } from "../providers/cloudfla
 import { mailgunMeta } from "../providers/mailgun/meta";
 import { postmarkMeta } from "../providers/postmark/meta";
 import { resendMeta } from "../providers/resend/meta";
+import { sesMeta } from "../providers/ses/meta";
 import { toSendMeta } from "../providers/tosend/meta";
 
 export type { CredentialField, ProviderMeta, ProviderPreset, ProviderTier } from "../core/meta";
@@ -18,6 +19,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   cloudflareBindingMeta,
   mailgunMeta,
   postmarkMeta,
+  sesMeta,
 ]);
 
 /** Returns the meta of a built-in provider, or undefined for an unknown id. */
