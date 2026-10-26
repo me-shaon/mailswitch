@@ -2,6 +2,17 @@
 // custom providers import this subpath, so no adapter needs a deep import.
 
 export {
+  defineProvider,
+  type ProviderAdapter,
+  type ProviderCredentials,
+  type ProviderWebhooks,
+  type SendContext,
+  type VerifyResult,
+  type WebhookVerifyInput,
+  type WebhookVerifyResult,
+} from "../core/adapter";
+export { checkCapabilities } from "../core/capabilities";
+export {
   type ClassifyResponseOptions,
   type ClassifyThrownOptions,
   classifyResponse,
@@ -14,6 +25,7 @@ export {
   type StatusMap,
   type StatusOverride,
 } from "../core/classify";
+export type { NormalizedEvent, NormalizedEventType, WebhookRejection } from "../core/events";
 export {
   type CredentialField,
   defineProviderMeta,
