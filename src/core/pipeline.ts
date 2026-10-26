@@ -4,11 +4,13 @@
 //   3. For each provider: capability check, daily cap reserve, send, observe hook.
 //      Stop on `sent` or `unknown`. Go on after `not_sent` only when fallback allows it.
 //   4. One final record, when there is a claim.
+// `sendBatch` (batch.ts) runs the same steps. Only the primary attempt changes.
 // Every exit after a claim writes a final state.
 
 import { DEFAULT_TIMEOUT_MS, type FetchLike } from "../internal/http";
 import type { DailyCapStore, IdempotencyAttempt, IdempotencyStore } from "../stores/types";
 import type { ProviderAdapter, ProviderCredentials, SendContext } from "./adapter";
+import { createBatchSender } from "./batch";
 import { checkCapabilities } from "./capabilities";
 import { parseCredentials } from "./credentials";
 import { checkDailyCap } from "./daily-cap";
@@ -79,13 +81,53 @@ export interface MailerOptions {
 export interface Mailer {
   /** Sends one message through the chain. A provider failure is a result. */
   send(message: OutgoingMessage): Promise<SendResult>;
+  /**
+   * Sends fully built messages. It returns one result per message, in input order. Each
+   * message runs its own claim. See `createMailer` for the batch rules.
+   */
+  sendBatch(messages: readonly OutgoingMessage[]): Promise<SendResult[]>;
 }
 
-interface Entry {
+/** One prepared provider of the chain. Internal. */
+export interface Entry {
   adapter: ProviderAdapter;
   credentials: ProviderCredentials;
   cap?: number;
   scope: string;
+}
+
+/** The state of one message in the pipeline, from the claim to the final record. Internal. */
+export interface MessageRun {
+  message: OutgoingMessage;
+  encodedBytes: number;
+  claim?: { key: string; claimId: string };
+  attempts: IdempotencyAttempt[];
+  /** The result of the last attempt. */
+  result?: SendResult;
+}
+
+/** The outcome of the capability check and the cap reserve. Internal. */
+export interface Gate {
+  refusal?: SendResult;
+  /** The cap bucket of the reserved unit. Undefined when the provider has no cap. */
+  bucketStart?: number;
+}
+
+/** The pipeline steps that `send` and `sendBatch` share. Internal. */
+export interface PipelineSteps {
+  entries: readonly Entry[];
+  hasStore: boolean;
+  start(message: OutgoingMessage): Promise<SendResult | MessageRun>;
+  reserve(entry: Entry, message: OutgoingMessage, encodedBytes: number): Promise<Gate>;
+  refund(entry: Entry, bucketStart: number, result: SendResult): Promise<void>;
+  context(entry: Entry): SendContext;
+  record(run: MessageRun, entry: Entry, result: SendResult): Promise<void>;
+  chain(run: MessageRun, from: number): Promise<void>;
+  abort(run: MessageRun): Promise<void>;
+  finish(run: MessageRun): Promise<SendResult>;
+  warn(text: string): void;
+  /** Accepts one well-formed adapter result. A missing or bad result is `unknown`. */
+  check(result: unknown, provider: string): SendResult;
 }
 
 const UNSAFE_SETUP =
@@ -153,6 +195,13 @@ function checkResult(result: unknown, provider: string): SendResult {
  *
  * A provider answer with the reason `quota` fills the daily cap of that provider.
  *
+ * `sendBatch` uses the batch endpoint of the primary when it has one. A message that the
+ * batch endpoint refuses goes through a single send. A batch request carries no native
+ * idempotency key, so only the store claim protects a keyed batch message. A keyed batch
+ * with no store writes one warning per mailer, on the first such call. After the batch,
+ * only the `not_sent` messages go to the fallbacks. A key used twice in one call gives
+ * `unknown/in_flight` for the second message.
+ *
  * @throws TypeError or RangeError for invalid options: no providers, bad credentials, a
  * missing namespace with an idempotency store, or a pending timeout below the floor.
  */
@@ -215,33 +264,7 @@ export function createMailer(options: MailerOptions): Mailer {
     }
   }
 
-  /** One attempt. Only a daily cap store failure can throw. Adapter errors are results. */
-  async function attempt(
-    entry: Entry,
-    message: OutgoingMessage,
-    encodedBytes: number,
-  ): Promise<SendResult> {
-    const { meta } = entry.adapter;
-    const refusal = checkCapabilities(message, meta.capabilities, encodedBytes);
-    if (refusal) return { ...refusal, provider: meta.id };
-    let bucketStart: number | undefined;
-    if (dailyCaps && entry.cap !== undefined) {
-      const reservation = await dailyCaps.reserve({
-        scope: entry.scope,
-        cap: entry.cap,
-        now: clock(),
-      });
-      if (!reservation.ok) {
-        return {
-          status: "not_sent",
-          reason: "daily_cap",
-          message: "The daily cap of the provider is reached.",
-          resetAt: reservation.resetAt,
-          provider: meta.id,
-        };
-      }
-      bucketStart = reservation.bucketStart;
-    }
+  function context(entry: Entry): SendContext {
     const ctx: SendContext = {
       fetch: doFetch,
       timeoutMs,
@@ -249,67 +272,124 @@ export function createMailer(options: MailerOptions): Mailer {
       now: clock(),
     };
     if (options.connect) ctx.connect = options.connect;
+    return ctx;
+  }
+
+  /** The capability check and the daily cap reserve. Only a cap store failure can throw. */
+  async function reserve(
+    entry: Entry,
+    message: OutgoingMessage,
+    encodedBytes: number,
+  ): Promise<Gate> {
+    const { meta } = entry.adapter;
+    const refusal = checkCapabilities(message, meta.capabilities, encodedBytes);
+    if (refusal) return { refusal: { ...refusal, provider: meta.id } };
+    if (!dailyCaps || entry.cap === undefined) return {};
+    const reservation = await dailyCaps.reserve({
+      scope: entry.scope,
+      cap: entry.cap,
+      now: clock(),
+    });
+    if (!reservation.ok) {
+      return {
+        refusal: {
+          status: "not_sent",
+          reason: "daily_cap",
+          message: "The daily cap of the provider is reached.",
+          resetAt: reservation.resetAt,
+          provider: meta.id,
+        },
+      };
+    }
+    return { bucketStart: reservation.bucketStart };
+  }
+
+  /** One attempt. Only a daily cap store failure can throw. Adapter errors are results. */
+  async function attempt(
+    entry: Entry,
+    message: OutgoingMessage,
+    encodedBytes: number,
+  ): Promise<SendResult> {
+    const gate = await reserve(entry, message, encodedBytes);
+    if (gate.refusal) return gate.refusal;
+    const id = entry.adapter.meta.id;
     let result: SendResult;
     try {
-      result = checkResult(await entry.adapter.send(message, ctx), meta.id);
+      result = checkResult(await entry.adapter.send(message, context(entry)), id);
     } catch {
-      result = thrownResult(meta.id);
+      result = thrownResult(id);
     }
-    if (bucketStart !== undefined && result.status === "not_sent") {
-      await refund(entry, bucketStart, result);
+    if (gate.bucketStart !== undefined && result.status === "not_sent") {
+      await refund(entry, gate.bucketStart, result);
     }
     return result;
   }
 
-  async function send(message: OutgoingMessage): Promise<SendResult> {
+  /** Validation and the claim. Returns a final result, or the run to go on with. */
+  async function start(message: OutgoingMessage): Promise<SendResult | MessageRun> {
     const checked = validateMessage(message);
     if (!checked.ok) return checked.result;
-    let claim: { key: string; claimId: string } | undefined;
+    const run: MessageRun = { message, encodedBytes: checked.encodedBytes, attempts: [] };
     if (idempotency && namespace !== undefined && message.idempotencyKey) {
       const begin = await beginIdempotency(idempotency, namespace, message, {
         now: clock(),
         pendingTimeoutMs,
       });
       if (!begin.proceed) return begin.result;
-      claim = { key: begin.key, claimId: begin.claimId };
+      run.claim = { key: begin.key, claimId: begin.claimId };
     }
-    const attempts: IdempotencyAttempt[] = [];
-    let result: SendResult | undefined;
-    try {
-      for (let i = 0; i < entries.length; i++) {
-        const current = entries[i] as Entry;
-        result = await attempt(current, message, checked.encodedBytes);
-        const at = clock();
-        const record: IdempotencyAttempt = {
-          provider: current.adapter.meta.id,
-          status: result.status,
-          at,
-        };
-        if (result.status !== "sent") record.reason = result.reason;
-        attempts.push(record);
-        const view: AttemptView = { ...record };
-        if (message.idempotencyKey !== undefined) view.messageKey = message.idempotencyKey;
-        await observe(view);
-        if (i === entries.length - 1) break;
-        if (!allowFallback(result, shouldFallback, logger)) break;
-      }
-    } catch (error) {
-      // The daily cap store failed before a send. Write a final state from the attempts
-      // so far, then let the error leave the pipeline.
-      if (claim) {
-        await finalizeIdempotency(idempotency as IdempotencyStore, {
-          ...claim,
-          attempts,
-          now: clock(),
-        });
-      }
-      throw error;
+    return run;
+  }
+
+  /** Appends one attempt to the run and calls the observe hook. */
+  async function record(run: MessageRun, entry: Entry, result: SendResult): Promise<void> {
+    run.result = result;
+    const item: IdempotencyAttempt = {
+      provider: entry.adapter.meta.id,
+      status: result.status,
+      at: clock(),
+    };
+    if (result.status !== "sent") item.reason = result.reason;
+    run.attempts.push(item);
+    const view: AttemptView = { ...item };
+    if (run.message.idempotencyKey !== undefined) view.messageKey = run.message.idempotencyKey;
+    await observe(view);
+  }
+
+  /**
+   * Runs the chain from the entry at `from`. With `from` above 0, the run must hold the
+   * result of the entry before it, and the chain goes on only when fallback allows it.
+   */
+  async function chain(run: MessageRun, from: number): Promise<void> {
+    if (from > 0) {
+      if (from >= entries.length) return;
+      if (!allowFallback(run.result as SendResult, shouldFallback, logger)) return;
     }
-    const final = result as SendResult;
-    if (claim) {
+    for (let i = from; i < entries.length; i++) {
+      const current = entries[i] as Entry;
+      await record(run, current, await attempt(current, run.message, run.encodedBytes));
+      if (i === entries.length - 1) break;
+      if (!allowFallback(run.result as SendResult, shouldFallback, logger)) break;
+    }
+  }
+
+  /** Writes the final state from the attempts so far, after a cap store failure. */
+  async function abort(run: MessageRun): Promise<void> {
+    if (!run.claim) return;
+    await finalizeIdempotency(idempotency as IdempotencyStore, {
+      ...run.claim,
+      attempts: run.attempts,
+      now: clock(),
+    });
+  }
+
+  /** Writes the one final record and returns the result of the last attempt. */
+  async function finish(run: MessageRun): Promise<SendResult> {
+    const final = run.result as SendResult;
+    if (run.claim) {
       const done = await finalizeIdempotency(idempotency as IdempotencyStore, {
-        ...claim,
-        attempts,
+        ...run.claim,
+        attempts: run.attempts,
         ...(final.status === "sent" && final.providerMessageId !== undefined
           ? { providerMessageId: final.providerMessageId }
           : {}),
@@ -329,5 +409,34 @@ export function createMailer(options: MailerOptions): Mailer {
     return final;
   }
 
-  return { send };
+  async function send(message: OutgoingMessage): Promise<SendResult> {
+    const run = await start(message);
+    if (!("attempts" in run)) return run;
+    try {
+      await chain(run, 0);
+    } catch (error) {
+      // The daily cap store failed before a send. Write a final state from the attempts
+      // so far, then let the error leave the pipeline.
+      await abort(run);
+      throw error;
+    }
+    return finish(run);
+  }
+
+  const steps: PipelineSteps = {
+    entries,
+    hasStore: idempotency !== undefined,
+    start,
+    reserve,
+    refund,
+    context,
+    record,
+    chain,
+    abort,
+    finish,
+    warn: (text) => safeWarn(logger, text),
+    check: checkResult,
+  };
+
+  return { send, sendBatch: createBatchSender(steps) };
 }

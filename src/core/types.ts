@@ -138,6 +138,11 @@ export interface Capabilities {
   idempotency: boolean;
   /** Messages per batch call. 1 when the provider has no batch endpoint. */
   batchSize: number;
+  /**
+   * The batch endpoint accepts attachments. Omit it when the batch endpoint accepts what a
+   * single send accepts. When it is false, `sendBatch` sends attachment messages one by one.
+   */
+  batchAttachments?: boolean;
   /** The largest number of recipients across to, cc, and bcc. Omit for no limit. */
   maxRecipients?: number;
 }
