@@ -238,10 +238,12 @@ export function handleWebhook(
     const parsed = hooks.parse(body, request.headers);
     if (!dedupe) return { ok: true, events: parsed, ack: NOOP, release: NOOP };
 
-    const claimed: string[] = [];
+    // Each claimed key keeps its lease id, so a release or a commit touches only this
+    // request's lease and never a newer claim of the same key.
+    const claimed: { key: string; leaseId: string }[] = [];
     const releaseAll = async (): Promise<void> => {
-      const keys = claimed.splice(0);
-      await Promise.all(keys.map((key) => dedupe.release({ key })));
+      const leases = claimed.splice(0);
+      await Promise.all(leases.map((lease) => dedupe.release(lease)));
     };
     const events: NormalizedEvent[] = [];
     const seen = new Set<string>();
@@ -254,13 +256,17 @@ export function handleWebhook(
         // One body can repeat a key. The first copy stands for all of them.
         if (seen.has(key)) continue;
         seen.add(key);
-        let outcome = await dedupe.claim({ key, leaseMs, now: now() });
-        if (outcome === "new") claimed.push(key);
+        const first = await dedupe.claim({ key, leaseMs, now: now() });
+        if (first.status === "new") claimed.push({ key, leaseId: first.leaseId });
+        let outcome = first.status;
         if (fingerprint !== undefined) {
           // The second key binds the event key to this body.
           const boundKey = `${key}#${fingerprint}`;
-          const bound = await dedupe.claim({ key: boundKey, leaseMs, now: now() });
-          if (bound === "new") claimed.push(boundKey);
+          const boundClaim = await dedupe.claim({ key: boundKey, leaseMs, now: now() });
+          if (boundClaim.status === "new") {
+            claimed.push({ key: boundKey, leaseId: boundClaim.leaseId });
+          }
+          const bound = boundClaim.status;
           if (bound === "new" && outcome !== "new") {
             // Another body holds or used this key.
             otherBody = true;
@@ -291,9 +297,10 @@ export function handleWebhook(
       ok: true,
       events,
       async ack() {
-        const keys = claimed.splice(0);
+        const leases = claimed.splice(0);
         const at = now();
-        await Promise.all(keys.map((key) => dedupe.commit({ key, ttlMs, now: at })));
+        // A commit that another lease holds returns false. That newer holder commits it.
+        await Promise.all(leases.map((lease) => dedupe.commit({ ...lease, ttlMs, now: at })));
       },
       release: releaseAll,
     };

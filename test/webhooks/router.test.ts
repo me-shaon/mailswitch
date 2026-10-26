@@ -314,6 +314,23 @@ describe("handleWebhook dedupe", () => {
     expect(retry.events).toHaveLength(1);
   });
 
+  it("keeps a newer request's lease when a stale request releases or acks late", async () => {
+    const dedupe = new MemoryDedupeStore();
+    const clock = { t: NOW };
+    const body = toSendBounce("ana@example.org");
+    const stale = accepted(await handleWebhook(await toSendRequest(body), options(dedupe, clock)));
+    clock.t += DEFAULT_LEASE_MS + 1;
+    const newer = accepted(await handleWebhook(await toSendRequest(body), options(dedupe, clock)));
+    expect(newer.events).toHaveLength(1);
+    await stale.release();
+    const third = await handleWebhook(await toSendRequest(body), options(dedupe, clock));
+    expect(third).toMatchObject({ ok: false, rejection: "in_flight" });
+    await stale.ack();
+    await newer.release();
+    const fourth = accepted(await handleWebhook(await toSendRequest(body), options(dedupe, clock)));
+    expect(fourth.events).toHaveLength(1);
+  });
+
   it("refuses a retry during the lease as in_flight with 409", async () => {
     const dedupe = new MemoryDedupeStore();
     const clock = { t: NOW };

@@ -60,7 +60,7 @@ it("refuses a committed value that is not 0 or 1 with the CHECK constraint", asy
   await expect(
     db
       .prepare(
-        "INSERT INTO mailswitch_webhook_dedupe (key, committed, expires_at) VALUES ('x', 2, 1)",
+        "INSERT INTO mailswitch_webhook_dedupe (key, committed, expires_at, lease_id) VALUES ('x', 2, 1, 'l')",
       )
       .run(),
   ).rejects.toThrow();

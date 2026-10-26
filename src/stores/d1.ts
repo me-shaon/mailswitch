@@ -91,7 +91,8 @@ CREATE TABLE IF NOT EXISTS mailswitch_daily_cap (
 CREATE TABLE IF NOT EXISTS mailswitch_webhook_dedupe (
   key TEXT PRIMARY KEY NOT NULL,
   committed INTEGER NOT NULL DEFAULT 0 CHECK (committed IN (0, 1)),
-  expires_at INTEGER NOT NULL
+  expires_at INTEGER NOT NULL,
+  lease_id TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mailswitch_webhook_dedupe_expires_at ON mailswitch_webhook_dedupe (expires_at);
 `;
@@ -345,7 +346,8 @@ const DEDUPE_TABLE = "mailswitch_webhook_dedupe";
  *
  * One column, `expires_at`, holds the end of a lease or the end of a TTL. `claim` is one
  * upsert that takes the row only when it is missing or expired. `RETURNING` tells the
- * caller whether this call won.
+ * caller whether this call won. Each claim writes a random `lease_id`. `commit` and
+ * `release` change the row only when its `lease_id` matches.
  */
 export class D1DedupeStore implements DedupeStore {
   readonly #db: D1DatabaseLike;
@@ -359,35 +361,39 @@ export class D1DedupeStore implements DedupeStore {
 
   async claim(input: DedupeClaimInput): Promise<DedupeClaimOutcome> {
     const db = this.#db;
+    const leaseId = crypto.randomUUID();
     const results = await db.batch<{ committed?: number }>([
       db
         .prepare(
-          `INSERT INTO ${DEDUPE_TABLE} (key, committed, expires_at) VALUES (?1, 0, ?2 + ?3)
-           ON CONFLICT(key) DO UPDATE SET committed = 0, expires_at = excluded.expires_at
+          `INSERT INTO ${DEDUPE_TABLE} (key, committed, expires_at, lease_id) VALUES (?1, 0, ?2 + ?3, ?4)
+           ON CONFLICT(key) DO UPDATE SET committed = 0, expires_at = excluded.expires_at,
+             lease_id = excluded.lease_id
            WHERE ${DEDUPE_TABLE}.expires_at <= ?2
            RETURNING key`,
         )
-        .bind(input.key, input.now, input.leaseMs),
+        .bind(input.key, input.now, input.leaseMs, leaseId),
       db.prepare(`SELECT committed FROM ${DEDUPE_TABLE} WHERE key = ?1`).bind(input.key),
     ]);
-    if ((results[0]?.results?.length ?? 0) > 0) return "new";
-    return results[1]?.results?.[0]?.committed === 1 ? "duplicate" : "in_flight";
+    if ((results[0]?.results?.length ?? 0) > 0) return { status: "new", leaseId };
+    return { status: results[1]?.results?.[0]?.committed === 1 ? "duplicate" : "in_flight" };
   }
 
-  async commit(input: DedupeCommitInput): Promise<void> {
-    await this.#db
+  async commit(input: DedupeCommitInput): Promise<boolean> {
+    const result = await this.#db
       .prepare(
-        `INSERT INTO ${DEDUPE_TABLE} (key, committed, expires_at) VALUES (?1, 1, ?2)
-         ON CONFLICT(key) DO UPDATE SET committed = 1, expires_at = excluded.expires_at`,
+        `INSERT INTO ${DEDUPE_TABLE} (key, committed, expires_at, lease_id) VALUES (?1, 1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET committed = 1, expires_at = excluded.expires_at
+         WHERE ${DEDUPE_TABLE}.lease_id = excluded.lease_id`,
       )
-      .bind(input.key, input.now + input.ttlMs)
+      .bind(input.key, input.now + input.ttlMs, input.leaseId)
       .run();
+    return changes(result) > 0;
   }
 
   async release(input: DedupeReleaseInput): Promise<void> {
     await this.#db
-      .prepare(`DELETE FROM ${DEDUPE_TABLE} WHERE key = ?1 AND committed = 0`)
-      .bind(input.key)
+      .prepare(`DELETE FROM ${DEDUPE_TABLE} WHERE key = ?1 AND committed = 0 AND lease_id = ?2`)
+      .bind(input.key, input.leaseId)
       .run();
   }
 
