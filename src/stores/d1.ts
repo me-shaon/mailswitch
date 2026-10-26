@@ -1,7 +1,13 @@
 // D1 stores. D1 has a single writer and runs a batch as one transaction, so a conditional
 // write is atomic. This file uses a structural D1 type, so it imports no Workers module.
 
+import { bucketExpiry, bucketStartOf, windowFloor } from "../core/daily-cap";
 import type {
+  DailyCapFillInput,
+  DailyCapReleaseInput,
+  DailyCapReservation,
+  DailyCapReserveInput,
+  DailyCapStore,
   IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
@@ -13,6 +19,11 @@ import type {
 } from "./types";
 
 export type {
+  DailyCapFillInput,
+  DailyCapReleaseInput,
+  DailyCapReservation,
+  DailyCapReserveInput,
+  DailyCapStore,
   IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
@@ -44,10 +55,11 @@ export interface D1DatabaseLike {
 }
 
 /**
- * The schema of the idempotency table. Apply it with `applyD1Schema`, or copy it into a
- * migration. `src/stores/d1-schema.sql` holds the same text.
+ * The schema of the mailswitch tables: the idempotency table and the daily cap buckets.
+ * Apply it with `applyD1Schema`, or copy it into a migration. `src/stores/d1-schema.sql`
+ * holds the same text.
  */
-export const D1_IDEMPOTENCY_SCHEMA = `CREATE TABLE IF NOT EXISTS mailswitch_idempotency (
+export const D1_SCHEMA = `CREATE TABLE IF NOT EXISTS mailswitch_idempotency (
   key TEXT PRIMARY KEY NOT NULL,
   payload_hash TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('pending', 'sent', 'not_sent', 'unknown')),
@@ -59,13 +71,16 @@ export const D1_IDEMPOTENCY_SCHEMA = `CREATE TABLE IF NOT EXISTS mailswitch_idem
   expires_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS mailswitch_idempotency_expires_at ON mailswitch_idempotency (expires_at);
+CREATE TABLE IF NOT EXISTS mailswitch_daily_cap (
+  scope TEXT NOT NULL,
+  bucket_start INTEGER NOT NULL,
+  used INTEGER NOT NULL CHECK (used >= 0),
+  PRIMARY KEY (scope, bucket_start)
+);
 `;
 
 /** Runs each statement of a schema in one batch. The statements use `IF NOT EXISTS`. */
-export async function applyD1Schema(
-  db: D1DatabaseLike,
-  schema: string = D1_IDEMPOTENCY_SCHEMA,
-): Promise<void> {
+export async function applyD1Schema(db: D1DatabaseLike, schema: string = D1_SCHEMA): Promise<void> {
   const statements = schema
     .split(";")
     .map((statement) => statement.trim())
@@ -108,7 +123,7 @@ function changes(result: D1ResultLike | undefined): number {
 const TABLE = "mailswitch_idempotency";
 const FENCE = "key = ?1 AND claim_id = ?2 AND state = 'pending'";
 
-/** An `IdempotencyStore` on a D1 database. Apply `D1_IDEMPOTENCY_SCHEMA` first. */
+/** An `IdempotencyStore` on a D1 database. Apply `D1_SCHEMA` first. */
 export class D1IdempotencyStore implements IdempotencyStore {
   readonly #db: D1DatabaseLike;
 
@@ -219,5 +234,89 @@ export class D1IdempotencyStore implements IdempotencyStore {
       .bind(now)
       .run();
     return changes(result);
+  }
+}
+
+const CAP_TABLE = "mailswitch_daily_cap";
+const WINDOW_SUM = `SELECT COALESCE(SUM(used), 0) FROM ${CAP_TABLE} WHERE scope = ?1 AND bucket_start > ?3`;
+
+/**
+ * A `DailyCapStore` on a D1 database. Apply `D1_SCHEMA` first.
+ *
+ * `reserve` is one statement. It upserts the current bucket only when the sum of the
+ * window is below the cap. SQLite runs one statement at a time, so two parallel calls
+ * cannot both take the last unit.
+ */
+export class D1DailyCapStore implements DailyCapStore {
+  readonly #db: D1DatabaseLike;
+
+  constructor(db: D1DatabaseLike) {
+    if (!db || typeof db.prepare !== "function" || typeof db.batch !== "function") {
+      throw new TypeError("D1DailyCapStore needs a D1 database binding.");
+    }
+    this.#db = db;
+  }
+
+  async reserve(input: DailyCapReserveInput): Promise<DailyCapReservation> {
+    const db = this.#db;
+    const start = bucketStartOf(input.now);
+    const floor = windowFloor(input.now);
+    // One batch is one transaction: delete old buckets, reserve, then read the oldest
+    // bucket in the window for the reset time. The reserve inserts no row when the
+    // window is full, so the conflict update runs only when there is room.
+    const results = await db.batch<{ used?: number; oldest?: number | null }>([
+      db
+        .prepare(`DELETE FROM ${CAP_TABLE} WHERE scope = ?1 AND bucket_start <= ?2`)
+        .bind(input.scope, floor),
+      db
+        .prepare(
+          `INSERT INTO ${CAP_TABLE} (scope, bucket_start, used)
+           SELECT ?1, ?2, 1 WHERE (${WINDOW_SUM}) < ?4
+           ON CONFLICT(scope, bucket_start) DO UPDATE SET used = used + 1
+           RETURNING used`,
+        )
+        .bind(input.scope, start, floor, input.cap),
+      db
+        .prepare(
+          `SELECT MIN(bucket_start) AS oldest FROM ${CAP_TABLE}
+           WHERE scope = ?1 AND bucket_start > ?2 AND used > 0`,
+        )
+        .bind(input.scope, floor),
+    ]);
+    if ((results[1]?.results?.length ?? 0) > 0) return { ok: true, bucketStart: start };
+    const oldest = results[2]?.results?.[0]?.oldest;
+    return { ok: false, resetAt: bucketExpiry(typeof oldest === "number" ? oldest : start) };
+  }
+
+  async release(input: DailyCapReleaseInput): Promise<void> {
+    await this.#db
+      .prepare(
+        `UPDATE ${CAP_TABLE} SET used = used - 1
+         WHERE scope = ?1 AND bucket_start = ?2 AND used > 0`,
+      )
+      .bind(input.scope, input.bucketStart)
+      .run();
+  }
+
+  async fill(input: DailyCapFillInput): Promise<void> {
+    await this.#db
+      .prepare(
+        `INSERT INTO ${CAP_TABLE} (scope, bucket_start, used)
+         SELECT ?1, ?2, ?4 - total FROM (SELECT (${WINDOW_SUM}) AS total) WHERE total < ?4
+         ON CONFLICT(scope, bucket_start) DO UPDATE SET used = used + excluded.used`,
+      )
+      .bind(input.scope, bucketStartOf(input.now), windowFloor(input.now), input.cap)
+      .run();
+  }
+
+  async used(scope: string, now: number): Promise<number> {
+    const row = await this.#db
+      .prepare(
+        `SELECT COALESCE(SUM(used), 0) AS total FROM ${CAP_TABLE}
+         WHERE scope = ?1 AND bucket_start > ?2`,
+      )
+      .bind(scope, windowFloor(now))
+      .first<{ total: number }>();
+    return row?.total ?? 0;
   }
 }

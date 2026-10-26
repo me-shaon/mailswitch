@@ -10,3 +10,9 @@ CREATE TABLE IF NOT EXISTS mailswitch_idempotency (
   expires_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS mailswitch_idempotency_expires_at ON mailswitch_idempotency (expires_at);
+CREATE TABLE IF NOT EXISTS mailswitch_daily_cap (
+  scope TEXT NOT NULL,
+  bucket_start INTEGER NOT NULL,
+  used INTEGER NOT NULL CHECK (used >= 0),
+  PRIMARY KEY (scope, bucket_start)
+);

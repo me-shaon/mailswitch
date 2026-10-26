@@ -1,5 +1,5 @@
 // Store interfaces. Each concern has its own interface, so a store implements only what it
-// supports. Later units add `DailyCapStore` (U14) and `DedupeStore` (U8) to this file.
+// supports. A later unit adds `DedupeStore` (U8) to this file.
 
 import type { DeliveryStatus, FailureReason } from "../core/types";
 
@@ -124,4 +124,60 @@ export interface IdempotencyStore {
    * `pending` or `unknown` records. Returns the number of deleted records.
    */
   purgeExpired(now: number): Promise<number>;
+}
+
+/** The input of `DailyCapStore.reserve`. */
+export interface DailyCapReserveInput {
+  /** The cap scope, usually the provider id. One scope is one counter. */
+  scope: string;
+  /** The most units in the rolling 24-hour window. A positive integer. */
+  cap: number;
+  /** Unix milliseconds. */
+  now: number;
+}
+
+/**
+ * The outcome of `DailyCapStore.reserve`.
+ * - `ok: true`: one unit is reserved in the 5-minute bucket that starts at `bucketStart`.
+ *   Give `bucketStart` to `release` to refund the unit.
+ * - `ok: false`: the window is full. `resetAt` is when the oldest bucket in the window
+ *   leaves it, in Unix milliseconds.
+ */
+export type DailyCapReservation =
+  | { ok: true; bucketStart: number }
+  | { ok: false; resetAt: number };
+
+/** The input of `DailyCapStore.release`. */
+export interface DailyCapReleaseInput {
+  scope: string;
+  /** The `bucketStart` of the reservation. */
+  bucketStart: number;
+  /** Unix milliseconds. */
+  now: number;
+}
+
+/** The input of `DailyCapStore.fill`. */
+export interface DailyCapFillInput {
+  scope: string;
+  cap: number;
+  /** Unix milliseconds. */
+  now: number;
+}
+
+/**
+ * Counts sends per scope in a rolling 24-hour window of 5-minute buckets. A bucket counts
+ * while any part of it is less than 24 hours old.
+ *
+ * Implementations must make `reserve` atomic: two parallel calls cannot both take the
+ * last unit. A read followed by a write is not safe.
+ */
+export interface DailyCapStore {
+  /** Reserves one unit when the window has room. */
+  reserve(input: DailyCapReserveInput): Promise<DailyCapReservation>;
+  /** Refunds one unit from the bucket of a reservation. A bucket never goes below zero. */
+  release(input: DailyCapReleaseInput): Promise<void>;
+  /** Adds units to the current bucket until the window holds `cap` units. */
+  fill(input: DailyCapFillInput): Promise<void>;
+  /** The units in the window now. For operators and tests. */
+  used(scope: string, now: number): Promise<number>;
 }
