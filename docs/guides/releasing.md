@@ -30,7 +30,7 @@ npm trusted publishing uses OIDC. GitHub Actions gets a short-lived token for ea
 
    | Field | Value |
    |---|---|
-   | Organization or user | The owner of the repository |
+   | Organization or user | `me-shaon` |
    | Repository | `mailswitch` |
    | Workflow filename | `release.yml` |
    | Environment | `release` |

@@ -4,6 +4,14 @@
   "description": "Transactional email for Cloudflare Workers, with provider fallback and delivery safety.",
   "license": "MIT",
   "author": "Ahmed Shamim",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/me-shaon/mailswitch.git"
+  },
+  "homepage": "https://github.com/me-shaon/mailswitch#readme",
+  "bugs": {
+    "url": "https://github.com/me-shaon/mailswitch/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "packageManager": "pnpm@10.34.7",
