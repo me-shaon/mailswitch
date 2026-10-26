@@ -21,7 +21,13 @@ import type {
 } from "../../core/types";
 import { formatAddress, parseAddress } from "../../internal/address";
 import { bytesToBase64, bytesToHex, utf8 } from "../../internal/encoding";
-import { callProvider, discardBody, readJson } from "../../internal/http";
+import {
+  callProvider,
+  discardBody,
+  parseBaseUrl,
+  readJson,
+  withProvider,
+} from "../../internal/http";
 import { resendMeta } from "./meta";
 import { parseResendEvents, verifyResendWebhook } from "./webhooks";
 
@@ -103,10 +109,6 @@ function emailPayload(message: OutgoingMessage): Record<string, unknown> {
   return body;
 }
 
-function tag<T extends NotSentResult | UnknownResult>(result: T): T {
-  return { ...result, provider: PROVIDER };
-}
-
 /**
  * Refines the reason of a `not_sent` result with the Resend error name. The status never
  * changes. The message keeps the fixed text and never copies the response body.
@@ -139,9 +141,9 @@ async function failure(
   if (outcome.status === "sent") return null;
   if (outcome.status === "unknown") {
     await discardBody(response);
-    return tag(outcome);
+    return withProvider(outcome, PROVIDER);
   }
-  return tag(refine(outcome, (await readJson(response)) as ResendError | null));
+  return withProvider(refine(outcome, (await readJson(response)) as ResendError | null), PROVIDER);
 }
 
 function checkOptions(options: ResendOptions): string {
@@ -151,17 +153,7 @@ function checkOptions(options: ResendOptions): string {
   if (options.apiKey !== undefined && typeof options.apiKey !== "string") {
     throw new TypeError("resend: apiKey must be a string.");
   }
-  const base = options.baseUrl ?? RESEND_API_BASE;
-  let url: URL;
-  try {
-    url = new URL(base);
-  } catch {
-    throw new TypeError("resend: baseUrl must be an absolute URL.");
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new TypeError("resend: baseUrl must be an http or https URL.");
-  }
-  return base.replace(/\/+$/, "");
+  return parseBaseUrl(options.baseUrl, RESEND_API_BASE, "resend: baseUrl");
 }
 
 /** Creates the Resend adapter. Throws a TypeError for invalid options. */
@@ -177,7 +169,7 @@ export function resend(options: ResendOptions = {}): ProviderAdapter {
 
   async function send(message: OutgoingMessage, ctx: SendContext): Promise<SendResult> {
     const checked = validateMessage(message, resendMeta.capabilities);
-    if (!checked.ok) return tag(checked.result);
+    if (!checked.ok) return withProvider(checked.result, PROVIDER);
     const head = headers(ctx);
     if (message.idempotencyKey !== undefined) {
       head["idempotency-key"] = await resendIdempotencyKey(message.idempotencyKey);
@@ -189,7 +181,7 @@ export function resend(options: ResendOptions = {}): ProviderAdapter {
       timeoutMs: ctx.timeoutMs,
       fetch: ctx.fetch,
     });
-    if (!call.ok) return tag(call.result);
+    if (!call.ok) return withProvider(call.result, PROVIDER);
     const failed = await failure(call.response, ctx);
     if (failed) return failed;
     const id = ((await readJson(call.response)) as { id?: unknown } | null)?.id;
@@ -212,7 +204,9 @@ export function resend(options: ResendOptions = {}): ProviderAdapter {
       timeoutMs: ctx.timeoutMs,
       fetch: ctx.fetch,
     });
-    const failed = call.ok ? await failure(call.response, ctx) : tag(call.result);
+    const failed = call.ok
+      ? await failure(call.response, ctx)
+      : withProvider(call.result, PROVIDER);
     if (failed) return messages.map(() => ({ ...failed }));
     // Strict validation: a 2xx means Resend accepted every email. `data` lists the ids in order.
     const json = (await readJson((call as { response: Response }).response)) as {
@@ -254,7 +248,7 @@ export function resend(options: ResendOptions = {}): ProviderAdapter {
     messages.forEach((message, index) => {
       const checked = validateMessage(message, resendMeta.capabilities);
       if (!checked.ok) {
-        results[index] = tag(checked.result);
+        results[index] = withProvider(checked.result, PROVIDER);
       } else if (message.attachments?.length) {
         // The batch endpoint refuses attachments, so this message goes through send.
         pending.push(
@@ -281,14 +275,14 @@ export function resend(options: ResendOptions = {}): ProviderAdapter {
       timeoutMs: ctx.timeoutMs,
       fetch: ctx.fetch,
     });
-    if (!call.ok) return { ...tag(call.result), ok: false };
+    if (!call.ok) return { ...withProvider(call.result, PROVIDER), ok: false };
     const response = call.response;
     if (response.status === 401) {
       // A sending-only key cannot list domains, but it can send.
       const error = (await readJson(response)) as ResendError | null;
       if (error?.name === "restricted_api_key") return { ok: true };
       const outcome = classifyResponse(401, response.headers, resendMeta.statusMap);
-      return { ...tag(outcome as NotSentResult), ok: false };
+      return { ...withProvider(outcome as NotSentResult, PROVIDER), ok: false };
     }
     const failed = await failure(response, ctx);
     if (failed) return { ...failed, ok: false };

@@ -1,5 +1,4 @@
 // mailswitch core: createMailer, defineProvider, and the shared types.
-export const PACKAGE_NAME = "mailswitch" as const;
 
 export {
   defineProvider,
@@ -18,11 +17,7 @@ export {
   type CredentialParseResult,
   parseCredentials,
 } from "./core/credentials";
-export {
-  bucketExpiry,
-  DAILY_CAP_BUCKET_MS,
-  DAILY_CAP_WINDOW_MS,
-} from "./core/daily-cap";
+export { DAILY_CAP_WINDOW_MS } from "./core/daily-cap";
 export {
   NORMALIZED_EVENT_TYPES,
   type NormalizedEvent,

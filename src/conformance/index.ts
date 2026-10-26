@@ -34,7 +34,7 @@ export {
   parseMail,
 } from "./mock-smtp";
 export { SMTP_CHECK_IDS } from "./smtp-checks";
-export { createSnsSigner, type SnsMessage, type SnsSigner, snsStringToSign } from "./sns-signer";
+export { createSnsSigner, type SnsMessage, type SnsSigner } from "./sns-signer";
 export type {
   AnyConformanceFixture,
   CapturedAttachment,

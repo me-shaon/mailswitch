@@ -15,17 +15,21 @@ import {
 import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type {
-  AddressInput,
   FailureReason,
   NotSentResult,
   OutgoingMessage,
   SendResult,
   UnknownResult,
 } from "../../core/types";
-import { formatAddress, parseAddress } from "../../internal/address";
-import { bytesToBase64 } from "../../internal/encoding";
-import { callProvider, discardBody, readJson } from "../../internal/http";
+import {
+  callProvider,
+  discardBody,
+  parseBaseUrl,
+  readJson,
+  withProvider,
+} from "../../internal/http";
 import { postmarkMeta } from "./meta";
+import { postmarkPayload } from "./payload";
 import { type PostmarkWebhookOptions, postmarkWebhooks } from "./webhooks";
 
 export { postmarkMeta } from "./meta";
@@ -43,13 +47,6 @@ export {
 
 /** The Postmark API origin. */
 export const POSTMARK_API_BASE = "https://api.postmarkapp.com";
-
-/**
- * Postmark webhooks carry no signed timestamp, and Basic auth passes for a replayed
- * request. The webhook router requires a dedupe store in its types for every adapter
- * that carries this marker, and it throws at runtime when the store is missing.
- */
-export const requiresDedupe: true = true;
 
 /** Options of `postmark`. */
 export interface PostmarkOptions {
@@ -85,46 +82,6 @@ const PROVIDER = postmarkMeta.id;
 interface PostmarkError {
   ErrorCode?: unknown;
   Message?: unknown;
-}
-
-function address(input: AddressInput): string {
-  // validateMessage has checked every address, so parseAddress cannot return null here.
-  const parsed = parseAddress(input);
-  return parsed ? formatAddress(parsed) : "";
-}
-
-/** Maps a message to the Postmark request shape. */
-export function postmarkPayload(
-  message: OutgoingMessage,
-  messageStream?: string,
-): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    From: address(message.from),
-    To: message.to.map(address).join(", "),
-    Subject: message.subject,
-  };
-  if (message.cc?.length) body.Cc = message.cc.map(address).join(", ");
-  if (message.bcc?.length) body.Bcc = message.bcc.map(address).join(", ");
-  if (message.replyTo !== undefined) body.ReplyTo = address(message.replyTo);
-  if (message.html) body.HtmlBody = message.html;
-  if (message.text) body.TextBody = message.text;
-  if (message.headers && Object.keys(message.headers).length > 0) {
-    body.Headers = Object.entries(message.headers).map(([Name, Value]) => ({ Name, Value }));
-  }
-  if (message.attachments?.length) {
-    body.Attachments = message.attachments.map((item) => ({
-      Name: item.filename,
-      Content: typeof item.content === "string" ? item.content : bytesToBase64(item.content),
-      ContentType: item.contentType,
-      ...(item.contentId === undefined ? {} : { ContentID: `cid:${item.contentId}` }),
-    }));
-  }
-  if (messageStream) body.MessageStream = messageStream;
-  return body;
-}
-
-function tag<T extends NotSentResult | UnknownResult>(result: T): T {
-  return { ...result, provider: PROVIDER };
 }
 
 /**
@@ -168,9 +125,12 @@ async function failure(response: Response, now: number): Promise<NotSentResult |
   }) as NotSentResult | UnknownResult;
   if (outcome.status === "unknown") {
     await discardBody(response);
-    return tag(outcome);
+    return withProvider(outcome, PROVIDER);
   }
-  return tag(refine(outcome, (await readJson(response)) as PostmarkError | null));
+  return withProvider(
+    refine(outcome, (await readJson(response)) as PostmarkError | null),
+    PROVIDER,
+  );
 }
 
 /**
@@ -194,26 +154,31 @@ function batchItem(item: unknown): SendResult {
     };
   }
   if (typeof code !== "number" || code === 100 || code === 101) {
-    return tag({
-      status: "unknown",
-      reason: "provider_error",
-      message: "Postmark returned no clear result for this email.",
-    });
+    return withProvider(
+      {
+        status: "unknown",
+        reason: "provider_error",
+        message: "Postmark returned no clear result for this email.",
+      },
+      PROVIDER,
+    );
   }
   const reason = reasonOf(code) ?? "invalid_message";
-  return tag({
-    status: "not_sent",
-    reason,
-    message: `Postmark refused this email (${reason}).`,
-  });
+  return withProvider(
+    {
+      status: "not_sent",
+      reason,
+      message: `Postmark refused this email (${reason}).`,
+    },
+    PROVIDER,
+  );
 }
 
 function checkOptions(options: PostmarkOptions): string {
-  const base = (options?.baseUrl ?? POSTMARK_API_BASE).replace(/\/+$/, "");
-  if (!/^https?:\/\/[^/]/.test(base)) {
-    throw new TypeError("postmark: baseUrl must be an http or https URL.");
+  if (typeof options !== "object" || options === null) {
+    throw new TypeError("postmark expects an options object.");
   }
-  return base;
+  return parseBaseUrl(options.baseUrl, POSTMARK_API_BASE, "postmark: baseUrl");
 }
 
 /**
@@ -255,9 +220,9 @@ export function postmark(options: PostmarkOptions = {}): PostmarkAdapter {
 
   async function send(message: OutgoingMessage, ctx: SendContext): Promise<SendResult> {
     const checked = validateMessage(message, postmarkMeta.capabilities);
-    if (!checked.ok) return tag(checked.result);
+    if (!checked.ok) return withProvider(checked.result, PROVIDER);
     const call = await post("/email", postmarkPayload(message, stream(ctx)), ctx);
-    if (!call.ok) return tag(call.result);
+    if (!call.ok) return withProvider(call.result, PROVIDER);
     const { response } = call;
     if (!response.ok) return failure(response, ctx.now);
     const id = ((await readJson(response)) as { MessageID?: unknown } | null)?.MessageID;
@@ -279,7 +244,7 @@ export function postmark(options: PostmarkOptions = {}): PostmarkAdapter {
     }
     const results: (SendResult | undefined)[] = messages.map((message) => {
       const checked = validateMessage(message, postmarkMeta.capabilities);
-      return checked.ok ? undefined : tag(checked.result);
+      return checked.ok ? undefined : withProvider(checked.result, PROVIDER);
     });
     const slots = results.flatMap((result, index) => (result === undefined ? [index] : []));
     if (slots.length === 0) return results as SendResult[];
@@ -290,7 +255,7 @@ export function postmark(options: PostmarkOptions = {}): PostmarkAdapter {
     const call = await post("/email/batch", emails, ctx);
     let fill: (position: number) => SendResult;
     if (!call.ok) {
-      const result = tag(call.result);
+      const result = withProvider(call.result, PROVIDER);
       fill = () => result;
     } else if (!call.response.ok) {
       const result = await failure(call.response, ctx.now);
@@ -314,12 +279,12 @@ export function postmark(options: PostmarkOptions = {}): PostmarkAdapter {
       timeoutMs: ctx.timeoutMs,
       fetch: ctx.fetch,
     });
-    if (!call.ok) return { ...tag(call.result), ok: false };
+    if (!call.ok) return { ...withProvider(call.result, PROVIDER), ok: false };
     if (!call.response.ok) return { ...(await failure(call.response, ctx.now)), ok: false };
     await discardBody(call.response);
     return { ok: true };
   }
 
   const adapter = defineProvider({ meta: postmarkMeta, send, sendBatch, verify, webhooks });
-  return { ...adapter, webhooks, requiresDedupe };
+  return { ...adapter, webhooks, requiresDedupe: true };
 }

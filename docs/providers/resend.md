@@ -43,7 +43,7 @@ const mailer = createMailer({
 `resend()` takes two optional options:
 
 - `apiKey`: the key, for code that calls the adapter directly. A key in the credentials takes precedence.
-- `baseUrl`: the API origin. It defaults to `https://api.resend.com`. Tests and proxies change it.
+- `baseUrl`: the API origin. It defaults to `https://api.resend.com`. Tests and proxies change it. It must be an https URL. Plain http works only for a loopback host, for tests.
 
 ### Verify
 

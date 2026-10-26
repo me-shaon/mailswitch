@@ -18,7 +18,7 @@ const adapter = postmark({ serverToken: env.POSTMARK_SERVER_TOKEN });
 |---|---|
 | `serverToken` | The server API token. The `serverToken` credential takes precedence. |
 | `messageStream` | The message stream ID. The `messageStream` credential takes precedence. When both are empty, Postmark uses the `outbound` stream. |
-| `baseUrl` | The API origin, for tests or a proxy. The default is `https://api.postmarkapp.com`. |
+| `baseUrl` | The API origin, for tests or a proxy. The default is `https://api.postmarkapp.com`. It must be an https URL. Plain http works only for a loopback host, for tests. |
 | `webhookUsername` | The Basic auth username of the webhook. The default is `mailswitch`. |
 | `previousWebhookSecret` | The webhook secret before a rotation. See [Rotate the webhook secret](#rotate-the-webhook-secret). |
 

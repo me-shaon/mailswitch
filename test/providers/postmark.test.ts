@@ -15,7 +15,6 @@ import {
   POSTMARK_API_BASE,
   postmark,
   postmarkWebhookAuthorization,
-  requiresDedupe,
 } from "../../src/providers/postmark/index";
 import { MemoryDedupeStore } from "../../src/stores/memory";
 import { handleWebhook } from "../../src/webhooks/index";
@@ -256,7 +255,6 @@ describe("postmark webhook auth", () => {
 
 describe("postmark events through handleWebhook", () => {
   it("is marked as needing a dedupe store", () => {
-    expect(requiresDedupe).toBe(true);
     expect(postmark().requiresDedupe).toBe(true);
     expect(postmark().webhooks.signedTimestamp).toBe(false);
     const options = { adapter: postmark(), secret: SECRET };

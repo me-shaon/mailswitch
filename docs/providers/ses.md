@@ -51,7 +51,7 @@ Each message is one `SendEmail` call to `https://email.<region>.amazonaws.com/v2
 | Option | Default | What it does |
 |---|---|---|
 | `configurationSetName` | None | The configuration set of each message. Event publishing to SNS needs it. |
-| `endpoint` | `https://email.<region>.amazonaws.com` | The API origin, for example a VPC endpoint. The signature still uses the region of the credentials. |
+| `endpoint` | `https://email.<region>.amazonaws.com` | The API origin, for example a VPC endpoint. The signature still uses the region of the credentials. It must be an https URL. Plain http works only for a loopback host, for tests. |
 | `region`, `accessKeyId`, `secretAccessKey`, `sessionToken` | None | Credentials. The credentials of the mailer take precedence. |
 | `snsMaxAgeMs` | 1 hour | The oldest SNS `Timestamp` that the webhook check accepts. |
 | `requireSignatureVersion2` | `false` | Refuse SNS messages with SignatureVersion 1 (SHA-1). |
