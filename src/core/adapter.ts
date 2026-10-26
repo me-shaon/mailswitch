@@ -55,6 +55,12 @@ export interface ProviderWebhooks {
    * A body with no events that mailswitch maps gives events of type `unknown`.
    */
   parse(body: Uint8Array, headers: Headers): NormalizedEvent[];
+  /**
+   * True when the signature covers a timestamp that `verify` checks, so an old request
+   * is refused as `stale`. When it is not true, the webhook router keeps dedupe keys for
+   * 30 days instead of 7, because only the dedupe store stops a replay.
+   */
+  signedTimestamp?: boolean;
 }
 
 /** One email provider. */

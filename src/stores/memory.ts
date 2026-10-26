@@ -8,6 +8,11 @@ import type {
   DailyCapReservation,
   DailyCapReserveInput,
   DailyCapStore,
+  DedupeClaimInput,
+  DedupeClaimOutcome,
+  DedupeCommitInput,
+  DedupeReleaseInput,
+  DedupeStore,
   IdempotencyAppendInput,
   IdempotencyClaimInput,
   IdempotencyClaimOutcome,
@@ -22,6 +27,11 @@ export type {
   DailyCapReservation,
   DailyCapReserveInput,
   DailyCapStore,
+  DedupeClaimInput,
+  DedupeClaimOutcome,
+  DedupeCommitInput,
+  DedupeReleaseInput,
+  DedupeStore,
   IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
@@ -189,5 +199,41 @@ export class MemoryDailyCapStore implements DailyCapStore {
 
   async used(scope: string, now: number): Promise<number> {
     return this.#sum(this.#buckets(scope, now));
+  }
+}
+
+/**
+ * A `DedupeStore` in a `Map`. Each method runs to completion before it yields, so the
+ * claim is atomic inside one isolate.
+ */
+export class MemoryDedupeStore implements DedupeStore {
+  readonly #keys = new Map<string, { committed: boolean; expiresAt: number }>();
+
+  async claim(input: DedupeClaimInput): Promise<DedupeClaimOutcome> {
+    const current = this.#keys.get(input.key);
+    if (current && current.expiresAt > input.now) {
+      return current.committed ? "duplicate" : "in_flight";
+    }
+    this.#keys.set(input.key, { committed: false, expiresAt: input.now + input.leaseMs });
+    return "new";
+  }
+
+  async commit(input: DedupeCommitInput): Promise<void> {
+    this.#keys.set(input.key, { committed: true, expiresAt: input.now + input.ttlMs });
+  }
+
+  async release(input: DedupeReleaseInput): Promise<void> {
+    if (this.#keys.get(input.key)?.committed === false) this.#keys.delete(input.key);
+  }
+
+  async purgeExpired(now: number): Promise<number> {
+    let deleted = 0;
+    for (const [key, entry] of this.#keys) {
+      if (entry.expiresAt <= now) {
+        this.#keys.delete(key);
+        deleted++;
+      }
+    }
+    return deleted;
   }
 }

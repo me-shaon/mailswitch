@@ -301,6 +301,6 @@ export function resend(options: ResendOptions = {}): ProviderAdapter {
     send,
     sendBatch,
     verify,
-    webhooks: { verify: verifyResendWebhook, parse: parseResendEvents },
+    webhooks: { verify: verifyResendWebhook, parse: parseResendEvents, signedTimestamp: true },
   });
 }

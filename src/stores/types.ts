@@ -1,5 +1,5 @@
 // Store interfaces. Each concern has its own interface, so a store implements only what it
-// supports. A later unit adds `DedupeStore` (U8) to this file.
+// supports.
 
 import type { DeliveryStatus, FailureReason } from "../core/types";
 
@@ -180,4 +180,57 @@ export interface DailyCapStore {
   fill(input: DailyCapFillInput): Promise<void>;
   /** The units in the window now. For operators and tests. */
   used(scope: string, now: number): Promise<number>;
+}
+
+/**
+ * The outcome of `DedupeStore.claim`.
+ * - `new`: this call holds the lease now. Commit the key after the event is handled.
+ * - `duplicate`: the key was committed before and its TTL has not passed.
+ * - `in_flight`: another request holds a lease on the key that has not expired.
+ */
+export type DedupeClaimOutcome = "new" | "duplicate" | "in_flight";
+
+/** The input of `DedupeStore.claim`. */
+export interface DedupeClaimInput {
+  /** The dedupe key, `${provider}:${endpointId}:${eventKey}`. */
+  key: string;
+  /** How long the lease holds the key without a commit, in milliseconds. */
+  leaseMs: number;
+  /** Unix milliseconds. */
+  now: number;
+}
+
+/** The input of `DedupeStore.commit`. */
+export interface DedupeCommitInput {
+  key: string;
+  /** How long the committed key blocks a replay, in milliseconds. */
+  ttlMs: number;
+  /** Unix milliseconds. */
+  now: number;
+}
+
+/** The input of `DedupeStore.release`. */
+export interface DedupeReleaseInput {
+  key: string;
+}
+
+/**
+ * Stores webhook event keys in two phases: a claim with a lease, then a commit with a
+ * TTL. A lease that expires without a commit frees the key, so a provider retry delivers
+ * the event again. A committed key is a duplicate until its TTL passes.
+ *
+ * Implementations must make `claim` atomic: two parallel claims cannot both get `new`.
+ */
+export interface DedupeStore {
+  /** Takes a lease on a free key, a key whose lease expired, or a key whose TTL passed. */
+  claim(input: DedupeClaimInput): Promise<DedupeClaimOutcome>;
+  /** Marks the key as handled. A later claim gets `duplicate` until the TTL passes. */
+  commit(input: DedupeCommitInput): Promise<void>;
+  /** Frees a key that is not committed. It never frees a committed key. */
+  release(input: DedupeReleaseInput): Promise<void>;
+  /**
+   * Deletes committed keys whose TTL passed and leases that expired. Both are free for a
+   * new claim already. Returns the number of deleted keys.
+   */
+  purgeExpired(now: number): Promise<number>;
 }

@@ -8,6 +8,11 @@ import type {
   DailyCapReservation,
   DailyCapReserveInput,
   DailyCapStore,
+  DedupeClaimInput,
+  DedupeClaimOutcome,
+  DedupeCommitInput,
+  DedupeReleaseInput,
+  DedupeStore,
   IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
@@ -24,6 +29,11 @@ export type {
   DailyCapReservation,
   DailyCapReserveInput,
   DailyCapStore,
+  DedupeClaimInput,
+  DedupeClaimOutcome,
+  DedupeCommitInput,
+  DedupeReleaseInput,
+  DedupeStore,
   IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
@@ -55,7 +65,8 @@ export interface D1DatabaseLike {
 }
 
 /**
- * The schema of the mailswitch tables: the idempotency table and the daily cap buckets.
+ * The schema of the mailswitch tables: the idempotency table, the daily cap buckets, and
+ * the webhook dedupe keys.
  * Apply it with `applyD1Schema`, or copy it into a migration. `src/stores/d1-schema.sql`
  * holds the same text.
  */
@@ -77,6 +88,12 @@ CREATE TABLE IF NOT EXISTS mailswitch_daily_cap (
   used INTEGER NOT NULL CHECK (used >= 0),
   PRIMARY KEY (scope, bucket_start)
 );
+CREATE TABLE IF NOT EXISTS mailswitch_webhook_dedupe (
+  key TEXT PRIMARY KEY NOT NULL,
+  committed INTEGER NOT NULL DEFAULT 0 CHECK (committed IN (0, 1)),
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mailswitch_webhook_dedupe_expires_at ON mailswitch_webhook_dedupe (expires_at);
 `;
 
 /** Runs each statement of a schema in one batch. The statements use `IF NOT EXISTS`. */
@@ -318,5 +335,67 @@ export class D1DailyCapStore implements DailyCapStore {
       .bind(scope, windowFloor(now))
       .first<{ total: number }>();
     return row?.total ?? 0;
+  }
+}
+
+const DEDUPE_TABLE = "mailswitch_webhook_dedupe";
+
+/**
+ * A `DedupeStore` on a D1 database. Apply `D1_SCHEMA` first.
+ *
+ * One column, `expires_at`, holds the end of a lease or the end of a TTL. `claim` is one
+ * upsert that takes the row only when it is missing or expired. `RETURNING` tells the
+ * caller whether this call won.
+ */
+export class D1DedupeStore implements DedupeStore {
+  readonly #db: D1DatabaseLike;
+
+  constructor(db: D1DatabaseLike) {
+    if (!db || typeof db.prepare !== "function" || typeof db.batch !== "function") {
+      throw new TypeError("D1DedupeStore needs a D1 database binding.");
+    }
+    this.#db = db;
+  }
+
+  async claim(input: DedupeClaimInput): Promise<DedupeClaimOutcome> {
+    const db = this.#db;
+    const results = await db.batch<{ committed?: number }>([
+      db
+        .prepare(
+          `INSERT INTO ${DEDUPE_TABLE} (key, committed, expires_at) VALUES (?1, 0, ?2 + ?3)
+           ON CONFLICT(key) DO UPDATE SET committed = 0, expires_at = excluded.expires_at
+           WHERE ${DEDUPE_TABLE}.expires_at <= ?2
+           RETURNING key`,
+        )
+        .bind(input.key, input.now, input.leaseMs),
+      db.prepare(`SELECT committed FROM ${DEDUPE_TABLE} WHERE key = ?1`).bind(input.key),
+    ]);
+    if ((results[0]?.results?.length ?? 0) > 0) return "new";
+    return results[1]?.results?.[0]?.committed === 1 ? "duplicate" : "in_flight";
+  }
+
+  async commit(input: DedupeCommitInput): Promise<void> {
+    await this.#db
+      .prepare(
+        `INSERT INTO ${DEDUPE_TABLE} (key, committed, expires_at) VALUES (?1, 1, ?2)
+         ON CONFLICT(key) DO UPDATE SET committed = 1, expires_at = excluded.expires_at`,
+      )
+      .bind(input.key, input.now + input.ttlMs)
+      .run();
+  }
+
+  async release(input: DedupeReleaseInput): Promise<void> {
+    await this.#db
+      .prepare(`DELETE FROM ${DEDUPE_TABLE} WHERE key = ?1 AND committed = 0`)
+      .bind(input.key)
+      .run();
+  }
+
+  async purgeExpired(now: number): Promise<number> {
+    const result = await this.#db
+      .prepare(`DELETE FROM ${DEDUPE_TABLE} WHERE expires_at <= ?1`)
+      .bind(now)
+      .run();
+    return changes(result);
   }
 }

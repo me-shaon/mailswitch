@@ -16,3 +16,9 @@ CREATE TABLE IF NOT EXISTS mailswitch_daily_cap (
   used INTEGER NOT NULL CHECK (used >= 0),
   PRIMARY KEY (scope, bucket_start)
 );
+CREATE TABLE IF NOT EXISTS mailswitch_webhook_dedupe (
+  key TEXT PRIMARY KEY NOT NULL,
+  committed INTEGER NOT NULL DEFAULT 0 CHECK (committed IN (0, 1)),
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mailswitch_webhook_dedupe_expires_at ON mailswitch_webhook_dedupe (expires_at);

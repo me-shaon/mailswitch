@@ -106,5 +106,5 @@ function parse(provider: string, body: Uint8Array): NormalizedEvent[] {
 
 /** The webhook methods of the toSend adapter. */
 export function toSendWebhooks(provider: string): ProviderWebhooks {
-  return { verify, parse: (body) => parse(provider, body) };
+  return { verify, parse: (body) => parse(provider, body), signedTimestamp: false };
 }
