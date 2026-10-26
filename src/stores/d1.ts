@@ -67,8 +67,8 @@ export interface D1DatabaseLike {
 /**
  * The schema of the mailswitch tables: the idempotency table, the daily cap buckets, and
  * the webhook dedupe keys.
- * Apply it with `applyD1Schema`, or copy it into a migration. `src/stores/d1-schema.sql`
- * holds the same text.
+ * Apply it with `applyD1Schema`, or copy it into a migration. The package export
+ * `mailswitch/stores/d1-schema.sql` holds the same text.
  */
 export const D1_SCHEMA = `CREATE TABLE IF NOT EXISTS mailswitch_idempotency (
   key TEXT PRIMARY KEY NOT NULL,

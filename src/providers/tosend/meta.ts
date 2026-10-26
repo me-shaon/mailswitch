@@ -28,6 +28,7 @@ export const toSendMeta: ProviderMeta = defineProviderMeta({
       required: true,
       placeholder: "tsend_...",
       pattern: "^tsend_[A-Za-z0-9_]+$",
+      hint: "A sending key from the toSend dashboard. An admin key needs the emails:send scope.",
     },
   ],
   docsUrl: "https://tosend.com/docs/api/send-email/",

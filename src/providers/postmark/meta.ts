@@ -33,6 +33,7 @@ export const postmarkMeta: ProviderMeta = defineProviderMeta({
       required: true,
       placeholder: "00000000-0000-0000-0000-000000000000",
       pattern: "^(?:POSTMARK_API_TEST|[A-Za-z0-9-]{16,64})$",
+      hint: "On the API Tokens tab of your Postmark server. It is not the account token.",
     },
     {
       name: "messageStream",
@@ -41,6 +42,7 @@ export const postmarkMeta: ProviderMeta = defineProviderMeta({
       required: false,
       placeholder: "outbound",
       pattern: "^[a-z0-9-]{1,30}$",
+      hint: "Leave it empty to use the default transactional stream, outbound.",
     },
   ],
   docsUrl: "https://postmarkapp.com/developer/api/email-api",

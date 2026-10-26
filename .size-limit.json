@@ -8,7 +8,7 @@
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
-    "limit": "3 KB",
+    "limit": "4 KB",
     "gzip": true
   },
   {

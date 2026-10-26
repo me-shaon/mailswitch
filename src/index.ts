@@ -50,6 +50,7 @@ export {
   type MailerOptions,
   type MailerProvider,
 } from "./core/pipeline";
+export { createSendContext, type SendContextOptions } from "./core/send-context";
 export type {
   ProviderSocket,
   SecureTransport,

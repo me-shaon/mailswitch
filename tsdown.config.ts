@@ -30,6 +30,9 @@ const config: UserConfig = defineConfig({
   dts: true,
   sourcemap: false,
   clean: true,
+  // The D1 schema ships as a plain SQL file, so a migration can copy it from node_modules.
+  // A function, so a build with another outDir (the schema test) copies it there too.
+  copy: (resolved) => [{ from: "src/stores/d1-schema.sql", to: `${resolved.outDir}/stores` }],
   // vitest is an optional peer dependency of mailswitch/conformance/vitest. Keep it external.
   deps: { neverBundle: ["vitest"] },
 });

@@ -10,12 +10,15 @@ The Mailgun adapter sends email with the Mailgun HTTP API. It is a tier 1 provid
 import { createMailer } from "mailswitch";
 import { mailgun } from "mailswitch/mailgun";
 
+declare const env: { MAILGUN_API_KEY: string };
+
 const mailer = createMailer({
-  provider: mailgun({
-    apiKey: env.MAILGUN_API_KEY,
-    domain: "mg.example.com",
-    region: "eu",
-  }),
+  providers: [
+    {
+      adapter: mailgun(),
+      credentials: { apiKey: env.MAILGUN_API_KEY, domain: "mg.example.com", region: "eu" },
+    },
+  ],
 });
 ```
 
@@ -71,17 +74,26 @@ import { mailgun } from "mailswitch/mailgun";
 import { D1DedupeStore } from "mailswitch/stores/d1";
 import { handleWebhook } from "mailswitch/webhooks";
 
-const outcome = await handleWebhook(request, {
-  adapter: mailgun(),
-  secret: env.MAILGUN_WEBHOOK_SIGNING_KEY,
-  dedupe: new D1DedupeStore(env.DB),
-});
-if (!outcome.ok) return new Response(null, { status: outcome.status });
-for (const event of outcome.events) {
-  // Handle the event.
+interface Env {
+  DB: ConstructorParameters<typeof D1DedupeStore>[0];
+  MAILGUN_WEBHOOK_SIGNING_KEY: string;
 }
-await outcome.ack();
-return new Response(null, { status: 200 });
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const outcome = await handleWebhook(request, {
+      adapter: mailgun(),
+      secret: env.MAILGUN_WEBHOOK_SIGNING_KEY,
+      dedupe: new D1DedupeStore(env.DB),
+    });
+    if (!outcome.ok) return new Response(null, { status: outcome.status });
+    for (const event of outcome.events) {
+      console.log(event.type);
+    }
+    await outcome.ack();
+    return new Response(null, { status: 200 });
+  },
+};
 ```
 
 ### Rules

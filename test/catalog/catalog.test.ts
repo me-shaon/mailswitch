@@ -66,6 +66,23 @@ describe("catalog", () => {
     });
   });
 
+  it("gives the SMTP presets the labels and hints that a settings form shows", () => {
+    const smtp = getProviderMeta("smtp");
+    const preset = (id: string) => smtp?.presets?.find((entry) => entry.id === id);
+    for (const id of ["gmail", "google-workspace"]) {
+      expect(preset(id)?.fieldHints?.password?.label).toBe("App password");
+      expect(preset(id)?.fieldHints?.password?.hint).toMatch(/2-Step Verification/);
+    }
+    expect(preset("brevo")?.fieldHints?.password).toMatchObject({ label: "SMTP key" });
+    expect(preset("brevo")?.fieldHints?.password?.hint).toMatch(/API key does not work/);
+    for (const id of ["mailpit", "mailcrab"]) {
+      expect(preset(id)?.fieldHints?.host?.hint).toMatch(/Local development only/);
+    }
+    for (const field of smtp?.credentialFields ?? []) {
+      expect(field.label.length, field.name).toBeGreaterThan(3);
+    }
+  });
+
   it("imports only meta files", () => {
     const files = Object.keys(sources);
     expect(files).toContain("../../src/catalog/index.ts");

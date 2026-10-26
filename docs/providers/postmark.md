@@ -9,6 +9,8 @@ The Postmark adapter is in `mailswitch/postmark`. It is a tier 1 provider. It se
 ```ts
 import { postmark } from "mailswitch/postmark";
 
+declare const env: { POSTMARK_SERVER_TOKEN: string };
+
 const adapter = postmark({ serverToken: env.POSTMARK_SERVER_TOKEN });
 ```
 
@@ -88,18 +90,30 @@ A secret that is too short is a setup error. The webhook check throws a `TypeErr
 The Postmark adapter needs a dedupe store. Basic auth covers no timestamp, so a replayed request passes the check. The dedupe store is the only replay guard. `handleWebhook` requires the store in its types, and it throws when the store is missing.
 
 ```ts
+import type { DedupeStore } from "mailswitch";
 import { postmark } from "mailswitch/postmark";
 import { handleWebhook } from "mailswitch/webhooks";
 
-const outcome = await handleWebhook(request, {
-  adapter: postmark(),
-  secret: env.POSTMARK_WEBHOOK_SECRET,
-  dedupe,
-});
-if (!outcome.ok) return new Response(null, { status: outcome.status });
-await handleEvents(outcome.events);
-await outcome.ack();
-return new Response(null, { status: 200 });
+declare const dedupe: DedupeStore;
+
+export default {
+  async fetch(
+    request: Request,
+    env: { POSTMARK_WEBHOOK_SECRET: string },
+  ): Promise<Response> {
+    const outcome = await handleWebhook(request, {
+      adapter: postmark(),
+      secret: env.POSTMARK_WEBHOOK_SECRET,
+      dedupe,
+    });
+    if (!outcome.ok) return new Response(null, { status: outcome.status });
+    for (const event of outcome.events) {
+      console.log(event.type);
+    }
+    await outcome.ack();
+    return new Response(null, { status: 200 });
+  },
+};
 ```
 
 The dedupe keys stay for 30 days by default. A replay after that time passes again.

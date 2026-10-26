@@ -100,6 +100,7 @@
       "types": "./dist/stores/durable-object.d.ts",
       "import": "./dist/stores/durable-object.js"
     },
+    "./stores/d1-schema.sql": "./dist/stores/d1-schema.sql",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -111,7 +112,7 @@
     "test:unit": "vitest run --project unit",
     "test:workers": "vitest run --project workers",
     "size": "size-limit",
-    "check:pkg": "publint --pack npm && attw --pack . --profile esm-only",
+    "check:pkg": "publint --pack npm && attw --pack . --profile esm-only --exclude-entrypoints ./stores/d1-schema.sql",
     "changeset": "changeset",
     "release": "pnpm run build && changeset publish"
   },

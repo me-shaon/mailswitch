@@ -34,8 +34,15 @@ Cloudflare refuses a sender on a domain that is not onboarded.
 import { createMailer } from "mailswitch";
 import { cloudflareRest } from "mailswitch/cloudflare";
 
+declare const env: { CF_ACCOUNT_ID: string; CF_EMAIL_TOKEN: string };
+
 const mailer = createMailer({
-  provider: cloudflareRest({ accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_EMAIL_TOKEN }),
+  providers: [
+    {
+      adapter: cloudflareRest(),
+      credentials: { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_EMAIL_TOKEN },
+    },
+  ],
 });
 ```
 
@@ -63,12 +70,23 @@ The REST API has no batch endpoint. `sendBatch` sends up to 25 messages. It send
    import { createMailer } from "mailswitch";
    import { cloudflareBinding } from "mailswitch/cloudflare";
 
-   const mailer = createMailer({ provider: cloudflareBinding(env.EMAIL) });
+   import type { CloudflareSendEmail } from "mailswitch/cloudflare";
+
+   declare const env: { EMAIL: CloudflareSendEmail };
+
+   const mailer = createMailer({
+     providers: [{ adapter: cloudflareBinding(env.EMAIL), credentials: { bindingName: "EMAIL" } }],
+   });
    ```
 
 3. Or pass the Worker `env`. The adapter then reads the binding that the `bindingName` credential names. The default name is `EMAIL`.
 
    ```ts
+   import { cloudflareBinding } from "mailswitch/cloudflare";
+   import type { CloudflareSendEmail } from "mailswitch/cloudflare";
+
+   declare const env: { EMAIL: CloudflareSendEmail };
+
    const provider = cloudflareBinding({ env });
    ```
 

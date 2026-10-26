@@ -24,8 +24,15 @@
       "mailswitch/conformance": ["./src/conformance/index.ts"],
       "mailswitch/resend": ["./src/providers/resend/index.ts"],
       "mailswitch/tosend": ["./src/providers/tosend/index.ts"],
+      "mailswitch/postmark": ["./src/providers/postmark/index.ts"],
+      "mailswitch/ses": ["./src/providers/ses/index.ts"],
+      "mailswitch/mailgun": ["./src/providers/mailgun/index.ts"],
+      "mailswitch/cloudflare": ["./src/providers/cloudflare/index.ts"],
+      "mailswitch/smtp": ["./src/providers/smtp/index.ts"],
+      "mailswitch/smtp/brevo": ["./src/providers/smtp/brevo-webhooks.ts"],
       "mailswitch/stores/memory": ["./src/stores/memory.ts"],
-      "mailswitch/stores/d1": ["./src/stores/d1.ts"]
+      "mailswitch/stores/d1": ["./src/stores/d1.ts"],
+      "mailswitch/stores/durable-object": ["./src/stores/durable-object.ts"]
     }
   },
   "files": []

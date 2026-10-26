@@ -24,6 +24,12 @@ Give the IAM identity these permissions:
 import { createMailer } from "mailswitch";
 import { ses } from "mailswitch/ses";
 
+declare const env: {
+  SES_REGION: string;
+  SES_ACCESS_KEY_ID: string;
+  SES_SECRET_ACCESS_KEY: string;
+};
+
 const mailer = createMailer({
   providers: [
     {
@@ -107,7 +113,13 @@ Give the allowlist as the `secret` of `handleWebhook`. It is one topic ARN, or s
 
 ```ts
 import { ses, snsConfirmAction } from "mailswitch/ses";
+import type { DedupeStore } from "mailswitch";
 import { handleWebhook } from "mailswitch/webhooks";
+
+interface Env {
+  SES_ALLOWED_TOPIC_ARNS: string;
+  dedupeStore: DedupeStore;
+}
 
 // Create the adapter once per isolate, so the certificate cache stays warm.
 const adapter = ses({ requireSignatureVersion2: true });
@@ -125,7 +137,7 @@ export async function onSesWebhook(request: Request, env: Env): Promise<Response
       await fetch(action.subscribeUrl);
       continue;
     }
-    await handleEmailEvent(event);
+    console.log(event.type);
   }
   await outcome.ack();
   return new Response(null, { status: 200 });
@@ -136,7 +148,7 @@ export async function onSesWebhook(request: Request, env: Env): Promise<Response
 
 SNS sends a `SubscriptionConfirmation` message first. mailswitch never fetches its `SubscribeURL`. The adapter verifies the message like any other message. Then it gives one event of type `unknown` with `rawType` `SubscriptionConfirmation`. For that event, `snsConfirmAction(event)` returns the confirm action:
 
-```ts
+```text
 { type: "confirm_subscription", topicArn: "arn:aws:sns:...", subscribeUrl: "https://sns.<region>.amazonaws.com/?Action=ConfirmSubscription&..." }
 ```
 

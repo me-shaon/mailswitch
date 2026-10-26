@@ -31,6 +31,7 @@ export const resendMeta: ProviderMeta = defineProviderMeta({
       required: true,
       placeholder: "re_...",
       pattern: "^re_[A-Za-z0-9_]+$",
+      hint: "A key from the API Keys page of Resend. Sending access is enough.",
     },
   ],
   docsUrl: "https://resend.com/docs",

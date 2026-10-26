@@ -17,8 +17,14 @@ const DOCUMENTS = [
   "README.md",
   "docs/guides/delivery-safety.md",
   "docs/guides/plainbooks.md",
+  "docs/guides/envelopen.md",
   "docs/providers/resend.md",
   "docs/providers/tosend.md",
+  "docs/providers/postmark.md",
+  "docs/providers/ses.md",
+  "docs/providers/mailgun.md",
+  "docs/providers/cloudflare.md",
+  "docs/providers/smtp.md",
 ];
 
 let node: NodeApis;

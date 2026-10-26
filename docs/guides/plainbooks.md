@@ -15,7 +15,8 @@ Read [Delivery safety](delivery-safety.md) first. This guide uses its terms.
 5. [Daily caps](#daily-caps)
 6. [A job outbox](#a-job-outbox)
 7. [Bounces and suppression](#bounces-and-suppression)
-8. [Checklist](#checklist)
+8. [The settings screen](#the-settings-screen)
+9. [Checklist](#checklist)
 
 ## The setup
 
@@ -48,7 +49,13 @@ Put the schema in a D1 migration:
    npx wrangler d1 migrations create plainbooks add_mailswitch_tables
    ```
 
-2. Copy the text of `D1_SCHEMA` into the new file. Each statement uses `IF NOT EXISTS`.
+2. Copy the schema into the new file. The package ships it as a plain SQL file, with the same text as `D1_SCHEMA`. Each statement uses `IF NOT EXISTS`.
+
+   ```sh
+   cp node_modules/mailswitch/dist/stores/d1-schema.sql migrations/0002_add_mailswitch_tables.sql
+   ```
+
+   Use the file name that the `create` command printed. A bundler with a text loader can also import the file by its package export, `mailswitch/stores/d1-schema.sql`.
 3. Apply the migration:
 
    ```sh
@@ -300,9 +307,39 @@ Notes:
 - A soft bounce is temporary. Do not suppress the address for one soft bounce.
 - Call `ack()` only after the suppression rows are written. If the write fails, answer non-2xx without `ack()`.
 
+## The settings screen
+
+The owner of a PlainBooks install picks the provider and enters the keys in a form. Check the keys and send a test email before you save them. `createSendContext` builds the context of these direct adapter calls, so the form code needs no mailer.
+
+```ts
+import { createSendContext, parseCredentials, type SendResult, sendTestEmail } from "mailswitch";
+import { getProviderMeta } from "mailswitch/catalog";
+import { resend } from "mailswitch/resend";
+
+declare const form: Record<string, string>;
+declare const ownerEmail: string;
+
+export async function checkResendSettings(): Promise<SendResult | string> {
+  const meta = getProviderMeta("resend");
+  if (!meta) return "Unknown provider.";
+  const parsed = parseCredentials(meta, form);
+  if (!parsed.ok) return `Check these fields: ${parsed.errors.map((e) => e.field).join(", ")}`;
+
+  const adapter = resend();
+  const ctx = createSendContext({ credentials: parsed.values, timeoutMs: 10_000 });
+  const check = await adapter.verify(ctx);
+  if (!check.ok) return `The provider refused the keys: ${check.reason}`;
+  return sendTestEmail(adapter, ctx, { from: "billing@studio.example", to: ownerEmail });
+}
+```
+
+- `createSendContext` uses the global `fetch` and the current time when you give none. It throws a `RangeError` for a timeout that is not a positive number.
+- For SMTP, give `connect` too. See [the SMTP guide](../providers/smtp.md).
+- Encrypt the values with `mailswitch/crypto` before you save them. See the [README](../../README.md#settings-screen-tools).
+
 ## Checklist
 
-- [ ] The D1 migration has the text of `D1_SCHEMA`.
+- [ ] The D1 migration has the text of `mailswitch/stores/d1-schema.sql`.
 - [ ] The mailer has `namespace`, `idempotency`, and `dailyCaps`.
 - [ ] Each provider entry has a `dailyCap` that matches its plan.
 - [ ] Each invoice email has a key with a send number.

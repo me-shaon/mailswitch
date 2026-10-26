@@ -13,6 +13,8 @@ import { connect } from "cloudflare:sockets";
 import { createMailer } from "mailswitch";
 import { smtp } from "mailswitch/smtp";
 
+declare const env: { BREVO_SMTP_LOGIN: string; BREVO_SMTP_KEY: string };
+
 const mailer = createMailer({
   providers: [
     {
@@ -187,17 +189,26 @@ An SMTP adapter with webhooks needs a dedupe store. The token covers no timestam
 ```ts
 import { smtp } from "mailswitch/smtp";
 import { brevoWebhooks } from "mailswitch/smtp/brevo";
+import type { DedupeStore } from "mailswitch";
 import { handleWebhook } from "mailswitch/webhooks";
 
-const outcome = await handleWebhook(request, {
-  adapter: smtp({ preset: "brevo", webhooks: brevoWebhooks() }),
-  secret: env.BREVO_WEBHOOK_TOKEN,
-  dedupe,
-});
-if (!outcome.ok) return new Response(null, { status: outcome.status });
-await handleEvents(outcome.events);
-await outcome.ack();
-return new Response(null, { status: 200 });
+declare const dedupe: DedupeStore;
+
+export default {
+  async fetch(request: Request, env: { BREVO_WEBHOOK_TOKEN: string }): Promise<Response> {
+    const outcome = await handleWebhook(request, {
+      adapter: smtp({ preset: "brevo", webhooks: brevoWebhooks() }),
+      secret: env.BREVO_WEBHOOK_TOKEN,
+      dedupe,
+    });
+    if (!outcome.ok) return new Response(null, { status: outcome.status });
+    for (const event of outcome.events) {
+      console.log(event.type);
+    }
+    await outcome.ack();
+    return new Response(null, { status: 200 });
+  },
+};
 ```
 
 The token does not cover the body. Use HTTPS for the webhook URL, so nobody can read the token or change the body.

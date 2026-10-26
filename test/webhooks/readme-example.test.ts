@@ -23,7 +23,8 @@ async function onWebhook(request: Request, env: Env): Promise<Response> {
     secret: env.TOSEND_WEBHOOK_SECRET,
     dedupe: env.dedupe,
   });
-  // 401 bad signature, 413 too large, 409 in flight: the provider retries later.
+  // 401 bad signature, 413 too large, 409 in flight. toSend sends each event once with no
+  // retries, so a refused event is lost. Check the toSend logs for it.
   if (!result.ok) return new Response(null, { status: result.status });
   try {
     for (const event of result.events) {
@@ -32,7 +33,8 @@ async function onWebhook(request: Request, env: Env): Promise<Response> {
       }
     }
   } catch {
-    // Not handled, so no ack(). A non-2xx status makes the provider send it again.
+    // Not handled, so no ack(). release() frees the event for a provider that retries.
+    // toSend does not retry, so check its logs for this event.
     await result.release();
     return new Response(null, { status: 500 });
   }

@@ -43,25 +43,63 @@ function relay(id: SmtpPresetId, name: string, host: string, cap: number): Provi
 
 /** A local test server: plain text, with `insecure` set. */
 function local(id: SmtpPresetId, name: string): ProviderPreset {
-  return { id, name, fixed: { preset: id, security: "none", insecure: "true" } };
+  return {
+    id,
+    name,
+    fixed: { preset: id, security: "none", insecure: "true" },
+    fieldHints: LOCAL_HINTS,
+  };
 }
 
-const APP_PASSWORD = { password: { label: "App password" } };
+type FieldHints = NonNullable<ProviderPreset["fieldHints"]>;
+
+/** Gmail and Google Workspace log in with an app password, not the account password. */
+function googleHints(account: string, passwordHint: string): FieldHints {
+  return {
+    username: { label: "Email address", hint: `The full address of the ${account}.` },
+    password: { label: "App password", hint: passwordHint },
+  };
+}
+
+const LOCAL_HINTS: FieldHints = {
+  host: { placeholder: "localhost", hint: "Local development only. The server has no TLS." },
+  port: { placeholder: "1025" },
+  username: { hint: "Leave it empty. The local server needs no login." },
+  password: { hint: "Leave it empty. The local server needs no login." },
+};
 
 /** The presets. Each one fixes the `preset` field, so the adapter knows which one it is. */
 export const SMTP_PRESETS: readonly ProviderPreset[] = [
-  { ...relay("gmail", "Gmail", "smtp.gmail.com", GMAIL_DAILY_CAP), fieldHints: APP_PASSWORD },
+  {
+    ...relay("gmail", "Gmail", "smtp.gmail.com", GMAIL_DAILY_CAP),
+    fieldHints: googleHints(
+      "Gmail account",
+      "A 16-character app password. Turn on 2-Step Verification first, then create the app password in your Google Account.",
+    ),
+  },
   {
     ...relay("google-workspace", "Google Workspace", "smtp.gmail.com", WORKSPACE_DAILY_CAP),
-    fieldHints: APP_PASSWORD,
+    fieldHints: googleHints(
+      "Workspace user",
+      "An app password of the Workspace user. The user needs 2-Step Verification. Some Workspace policies block app passwords.",
+    ),
   },
   {
     ...relay("brevo", "Brevo", "smtp-relay.brevo.com", BREVO_FREE_DAILY_CAP),
-    fieldHints: { password: { label: "SMTP key" } },
+    fieldHints: {
+      username: {
+        label: "SMTP login",
+        hint: "The login on the SMTP & API page of Brevo. It is not always your account email.",
+      },
+      password: {
+        label: "SMTP key",
+        hint: "An SMTP key from the SMTP & API page of Brevo. A Brevo API key does not work.",
+      },
+    },
   },
   local("mailpit", "Mailpit"),
   local("mailcrab", "MailCrab"),
-  { id: "custom", name: "Custom", fixed: { preset: "custom" } },
+  { id: "custom", name: "Custom server", fixed: { preset: "custom" } },
 ];
 
 export const smtpMeta: ProviderMeta = defineProviderMeta({
@@ -85,20 +123,30 @@ export const smtpMeta: ProviderMeta = defineProviderMeta({
   credentialFields: [
     {
       name: "preset",
-      label: "Preset",
+      label: "Service",
       secret: false,
       required: false,
       defaultValue: "custom",
       options: SMTP_PRESETS.map((preset) => ({ value: preset.id, label: preset.name })),
+      hint: "A preset fills the host, port, and encryption. Pick Custom server for any other service.",
     },
     {
       name: "host",
-      label: "Host",
+      label: "SMTP host",
       secret: false,
       required: true,
+      placeholder: "smtp.example.com",
       pattern: "^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$",
     },
-    { name: "port", label: "Port", secret: false, required: false, pattern: "^[0-9]{1,5}$" },
+    {
+      name: "port",
+      label: "Port",
+      secret: false,
+      required: false,
+      placeholder: "587",
+      pattern: "^[0-9]{1,5}$",
+      hint: "Leave it empty for the default: 587 for STARTTLS, 465 for TLS.",
+    },
     {
       name: "security",
       label: "Encryption",
@@ -106,24 +154,37 @@ export const smtpMeta: ProviderMeta = defineProviderMeta({
       required: false,
       defaultValue: "starttls",
       options: [
-        { value: "starttls", label: "STARTTLS" },
-        { value: "tls", label: "TLS" },
-        { value: "none", label: "None" },
+        { value: "starttls", label: "STARTTLS (port 587)" },
+        { value: "tls", label: "TLS from the start (port 465)" },
+        { value: "none", label: "None (local test servers only)" },
       ],
     },
     {
       name: "insecure",
-      label: "Plain text",
+      label: "Allow plain text",
       secret: false,
       required: false,
       defaultValue: "false",
       options: [
         { value: "false", label: "No" },
-        { value: "true", label: "Yes" },
+        { value: "true", label: "Yes, send without TLS" },
       ],
+      hint: "Encryption None needs Yes. Use it only for a local test server.",
     },
-    { name: "username", label: "User name", secret: false, required: false },
-    { name: "password", label: "Password", secret: true, required: false },
+    {
+      name: "username",
+      label: "User name",
+      secret: false,
+      required: false,
+      hint: "Leave it empty for a server that needs no login.",
+    },
+    {
+      name: "password",
+      label: "Password",
+      secret: true,
+      required: false,
+      hint: "The password or the SMTP key of the user name.",
+    },
   ],
   presets: SMTP_PRESETS,
   docsUrl: "https://www.rfc-editor.org/rfc/rfc6409",
