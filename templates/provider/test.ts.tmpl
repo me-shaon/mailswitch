@@ -1,0 +1,6 @@
+import { runConformance } from "{{import:conformance:vitest}}";
+import { {{camel}} } from "{{import:adapter}}";
+import { {{camel}}Fixture } from "{{import:fixture}}";
+
+// The declared tier must match {{camel}}Meta.tier. Change it to 1 when the adapter meets tier 1.
+runConformance({{camel}}(), {{camel}}Fixture(), { tier: 2 });
