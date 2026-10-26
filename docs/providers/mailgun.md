@@ -28,7 +28,7 @@ const mailer = createMailer({
 |---|---|
 | `apiKey` | The Mailgun API key. The `apiKey` credential takes precedence. |
 | `domain` | The sending domain, for example `mg.example.com`. The `domain` credential takes precedence. |
-| `region` | `us` or `eu`. The default is `us`. The `region` credential takes precedence. |
+| `region` | `us` or `eu`. The `region` credential takes precedence. When neither is set, the region is `us`. |
 | `baseUrl` | The API origin, for tests or a proxy. It replaces the region origin. It must be an https URL. Plain http works only for a loopback host, for tests. |
 
 The region sets the API origin:

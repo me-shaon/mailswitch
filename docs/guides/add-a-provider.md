@@ -135,6 +135,7 @@ interface ProviderAdapter {
 | `fetch` | Make every HTTP call with it. Do not use the global `fetch`. The suite replaces it with recorded exchanges. |
 | `timeoutMs` | The timeout of one request. Pass it to `callProvider`. |
 | `credentials` | The parsed credentials, by field name. They take precedence over adapter options. |
+| `defaultedFields` | Optional. The credential fields whose value is the `defaultValue` of the field, because the caller left them empty. `createMailer` sets it. To let an adapter option take precedence over a default, use the option when the field is in this set. |
 | `now` | The current time in Unix milliseconds. Use it for `Retry-After` dates. The suite sets a fixed clock. |
 | `connect` | Outbound TCP, for SMTP. HTTP adapters ignore it. |
 

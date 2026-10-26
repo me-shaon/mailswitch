@@ -18,6 +18,12 @@ export interface SendContext<Creds extends ProviderCredentials = ProviderCredent
   timeoutMs: number;
   /** The credentials, already checked with `parseCredentials`. */
   credentials: Creds;
+  /**
+   * The credential fields whose value is the field default, because the caller left
+   * them empty. `createMailer` sets it. An adapter can use it to let its own option
+   * take precedence over a default. When it is absent, treat every value as given.
+   */
+  defaultedFields?: ReadonlySet<string>;
   /** The current time, in Unix milliseconds. */
   now: number;
   /** Outbound TCP, for adapters that do not use HTTP (SMTP). HTTP adapters ignore it. */
