@@ -14,6 +14,7 @@ const config: UserConfig = defineConfig({
     "conformance/vitest": "src/conformance/vitest.ts",
     "providers/resend/index": "src/providers/resend/index.ts",
     "providers/tosend/index": "src/providers/tosend/index.ts",
+    "providers/cloudflare/index": "src/providers/cloudflare/index.ts",
     "stores/memory": "src/stores/memory.ts",
     "stores/d1": "src/stores/d1.ts",
   },

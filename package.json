@@ -64,6 +64,10 @@
       "types": "./dist/providers/tosend/index.d.ts",
       "import": "./dist/providers/tosend/index.js"
     },
+    "./cloudflare": {
+      "types": "./dist/providers/cloudflare/index.d.ts",
+      "import": "./dist/providers/cloudflare/index.js"
+    },
     "./stores/memory": {
       "types": "./dist/stores/memory.d.ts",
       "import": "./dist/stores/memory.js"
