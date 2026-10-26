@@ -16,6 +16,7 @@ import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
 import { bytesToHex, utf8 } from "../../internal/encoding";
 import { hmacSign, hmacVerify } from "../../internal/hmac";
+import { decodeJsonBytes, hexToBytes } from "../../internal/webhook-bytes";
 
 /** How old a signed timestamp can be, in milliseconds. */
 export const MAILGUN_WEBHOOK_MAX_AGE_MS: number = 5 * 60 * 1000;
@@ -35,22 +36,6 @@ function record(value: unknown): Fields | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Fields)
     : undefined;
-}
-
-function decodeJson(body: Uint8Array): unknown {
-  try {
-    return JSON.parse(
-      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body),
-    ) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
 }
 
 /** The hex signature of `timestamp + token`, as Mailgun computes it. */
@@ -100,13 +85,15 @@ export async function verifyMailgunWebhook(
   if (type === null || !/^application\/json\s*(;|$)/i.test(type.trim())) {
     return { ok: false, reason: "malformed" };
   }
-  const value = decodeJson(input.body);
+  const value = decodeJsonBytes(input.body);
   if (!record(value)) return { ok: false, reason: "malformed" };
   const signature = readSignature(value);
   if (signature === null) return { ok: false, reason: "bad_signature" };
   if (signature === "malformed") return { ok: false, reason: "malformed" };
   const signed = utf8(`${signature.timestamp}${signature.token}`);
-  if (!(await hmacVerify(input.secret, hexToBytes(signature.signature), signed))) {
+  if (
+    !(await hmacVerify(input.secret, hexToBytes(signature.signature) ?? new Uint8Array(0), signed))
+  ) {
     return { ok: false, reason: "bad_signature" };
   }
   const age = input.now - Number(signature.timestamp) * 1000;
@@ -151,7 +138,7 @@ function failed(data: Fields): { type: NormalizedEventType; bounce?: "hard" | "s
  * Opens, clicks, and other types give an `unknown` event.
  */
 export function parseMailgunEvents(provider: string, body: Uint8Array): NormalizedEvent[] {
-  const value = record(decodeJson(body));
+  const value = record(decodeJsonBytes(body));
   const token = record(value?.signature)?.token;
   const data = record(value?.["event-data"]);
   if (typeof token !== "string" || token === "" || !data) return [];

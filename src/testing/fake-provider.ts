@@ -26,6 +26,7 @@ import { formatAddress, parseAddress } from "../internal/address";
 import { bytesToBase64, utf8 } from "../internal/encoding";
 import { hmacVerify } from "../internal/hmac";
 import { callProvider, discardBody, readJson } from "../internal/http";
+import { decodeJsonBytes, hexToBytes } from "../internal/webhook-bytes";
 
 /** The base URL of the fake HTTP API. */
 export const FAKE_API_BASE = "https://api.fake-provider.invalid/v1";
@@ -213,13 +214,6 @@ async function httpVerify(meta: ProviderMeta, ctx: SendContext): Promise<VerifyR
     : { ...withProvider(outcome, meta.id), ok: false };
 }
 
-function hexToBytes(hex: string): Uint8Array | null {
-  if (!/^(?:[0-9a-f]{2})+$/i.test(hex)) return null;
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
-}
-
 /** The bytes that the fake webhook signs: `<seconds>.` followed by the raw body. */
 export function fakeSignedPayload(seconds: number, body: Uint8Array): Uint8Array {
   const prefix = utf8(`${seconds}.`);
@@ -248,12 +242,9 @@ async function verifyWebhook(input: WebhookVerifyInput): Promise<WebhookVerifyRe
   if (Math.abs(input.now - seconds * 1000) > FAKE_WEBHOOK_TOLERANCE_MS) {
     return { ok: false, reason: "stale" };
   }
-  try {
-    JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(input.body));
-  } catch {
-    return { ok: false, reason: "malformed" };
-  }
-  return { ok: true };
+  return decodeJsonBytes(input.body) === undefined
+    ? { ok: false, reason: "malformed" }
+    : { ok: true };
 }
 
 interface FakeEvent {
@@ -272,13 +263,7 @@ const EVENT_TYPES: Readonly<Record<string, NormalizedEventType>> = {
 };
 
 function parseWebhook(provider: string, body: Uint8Array): NormalizedEvent[] {
-  let value: unknown;
-  try {
-    value = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body));
-  } catch {
-    return [];
-  }
-  const list = (value as { events?: unknown } | null)?.events;
+  const list = (decodeJsonBytes(body) as { events?: unknown } | null)?.events;
   if (!Array.isArray(list)) return [];
   const events: NormalizedEvent[] = [];
   for (const item of list as FakeEvent[]) {
