@@ -30,6 +30,12 @@
     "gzip": true
   },
   {
+    "name": "mailswitch/postmark",
+    "path": "dist/providers/postmark/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/stores/memory",
     "path": "dist/stores/memory.js",
     "limit": "2 KB",
