@@ -1,0 +1,22 @@
+[
+  { "name": "core (mailswitch)", "path": "dist/index.js", "limit": "8 KB", "gzip": true },
+  { "name": "mailswitch/catalog", "path": "dist/catalog/index.js", "limit": "3 KB", "gzip": true },
+  {
+    "name": "mailswitch/provider-kit",
+    "path": "dist/provider-kit/index.js",
+    "limit": "4 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/resend",
+    "path": "dist/providers/resend/index.js",
+    "limit": "4 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/tosend",
+    "path": "dist/providers/tosend/index.js",
+    "limit": "4 KB",
+    "gzip": true
+  }
+]

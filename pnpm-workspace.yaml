@@ -1,0 +1,4 @@
+# Single-package repository. This file holds the pnpm settings only.
+onlyBuiltDependencies:
+  - esbuild
+  - workerd

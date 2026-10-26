@@ -1,0 +1,46 @@
+name: Release
+
+# On each push to main, changesets/action does one of two things:
+# - With pending changesets, it opens or updates the "Version Packages" pull request.
+# - After that pull request is merged, it builds and publishes to npm.
+# npm trusted publishing (OIDC) authenticates the publish, so no NPM_TOKEN secret is used.
+# Configure the trusted publisher on npmjs.com for this repository, release.yml, and the
+# "release" environment. npm adds provenance to packages published this way.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Node 24 ships npm 11, which supports trusted publishing.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          publish-script: pnpm run release
+          version-script: pnpm changeset version
+          commit-message: "chore: release"
+          pr-title: "chore: release"
+          create-github-releases: true

@@ -1,0 +1,105 @@
+{
+  "name": "mailswitch",
+  "version": "0.0.0",
+  "description": "Transactional email for Cloudflare Workers, with provider fallback and delivery safety.",
+  "license": "MIT",
+  "author": "Ahmed Shamim",
+  "type": "module",
+  "sideEffects": false,
+  "packageManager": "pnpm@10.34.7",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.ts",
+      "import": "./dist/catalog/index.js"
+    },
+    "./provider-kit": {
+      "types": "./dist/provider-kit/index.d.ts",
+      "import": "./dist/provider-kit/index.js"
+    },
+    "./webhooks": {
+      "types": "./dist/webhooks/index.d.ts",
+      "import": "./dist/webhooks/index.js"
+    },
+    "./crypto": {
+      "types": "./dist/crypto/index.d.ts",
+      "import": "./dist/crypto/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    },
+    "./conformance": {
+      "types": "./dist/conformance/index.d.ts",
+      "import": "./dist/conformance/index.js"
+    },
+    "./conformance/vitest": {
+      "types": "./dist/conformance/vitest.d.ts",
+      "import": "./dist/conformance/vitest.js"
+    },
+    "./resend": {
+      "types": "./dist/providers/resend/index.d.ts",
+      "import": "./dist/providers/resend/index.js"
+    },
+    "./tosend": {
+      "types": "./dist/providers/tosend/index.d.ts",
+      "import": "./dist/providers/tosend/index.js"
+    },
+    "./stores/memory": {
+      "types": "./dist/stores/memory.d.ts",
+      "import": "./dist/stores/memory.js"
+    },
+    "./stores/d1": {
+      "types": "./dist/stores/d1.d.ts",
+      "import": "./dist/stores/d1.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:workers": "vitest run --project workers",
+    "size": "size-limit",
+    "check:pkg": "publint --pack npm && attw --pack . --profile esm-only",
+    "changeset": "changeset",
+    "release": "pnpm run build && changeset publish"
+  },
+  "peerDependencies": {
+    "vitest": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@biomejs/biome": "2.5.15",
+    "@changesets/cli": "3.0.3",
+    "@cloudflare/vitest-plugin": "1.4.4",
+    "@cloudflare/workers-types": "5.20261012.1",
+    "@size-limit/preset-small-lib": "14.2.0",
+    "publint": "0.3.25",
+    "size-limit": "14.2.0",
+    "tsdown": "0.23.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}
