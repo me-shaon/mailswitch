@@ -32,6 +32,9 @@ export const BLOCKED_HEADERS: ReadonlySet<string> = new Set([
   "cc",
   "bcc",
   "subject",
+  "date",
+  "reply-to",
+  "sender",
   "content-type",
   "content-transfer-encoding",
   "mime-version",
@@ -41,6 +44,8 @@ export const BLOCKED_HEADERS: ReadonlySet<string> = new Set([
 
 const HEADER_NAME = /^[\x21-\x39\x3b-\x7e]+$/;
 const CONTENT_TYPE = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/;
+// A Message-ID is `<local@domain>`: no space, angle bracket, or second `@`.
+const MESSAGE_ID = /^<[^\s<>@]+@[^\s<>@]+>$/;
 const CONTENT_ID = /^[A-Za-z0-9._@-]+$/;
 // A filename cannot hold a quote or a path separator, in addition to the header rules.
 const FILENAME_SPECIALS = /["/\\]/;
@@ -93,12 +98,14 @@ function headerBytes(headers: unknown): number {
       fail("A custom header name must be printable ASCII with no space or colon.");
     }
     const lower = name.toLowerCase();
-    if (BLOCKED_HEADERS.has(lower)) fail(`The ${lower} header cannot be set as a custom header.`);
     if (seen.has(lower)) fail(`The ${lower} header is set more than once.`);
     seen.add(lower);
     if (typeof value !== "string") fail(`The value of the ${lower} header must be a string.`);
     if (hasForbiddenChars(value))
       fail(`The value of the ${lower} header has a forbidden character.`);
+    if (BLOCKED_HEADERS.has(lower) || (lower === "message-id" && !MESSAGE_ID.test(value))) {
+      fail(`The ${lower} header cannot be set to this value.`);
+    }
     bytes += name.length + utf8ByteLength(value);
   }
   return bytes;

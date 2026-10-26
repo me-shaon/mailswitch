@@ -38,7 +38,7 @@
   {
     "name": "mailswitch/mailgun",
     "path": "dist/providers/mailgun/index.js",
-    "limit": "8 KB",
+    "limit": "8.2 KB",
     "gzip": true
   },
   {

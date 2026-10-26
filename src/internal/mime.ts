@@ -248,8 +248,14 @@ export function buildMime(message: OutgoingMessage, options: MimeOptions): Built
   const boundary = options.boundary ?? randomBoundary;
   const from = parseAddress(message.from);
   if (!from) throw new TypeError("buildMime: the from address is not valid.");
+  // A custom Message-ID replaces the generated one, so the header appears once.
+  const customId = Object.entries(message.headers ?? {}).find(
+    ([name]) => name.toLowerCase() === "message-id",
+  )?.[1];
   const messageId =
-    options.messageId ?? `<${randomHex(16)}@${from.email.slice(from.email.lastIndexOf("@") + 1)}>`;
+    customId ??
+    options.messageId ??
+    `<${randomHex(16)}@${from.email.slice(from.email.lastIndexOf("@") + 1)}>`;
 
   const head = [
     `Message-ID: ${messageId}`,
@@ -261,7 +267,7 @@ export function buildMime(message: OutgoingMessage, options: MimeOptions): Built
   if (message.replyTo !== undefined) head.push(addressField("Reply-To", [message.replyTo]));
   head.push(headerField("Subject", message.subject), "MIME-Version: 1.0");
   for (const [name, value] of Object.entries(message.headers ?? {})) {
-    head.push(headerField(name, value));
+    if (name.toLowerCase() !== "message-id") head.push(headerField(name, value));
   }
 
   const texts: Part[] = [];

@@ -113,6 +113,9 @@ describe("validateMessage", () => {
     "Cc",
     "From",
     "Subject",
+    "Date",
+    "Reply-To",
+    "Sender",
     "Content-Type",
     "Content-Transfer-Encoding",
     "MIME-Version",
@@ -121,6 +124,18 @@ describe("validateMessage", () => {
   ])("refuses a %s custom header", (name) => {
     expectInvalid(validateMessage(message({ headers: { [name]: "evil@x.test" } })));
   });
+
+  it("accepts a well formed Message-ID custom header", () => {
+    const headers = { "Message-ID": "<thread-1.42@acme.test>" };
+    expect(validateMessage(message({ headers }), full).ok).toBe(true);
+  });
+
+  it.each(["thread@acme.test", "<a@b@c>", "<a b@acme.test>", "<@acme.test>", "<a@>", "<a@b>x"])(
+    "refuses the malformed Message-ID %j",
+    (value) => {
+      expectInvalid(validateMessage(message({ headers: { "Message-ID": value } })));
+    },
+  );
 
   it("accepts a List-Unsubscribe custom header", () => {
     const headers = { "List-Unsubscribe": "<https://acme.test/u/1>" };

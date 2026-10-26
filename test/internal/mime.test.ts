@@ -80,6 +80,21 @@ function message(overrides: Partial<OutgoingMessage> = {}): OutgoingMessage {
 }
 
 describe("buildMime", () => {
+  it("uses a custom Message-ID once and emits Date once", () => {
+    const id = "<thread-1@acme.test>";
+    const { raw, messageId } = buildMime(
+      message({ headers: { "message-id": id, "X-Entity-Ref": "inv-42" } }),
+      { now: NOW },
+    );
+    const head = raw.split("\r\n\r\n")[0] ?? "";
+    expect(messageId).toBe(id);
+    expect(head.match(/^message-id:/gim)).toHaveLength(1);
+    expect(head).toContain(`Message-ID: ${id}`);
+    expect(head.match(/^date:/gim)).toHaveLength(1);
+    expect(head.match(/^reply-to:/gim)).toHaveLength(1);
+    expect(head).toContain("X-Entity-Ref: inv-42");
+  });
+
   it("builds a message with an attachment that parses back to the same parts", () => {
     const { raw, messageId } = buildMime(
       message({
