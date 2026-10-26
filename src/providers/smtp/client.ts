@@ -3,8 +3,8 @@
 // It does not pipeline. Ported from the Envelopen SMTP client.
 //
 // One call is one connection: the greeting, EHLO, STARTTLS or implicit TLS, AUTH, then
-// MAIL FROM, RCPT TO, and DATA per message, and QUIT. Every read and write has a
-// timeout, and the socket closes in `finally`.
+// MAIL FROM, RCPT TO, and DATA per message, and QUIT. The whole session has one deadline
+// of `timeoutMs`, shared by every read and write. The socket closes in `finally`.
 //
 // Security rules:
 // - AUTH and MAIL FROM run only on a TLS connection: implicit TLS, or STARTTLS that the
@@ -47,7 +47,7 @@ export interface SmtpSettings {
 /** The transport of one call. */
 export interface SmtpContext {
   connect: SocketConnect;
-  /** The longest wait for one reply or one write, in milliseconds. */
+  /** The longest time for the whole session, in milliseconds. Every step shares it. */
   timeoutMs: number;
 }
 
@@ -62,8 +62,6 @@ export interface SmtpEnvelope {
   messageId: string;
 }
 
-/** The final dot waits longer: the server may scan the message first. */
-const DATA_END_FACTOR = 2;
 const MAX_LINE = 4096;
 const MAX_REPLY_LINES = 100;
 const AUTH_CODES: ReadonlySet<number> = new Set([530, 534, 535, 538]);
@@ -72,6 +70,7 @@ const RATE_WORDING = /rate|too many|throttl|slow down|try again later/i;
 const NON_ASCII = /[\u0080-\uffff]/;
 
 const LOST = "The SMTP connection was lost.";
+const TIMEOUT = "The SMTP server did not answer in time.";
 const BAD_REPLY = "The SMTP server sent a reply that is not valid.";
 const NO_TLS = "The SMTP connection has no TLS, so mailswitch sent no password and no message.";
 
@@ -173,7 +172,12 @@ function open(settings: SmtpSettings, ctx: SmtpContext): Connection {
   } catch {
     throw new SmtpStop("network", LOST);
   }
-  const ms = ctx.timeoutMs;
+  // One deadline for the session. A step that is still open when it passes fails.
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    deadline = setTimeout(() => reject(new SmtpStop("timeout", TIMEOUT)), ctx.timeoutMs);
+  });
+  expired.catch(() => {});
   const extensions = new Map<string, string>();
   let reader = socket.readable.getReader();
   let writer = socket.writable.getWriter();
@@ -181,19 +185,21 @@ function open(settings: SmtpSettings, ctx: SmtpContext): Connection {
   let buffer = "";
   let secure = settings.security === "tls";
 
-  /** Races a step against the timeout. */
-  async function timed<T>(step: Promise<T>, wait: number): Promise<T> {
+  /** Races a step against the session deadline, and against `cap` when given. */
+  async function timed<T>(step: Promise<T>, cap?: number): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new SmtpStop("timeout", "The SMTP server did not answer in time.")),
-        wait,
+    const racers: Promise<T>[] = [step, expired];
+    if (cap !== undefined) {
+      racers.push(
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new SmtpStop("timeout", TIMEOUT)), cap);
+        }),
       );
-    });
+    }
     // The step may settle after the timeout. Its rejection must not go unhandled.
     step.catch(() => {});
     try {
-      return await Promise.race([step, timeout]);
+      return await Promise.race(racers);
     } catch (error) {
       throw error instanceof SmtpStop ? error : new SmtpStop("network", LOST);
     } finally {
@@ -202,13 +208,13 @@ function open(settings: SmtpSettings, ctx: SmtpContext): Connection {
   }
 
   /** Reads one reply, with its continuation lines (`250-...`, then `250 ...`). */
-  async function read(wait: number = ms): Promise<Reply> {
+  async function read(cap?: number): Promise<Reply> {
     const lines: string[] = [];
     for (;;) {
       let end = buffer.indexOf("\n");
       while (end < 0) {
         if (buffer.length > MAX_LINE) throw new SmtpStop("provider_error", BAD_REPLY);
-        const chunk = await timed(reader.read(), wait);
+        const chunk = await timed(reader.read(), cap);
         if (chunk.done) throw new SmtpStop("network", LOST);
         buffer += decoder.decode(chunk.value, { stream: true });
         end = buffer.indexOf("\n");
@@ -225,7 +231,7 @@ function open(settings: SmtpSettings, ctx: SmtpContext): Connection {
   }
 
   async function write(text: string): Promise<void> {
-    await timed(writer.write(utf8(text)), ms);
+    await timed(writer.write(utf8(text)));
   }
 
   async function command(line: string): Promise<Reply> {
@@ -340,7 +346,7 @@ function open(settings: SmtpSettings, ctx: SmtpContext): Connection {
       await expect("DATA", [354], "DATA");
       state.committed = true;
       await write(wire);
-      const reply = await read(ms * DATA_END_FACTOR);
+      const reply = await read();
       if (reply.code !== 250) {
         // The server has the whole message. A refusal here is not proof that no copy
         // went out, so the status stays unknown. The session can go on.
@@ -360,7 +366,7 @@ function open(settings: SmtpSettings, ctx: SmtpContext): Connection {
     async quit() {
       try {
         await write("QUIT\r\n");
-        await read(Math.min(ms, 2_000));
+        await read(2_000);
       } catch {
         // The server may close first.
       }
@@ -373,6 +379,8 @@ function open(settings: SmtpSettings, ctx: SmtpContext): Connection {
       } catch {
         // A pending read keeps the lock. close() ends it.
       }
+      // The socket must close even after the deadline. The deadline never fires now.
+      if (deadline !== undefined) clearTimeout(deadline);
       try {
         await timed(socket.close(), 1_000);
       } catch {

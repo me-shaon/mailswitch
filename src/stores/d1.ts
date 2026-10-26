@@ -13,7 +13,6 @@ import type {
   DedupeCommitInput,
   DedupeReleaseInput,
   DedupeStore,
-  IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
   IdempotencyClaimOutcome,
@@ -21,6 +20,7 @@ import type {
   IdempotencyRecord,
   IdempotencyState,
   IdempotencyStore,
+  IdempotencyTouchInput,
 } from "./types";
 
 export type {
@@ -34,7 +34,6 @@ export type {
   DedupeCommitInput,
   DedupeReleaseInput,
   DedupeStore,
-  IdempotencyAppendInput,
   IdempotencyAttempt,
   IdempotencyClaimInput,
   IdempotencyClaimOutcome,
@@ -43,6 +42,7 @@ export type {
   IdempotencyRecord,
   IdempotencyState,
   IdempotencyStore,
+  IdempotencyTouchInput,
 } from "./types";
 
 /** The part of a D1 result that the stores read. */
@@ -176,7 +176,7 @@ export class D1IdempotencyStore implements IdempotencyStore {
       db
         .prepare(
           `UPDATE ${TABLE} SET state = 'unknown', updated_at = ?2
-           WHERE key = ?1 AND state = 'pending' AND claimed_at < ?3`,
+           WHERE key = ?1 AND state = 'pending' AND updated_at < ?3`,
         )
         .bind(key, now, now - pendingTimeoutMs),
       db.prepare(`SELECT * FROM ${TABLE} WHERE key = ?1`).bind(key),
@@ -191,13 +191,16 @@ export class D1IdempotencyStore implements IdempotencyStore {
     return { kind: "existing", record };
   }
 
-  async appendAttempt(input: IdempotencyAppendInput): Promise<boolean> {
+  async touch(input: IdempotencyTouchInput): Promise<boolean> {
+    // One conditional UPDATE: the heartbeat and the optional attempt apply together.
+    const attempt = input.attempt ? JSON.stringify(input.attempt) : null;
     const result = await this.#db
       .prepare(
-        `UPDATE ${TABLE} SET attempts = json_insert(attempts, '$[#]', json(?3)), updated_at = ?4
+        `UPDATE ${TABLE} SET updated_at = ?4,
+           attempts = CASE WHEN ?3 IS NULL THEN attempts ELSE json_insert(attempts, '$[#]', json(?3)) END
          WHERE ${FENCE}`,
       )
-      .bind(input.key, input.claimId, JSON.stringify(input.attempt), input.now)
+      .bind(input.key, input.claimId, attempt, input.now)
       .run();
     return changes(result) === 1;
   }

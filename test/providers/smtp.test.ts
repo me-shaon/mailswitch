@@ -182,6 +182,34 @@ describe("SMTP send", () => {
     expect((await smtp().send(message(), ctx(refused.connect))).status).toBe("unknown");
   });
 
+  it("bounds the whole session by timeoutMs when every step is slow", async () => {
+    // Each server reply arrives 40 ms late. Each step is under the timeout, but the
+    // session has more than ten steps, so it must stop at the session deadline.
+    const mock = server({ starttls: false });
+    const slow: SocketConnect = (target) => {
+      const socket = mock.connect(target);
+      const delayed = socket.readable.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          async transform(chunk, controller) {
+            await new Promise((done) => setTimeout(done, 40));
+            controller.enqueue(chunk);
+          },
+        }),
+      );
+      return { ...socket, readable: delayed, close: () => socket.close() };
+    };
+    const credentials = { ...CREDS, security: "tls", port: "" };
+    const started = Date.now();
+    const result = await smtp().send(message(), ctx(slow, credentials, 150));
+    const elapsed = Date.now() - started;
+    expect(result).toMatchObject({ status: "not_sent", reason: "timeout" });
+    expect(mock.messages).toHaveLength(0);
+    expect(elapsed).toBeLessThan(600);
+    // The same server with a generous deadline sends.
+    const fast = await smtp().send(message(), ctx(slow, credentials, 5_000));
+    expect(fast.status).toBe("sent");
+  });
+
   it("maps throttles, quotas, and refusals before DATA", async () => {
     const cases: [string, string, string, string][] = [
       ["CONNECT", "421 4.7.0 Try again later", "not_sent", "rate_limited"],

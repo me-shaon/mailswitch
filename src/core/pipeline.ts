@@ -1,12 +1,17 @@
 // The send pipeline. The order is fixed:
 //   1. Validation.
 //   2. One idempotency claim, when a store is set and the message has a key.
-//   3. For each provider: capability check, daily cap reserve, rate limit, send, observe
-//      hook. A rate limit refusal refunds the cap unit of the attempt.
-//      Stop on `sent` or `unknown`. Go on after `not_sent` only when fallback allows it.
+//   3. For each provider: the claim heartbeat (`touch`), capability check, daily cap
+//      reserve, rate limit, send, observe hook. A rate limit refusal refunds the cap unit
+//      of the attempt. Stop on `sent` or `unknown`. Go on after `not_sent` only when
+//      fallback allows it. A lost claim stops the chain with `unknown/stale_pending`.
 //   4. One final record, when there is a claim.
 // `sendBatch` (batch.ts) runs the same steps. Only the primary attempt changes.
-// Every exit after a claim writes a final state.
+//
+// A store failure never throws out of `send` or `sendBatch`. It stops the message. The
+// message keeps the result of its last attempt, or gets `not_sent/store_error` when it had
+// none. A final record that fails to write leaves the claim `pending`. It goes stale later,
+// which is the safe direction.
 
 import { DEFAULT_TIMEOUT_MS, type FetchLike } from "../internal/http";
 import type {
@@ -32,7 +37,7 @@ import {
 import { validateMessage } from "./message";
 import { checkRate, type RateRule } from "./rate-limit";
 import type { SocketConnect } from "./socket";
-import type { OutgoingMessage, SendResult, UnknownResult } from "./types";
+import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "./types";
 
 /** One provider in the chain. The first entry is the primary. */
 export interface MailerProvider {
@@ -123,6 +128,8 @@ export interface MessageRun {
   attempts: IdempotencyAttempt[];
   /** The result of the last attempt. */
   result?: SendResult;
+  /** True when a store failure or a lost claim stopped the run. No further provider call. */
+  done?: boolean;
 }
 
 /** The outcome of the capability check and the cap reserve. Internal. */
@@ -142,12 +149,19 @@ export interface PipelineSteps {
   context(entry: Entry): SendContext;
   record(run: MessageRun, entry: Entry, result: SendResult): Promise<void>;
   chain(run: MessageRun, from: number): Promise<void>;
-  abort(run: MessageRun): Promise<void>;
+  /** The heartbeat before a provider call. False when the run must stop. It never throws. */
+  fence(run: MessageRun): Promise<boolean>;
+  /** Stops a run after a store error. */
+  fail(run: MessageRun, error: unknown): void;
+  /** Writes the final record. It never throws. */
   finish(run: MessageRun): Promise<SendResult>;
   warn(text: string): void;
   /** Accepts one well-formed adapter result. A missing or bad result is `unknown`. */
   check(result: unknown, provider: string): SendResult;
 }
+
+/** The warning for a fenced write that did not apply: the claim is lost. */
+const LOST_CLAIM = "mailswitch: the claim was no longer current. The record did not change.";
 
 const UNSAFE_SETUP =
   "mailswitch: a provider in the chain has no native idempotency and no idempotency store is set. A keyed send through that provider can go out twice on a retry.";
@@ -232,8 +246,19 @@ function checkResult(result: unknown, provider: string): SendResult {
  * only the `not_sent` messages go to the fallbacks. A key used twice in one call gives
  * `unknown/in_flight` for the second message.
  *
+ * Before each provider call, the claim gets a heartbeat (`IdempotencyStore.touch`). When
+ * the claim is lost, for example after a stale conversion and a release, the message
+ * makes no further provider call and gets `unknown/stale_pending`.
+ *
+ * A store failure is a result, not an exception, in `send` and in `sendBatch`. The message
+ * stops at the failed store call. It keeps the result of its last attempt, or gets
+ * `not_sent/store_error` when no attempt ran. Other messages of a batch keep their
+ * results. When the final record fails to write, the provider result still comes back
+ * and the logger gets a warning.
+ *
  * @throws TypeError or RangeError for invalid options: no providers, bad credentials, a
  * missing namespace with an idempotency store, or a pending timeout below the floor.
+ * `sendBatch` throws a TypeError when its argument is not an array.
  */
 export function createMailer(options: MailerOptions): Mailer {
   if (typeof options !== "object" || options === null) {
@@ -401,16 +426,33 @@ export function createMailer(options: MailerOptions): Mailer {
     return result;
   }
 
+  /** Warns about a store failure and returns the result for a message with no attempt. */
+  function storeError(error: unknown): NotSentResult {
+    safeWarn(logger, "mailswitch: a store call failed.", { error: errorName(error) });
+    return { status: "not_sent", reason: "store_error", message: "A store call failed." };
+  }
+
+  function fail(run: MessageRun, error: unknown): void {
+    const result = storeError(error);
+    run.done = true;
+    run.result ??= result;
+  }
+
   /** Validation and the claim. Returns a final result, or the run to go on with. */
   async function start(message: OutgoingMessage): Promise<SendResult | MessageRun> {
     const checked = validateMessage(message);
     if (!checked.ok) return checked.result;
     const run: MessageRun = { message, encodedBytes: checked.encodedBytes, attempts: [] };
     if (idempotency && namespace !== undefined && message.idempotencyKey) {
-      const begin = await beginIdempotency(idempotency, namespace, message, {
-        now: clock(),
-        pendingTimeoutMs,
-      });
+      let begin: Awaited<ReturnType<typeof beginIdempotency>>;
+      try {
+        begin = await beginIdempotency(idempotency, namespace, message, {
+          now: clock(),
+          pendingTimeoutMs,
+        });
+      } catch (error) {
+        return storeError(error);
+      }
       if (!begin.proceed) return begin.result;
       run.claim = { key: begin.key, claimId: begin.claimId };
     }
@@ -437,65 +479,78 @@ export function createMailer(options: MailerOptions): Mailer {
    * result of the entry before it, and the chain goes on only when fallback allows it.
    */
   async function chain(run: MessageRun, from: number): Promise<void> {
+    if (run.done) return;
     if (from > 0) {
       if (from >= entries.length) return;
       if (!allowFallback(run.result as SendResult, shouldFallback, logger)) return;
     }
-    for (let i = from; i < entries.length; i++) {
-      const current = entries[i] as Entry;
-      await record(run, current, await attempt(current, run.message, run.encodedBytes));
-      if (i === entries.length - 1) break;
-      if (!allowFallback(run.result as SendResult, shouldFallback, logger)) break;
+    try {
+      for (let i = from; i < entries.length; i++) {
+        const current = entries[i] as Entry;
+        if (!(await fence(run))) return;
+        await record(run, current, await attempt(current, run.message, run.encodedBytes));
+        if (i === entries.length - 1) break;
+        if (!allowFallback(run.result as SendResult, shouldFallback, logger)) break;
+      }
+    } catch (error) {
+      fail(run, error);
     }
   }
 
-  /** Writes the final state from the attempts so far, after a cap store failure. */
-  async function abort(run: MessageRun): Promise<void> {
-    if (!run.claim) return;
-    await finalizeIdempotency(idempotency as IdempotencyStore, {
-      ...run.claim,
-      attempts: run.attempts,
-      now: clock(),
-    });
+  /**
+   * The heartbeat of the claim before a provider call. It also writes the attempt that
+   * ended since the last heartbeat. A lost claim stops the run with `unknown/stale_pending`
+   * and no further record: another request may hold the key now. A store error stops the
+   * run as `fail` does. It never throws.
+   */
+  async function fence(run: MessageRun): Promise<boolean> {
+    if (!run.claim) return true;
+    const last = run.attempts.at(-1);
+    try {
+      const store = idempotency as IdempotencyStore;
+      if (await store.touch({ ...run.claim, now: clock(), attempt: last })) return true;
+    } catch (error) {
+      fail(run, error);
+      return false;
+    }
+    run.claim = undefined;
+    run.done = true;
+    run.result = {
+      status: "unknown",
+      reason: "stale_pending",
+      message: "The claim was lost before the next provider call.",
+    };
+    safeWarn(logger, LOST_CLAIM, { provider: last?.provider });
+    return false;
   }
 
   /** Writes the one final record and returns the result of the last attempt. */
   async function finish(run: MessageRun): Promise<SendResult> {
     const final = run.result as SendResult;
-    if (run.claim) {
+    if (!run.claim) return final;
+    let text = LOST_CLAIM;
+    let error: string | undefined;
+    try {
       const done = await finalizeIdempotency(idempotency as IdempotencyStore, {
         ...run.claim,
         attempts: run.attempts,
-        ...(final.status === "sent" && final.providerMessageId !== undefined
-          ? { providerMessageId: final.providerMessageId }
-          : {}),
+        providerMessageId: final.status === "sent" ? final.providerMessageId : undefined,
         now: clock(),
       });
-      if (!done.applied) {
-        safeWarn(
-          logger,
-          "mailswitch: the claim was no longer current. The record did not change.",
-          {
-            provider: final.provider,
-            status: final.status,
-          },
-        );
-      }
+      if (done.applied) return final;
+    } catch (thrown) {
+      // The record stays pending and goes stale later. The provider result still counts.
+      text = "mailswitch: the store failed to write the final record.";
+      error = errorName(thrown);
     }
+    safeWarn(logger, text, { provider: final.provider, status: final.status, error });
     return final;
   }
 
   async function send(message: OutgoingMessage): Promise<SendResult> {
     const run = await start(message);
     if (!("attempts" in run)) return run;
-    try {
-      await chain(run, 0);
-    } catch (error) {
-      // A cap or rate limit store failed before a send. Write a final state from the attempts
-      // so far, then let the error leave the pipeline.
-      await abort(run);
-      throw error;
-    }
+    await chain(run, 0);
     return finish(run);
   }
 
@@ -508,7 +563,8 @@ export function createMailer(options: MailerOptions): Mailer {
     context,
     record,
     chain,
-    abort,
+    fence,
+    fail,
     finish,
     warn: (text) => safeWarn(logger, text),
     check: checkResult,

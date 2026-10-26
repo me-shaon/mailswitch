@@ -9,6 +9,10 @@
 // The work is sequential: claims in input order, then the batch chunks, then the single
 // sends and the fallbacks. A key that is used twice in one call therefore gets
 // `unknown/in_flight` for the second message, because the first claim is still pending.
+// Each claim gets a heartbeat just before its chunk and before each single send, so a
+// long call does not make the later claims stale.
+//
+// A store failure stops only the message that it belongs to. The other messages go on.
 
 import { checkCapabilities } from "./capabilities";
 import type { Entry, MessageRun, PipelineSteps } from "./pipeline";
@@ -64,57 +68,59 @@ export function createBatchSender(
     }
     const results: SendResult[] = new Array(messages.length);
     const runs: (MessageRun | undefined)[] = new Array(messages.length);
-    const open = new Set<MessageRun>();
-    try {
-      const batch: Item[] = [];
-      const single: MessageRun[] = [];
-      for (let i = 0; i < messages.length; i++) {
-        const started = await steps.start(messages[i] as OutgoingMessage);
-        if (!("attempts" in started)) {
-          results[i] = started;
-          continue;
-        }
-        runs[i] = started;
-        open.add(started);
-        if (canBatch && batchable(started, caps)) batch.push({ run: started });
-        else single.push(started);
+    const batch: Item[] = [];
+    const single: MessageRun[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const started = await steps.start(messages[i] as OutgoingMessage);
+      if (!("attempts" in started)) {
+        results[i] = started;
+        continue;
       }
-      if (!steps.hasStore && !warned && batch.some((item) => item.run.message.idempotencyKey)) {
-        warned = true;
-        steps.warn(UNSAFE_BATCH);
-      }
-      // One cap unit and one rate limit token per message, as for a single send. A refused
-      // message skips the batch.
-      const ready: Item[] = [];
-      for (const item of batch) {
+      runs[i] = started;
+      if (canBatch && batchable(started, caps)) batch.push({ run: started });
+      else single.push(started);
+    }
+    if (!steps.hasStore && !warned && batch.some((item) => item.run.message.idempotencyKey)) {
+      warned = true;
+      steps.warn(UNSAFE_BATCH);
+    }
+    // One cap unit and one rate limit token per message, as for a single send. A refused
+    // message skips the batch.
+    const ready: Item[] = [];
+    for (const item of batch) {
+      try {
         const gate = await steps.reserve(primary, item.run.message, item.run.encodedBytes);
         if (gate.refusal) await steps.record(item.run, primary, gate.refusal);
         else ready.push({ run: item.run, bucketStart: gate.bucketStart });
+      } catch (error) {
+        steps.fail(item.run, error);
       }
-      for (let at = 0; at < ready.length; at += caps.batchSize) {
-        const chunk = ready.slice(at, at + caps.batchSize);
-        const list = await callBatch(steps, primary, chunk);
-        for (let i = 0; i < chunk.length; i++) {
-          const item = chunk[i] as Item;
-          const result = list[i] as SendResult;
-          if (item.bucketStart !== undefined && result.status === "not_sent") {
-            await steps.refund(primary, item.bucketStart, result);
-          }
-          await steps.record(item.run, primary, result);
+    }
+    for (let at = 0; at < ready.length; at += caps.batchSize) {
+      // The heartbeat of each claim, just before its chunk. A message that loses its claim,
+      // or whose store fails, leaves the chunk and gets its cap unit back.
+      const chunk: Item[] = [];
+      for (const item of ready.slice(at, at + caps.batchSize)) {
+        if (await steps.fence(item.run)) chunk.push(item);
+        // `refund` does nothing for a provider with no cap.
+        else await steps.refund(primary, item.bucketStart as number, item.run.result as SendResult);
+      }
+      if (chunk.length === 0) continue;
+      const list = await callBatch(steps, primary, chunk);
+      for (let i = 0; i < chunk.length; i++) {
+        const item = chunk[i] as Item;
+        const result = list[i] as SendResult;
+        if (item.bucketStart !== undefined && result.status === "not_sent") {
+          await steps.refund(primary, item.bucketStart, result);
         }
+        await steps.record(item.run, primary, result);
       }
-      for (const item of batch) await steps.chain(item.run, 1);
-      for (const run of single) await steps.chain(run, 0);
-      for (let i = 0; i < runs.length; i++) {
-        const run = runs[i];
-        if (!run) continue;
-        open.delete(run);
-        results[i] = await steps.finish(run);
-      }
-    } catch (error) {
-      // A cap or rate limit store failed. Every open claim gets a final state, then the error leaves.
-      for (const run of open) await steps.abort(run);
-      throw error;
+    }
+    for (const item of batch) await steps.chain(item.run, 1);
+    for (const run of single) await steps.chain(run, 0);
+    for (let i = 0; i < runs.length; i++) {
+      const run = runs[i];
+      if (run) results[i] = await steps.finish(run);
     }
     return results;
   };

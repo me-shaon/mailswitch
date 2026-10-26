@@ -110,7 +110,10 @@ describe("createMailer: rate limits", () => {
     };
     const { adapter, entry } = provider({ dailyCap: 5, rate: { perSecond: 1 } });
     const send = mailer([entry], { dailyCaps, rateLimits: broken, idempotency, namespace: "app" });
-    await expect(send.send(message({ idempotencyKey: "k" }))).rejects.toThrow("store down");
+    expect(await send.send(message({ idempotencyKey: "k" }))).toMatchObject({
+      status: "not_sent",
+      reason: "store_error",
+    });
     expect(adapter.sends).toHaveLength(0);
     expect(await dailyCaps.used("fake", T0)).toBe(0);
     expect((await idempotency.get("app:k"))?.state).toBe("not_sent");

@@ -183,14 +183,14 @@ mailswitch has two Durable Object classes. They replace the rate limiter and the
 
 ## Failure reason renames
 
-Two reasons have new names. Five reasons are new.
+Two reasons have new names. Six reasons are new.
 
 | `@envelopen/providers` | mailswitch |
 |---|---|
 | `validation` | `invalid_message` |
 | `server_error` | `provider_error` |
 | `auth`, `rate_limited`, `quota`, `credits`, `rejected`, `timeout`, `network` | No change |
-| None | `unsupported`, `daily_cap`, `idempotency_conflict`, `stale_pending`, `in_flight` |
+| None | `unsupported`, `daily_cap`, `idempotency_conflict`, `stale_pending`, `in_flight`, `store_error` |
 
 A `server_error` was often treated as safe to retry. In mailswitch, a 5xx answer is `unknown/provider_error`. Do not retry an `unknown` result.
 
@@ -218,6 +218,7 @@ The new reasons:
 | `idempotency_conflict` | `unknown` | The key was used before with a different message. |
 | `stale_pending` | `unknown` | An earlier claim for the key did not finish in time. |
 | `in_flight` | `unknown` | Another request holds the key now. |
+| `store_error` | `not_sent` | A store call failed before the provider call. |
 
 ## List-Unsubscribe
 
