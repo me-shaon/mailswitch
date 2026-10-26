@@ -80,6 +80,14 @@
       "types": "./dist/providers/ses/index.d.ts",
       "import": "./dist/providers/ses/index.js"
     },
+    "./smtp": {
+      "types": "./dist/providers/smtp/index.d.ts",
+      "import": "./dist/providers/smtp/index.js"
+    },
+    "./smtp/brevo": {
+      "types": "./dist/providers/smtp/brevo.d.ts",
+      "import": "./dist/providers/smtp/brevo.js"
+    },
     "./stores/memory": {
       "types": "./dist/stores/memory.d.ts",
       "import": "./dist/stores/memory.js"

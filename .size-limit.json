@@ -54,6 +54,18 @@
     "gzip": true
   },
   {
+    "name": "mailswitch/smtp",
+    "path": "dist/providers/smtp/index.js",
+    "limit": "10 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/smtp/brevo",
+    "path": "dist/providers/smtp/brevo.js",
+    "limit": "2 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/stores/memory",
     "path": "dist/stores/memory.js",
     "limit": "2 KB",

@@ -36,7 +36,10 @@ export type CheckId =
   | "webhook.stale"
   | "webhook.malformed"
   | "events.parse"
-  | "redaction";
+  | "redaction"
+  | "smtp.before-data"
+  | "smtp.tls"
+  | "smtp.dot-stuffing";
 
 /** The outcome of one check. A check that does not apply is `n/a`, with the reason. */
 export type CheckStatus =
@@ -135,8 +138,10 @@ export interface WebhookFixture {
   samples: EventSample[];
 }
 
-/** The fixture of one provider. */
+/** The fixture of one HTTP provider. */
 export interface ConformanceFixture {
+  /** The transport. Leave it out, or set `http`. An SMTP fixture sets `smtp`. */
+  transport?: "http";
   /** Valid credentials, by field name, in the parsed form. */
   credentials: Readonly<Record<string, string>>;
   /** The clock of every call, in Unix milliseconds. Defaults to the real clock. */
@@ -167,6 +172,56 @@ export interface ConformanceFixture {
    */
   canary?(field: CredentialField, token: string): string;
 }
+
+/**
+ * Recorded SMTP replies. Each one is a full reply, as the server sends it. Separate the
+ * lines of a multi-line reply with CRLF, for example `535-5.7.8 ...\r\n535 5.7.8 ...`.
+ */
+export interface SmtpReplies {
+  /** The reply to AUTH with a wrong password. Defaults to a 535. */
+  authFailure?: string;
+  /** The reply to RCPT TO for a refused recipient. Defaults to a 550 5.1.1. */
+  recipientRejected?: string;
+  /** The reason for `recipientRejected`. Defaults to `rejected`. */
+  recipientRejectedReason?: FailureReason;
+  /** A throttle reply to MAIL FROM. Defaults to a 421 4.7.0. */
+  rateLimited?: string;
+  /** A reply to the final dot that is not 250. The result must be `unknown`. Defaults to a 451. */
+  afterData?: string;
+}
+
+/**
+ * The fixture of one SMTP provider. The kit runs the adapter against the mock SMTP
+ * server (`mockSmtp`) through `SendContext.connect`. It makes no HTTP call.
+ */
+export interface SmtpConformanceFixture {
+  transport: "smtp";
+  /** Valid credentials, by field name, in the parsed form. They name the mock server. */
+  credentials: Readonly<Record<string, string>>;
+  /** The clock of every call, in Unix milliseconds. Defaults to the real clock. */
+  now?: number;
+  /** The login that the mock server accepts. It must match `credentials`. */
+  server: { username: string; password: string; authMechanisms?: readonly string[] };
+  /**
+   * True when the credentials connect in plain text, as a local test server does. The
+   * TLS check then reports `n/a`. Defaults to false.
+   */
+  plaintext?: boolean;
+  /** Recorded replies of the provider. Each one has a default. */
+  replies?: SmtpReplies;
+  /** The provider message id of an accepted message. When set, the result must carry it. */
+  providerMessageId?: string;
+  /**
+   * Builds credentials with a canary user name and password, for the redaction check.
+   * The kit starts a mock server that accepts them.
+   */
+  canaryCredentials(username: string, password: string): Record<string, string>;
+  /** Required when `meta.webhooks` is true. */
+  webhook?: WebhookFixture;
+}
+
+/** An HTTP or an SMTP fixture. */
+export type AnyConformanceFixture = ConformanceFixture | SmtpConformanceFixture;
 
 /** The options of `runChecks`. */
 export interface RunChecksOptions {

@@ -28,6 +28,8 @@ export interface MockSmtpOptions {
   authBeforeTls?: boolean;
   /** Reject EHLO with 502, so the client must use HELO. */
   rejectEhlo?: boolean;
+  /** MAIL FROM needs a login first. Defaults to true. Set false for a Mailpit-style server. */
+  authRequired?: boolean;
   /** The accepted credentials. Defaults to `user` and `secret`. */
   username?: string;
   password?: string;
@@ -71,6 +73,12 @@ function decodeBase64(text: string): string {
   } catch {
     return "";
   }
+}
+
+/** The address of `FROM:<a@b> SIZE=1` or `TO:<a@b>`, without the parameters. */
+function pathOf(arg: string, prefix: string): string {
+  const rest = arg.replace(new RegExp(`^${prefix}:\\s*`, "i"), "");
+  return /^<([^>]*)>/.exec(rest)?.[1] ?? rest.split(" ")[0] ?? "";
 }
 
 /** A mock SMTP server. Each `connect` call opens one session. */
@@ -262,11 +270,11 @@ export function mockSmtp(options: MockSmtpOptions = {}): MockSmtp {
           return;
         }
         case "MAIL":
-          if (!authenticated) {
+          if (!authenticated && options.authRequired !== false) {
             send("530 5.7.0 Authentication required");
             return;
           }
-          envelope = { from: arg.replace(/^FROM:/i, "").replace(/[<>]/g, ""), to: [] };
+          envelope = { from: pathOf(arg, "FROM"), to: [] };
           send("250 2.1.0 Ok");
           return;
         case "RCPT":
@@ -274,7 +282,7 @@ export function mockSmtp(options: MockSmtpOptions = {}): MockSmtp {
             send("503 5.5.1 Need MAIL first");
             return;
           }
-          envelope.to.push(arg.replace(/^TO:/i, "").replace(/[<>]/g, ""));
+          envelope.to.push(pathOf(arg, "TO"));
           send("250 2.1.5 Ok");
           return;
         case "DATA":
@@ -366,6 +374,17 @@ export function mockSmtp(options: MockSmtpOptions = {}): MockSmtp {
 
 // A small reader of the captured messages, so tests check decoded content.
 
+/** One attachment of a captured message. */
+export interface ParsedAttachment {
+  /** The file name, from `filename*` (RFC 2231) or `filename`. */
+  filename: string;
+  contentType: string;
+  /** The content as base64 text with no whitespace. */
+  content: string;
+  /** True for `Content-Disposition: inline`. */
+  inline: boolean;
+}
+
 export interface ParsedMail {
   /** Header names in lower case, values unfolded and RFC 2047-decoded. */
   headers: Map<string, string>;
@@ -373,6 +392,8 @@ export interface ParsedMail {
   rawHeaders: string;
   text: string | null;
   html: string | null;
+  /** The parts with a file name, in order, from every multipart level. */
+  attachments: ParsedAttachment[];
 }
 
 function decodeQuotedPrintable(text: string): string {
@@ -406,7 +427,50 @@ function decodePart(headers: string, body: string): string {
   return body;
 }
 
-/** Splits a captured message into headers and decoded text and HTML parts. */
+/** The file name of a part: RFC 2231 sections first, then a plain `filename`. */
+function filenameOf(headers: string): string | null {
+  const disposition = /(?:^|\n)content-disposition:([^\r\n]*)/i.exec(headers)?.[1] ?? "";
+  const sections = [...disposition.matchAll(/filename\*(\d*)\*?=([^;\s]+)/gi)]
+    .sort((a, b) => Number(a[1] || 0) - Number(b[1] || 0))
+    .map((match) => match[2] as string);
+  if (sections.length > 0) {
+    try {
+      return decodeURIComponent(sections.join("").replace(/^UTF-8''/i, ""));
+    } catch {
+      return null;
+    }
+  }
+  return /filename="([^"]*)"/i.exec(disposition)?.[1] ?? null;
+}
+
+function walk(headers: string, body: string, mail: ParsedMail): void {
+  const type =
+    /(?:^|\n)content-type:\s*([^\r\n;]+)/i.exec(headers)?.[1]?.trim().toLowerCase() ?? "";
+  const boundary = /boundary="([^"]+)"/i.exec(headers)?.[1];
+  if (type.startsWith("multipart/") && boundary) {
+    for (const chunk of body.split(`--${boundary}`).slice(1, -1)) {
+      const part = chunk.replace(/^\r\n/, "");
+      const cut = part.indexOf("\r\n\r\n");
+      const head = (cut < 0 ? part : part.slice(0, cut)).replace(/\r\n[ \t]+/g, " ");
+      walk(head, cut < 0 ? "" : part.slice(cut + 4).replace(/\r\n$/, ""), mail);
+    }
+    return;
+  }
+  const filename = filenameOf(headers);
+  if (filename !== null) {
+    mail.attachments.push({
+      filename,
+      contentType: type,
+      content: body.replace(/\s+/g, ""),
+      inline: /(?:^|\n)content-disposition:\s*inline/i.test(headers),
+    });
+    return;
+  }
+  if (type === "text/plain") mail.text = decodePart(headers, body);
+  if (type === "text/html") mail.html = decodePart(headers, body);
+}
+
+/** Splits a captured message into headers, decoded text and HTML parts, and attachments. */
 export function parseMail(data: string): ParsedMail {
   const split = data.indexOf("\r\n\r\n");
   const rawHeaders = data.slice(0, split).replace(/\r\n[ \t]+/g, " ");
@@ -419,26 +483,7 @@ export function parseMail(data: string): ParsedMail {
       decodeHeaderValue(line.slice(colon + 1).trim()),
     );
   }
-  const type = headers.get("content-type") ?? "";
-  let text: string | null = null;
-  let html: string | null = null;
-  const boundary = /boundary="([^"]+)"/.exec(type)?.[1];
-  const parts = boundary
-    ? body
-        .split(`--${boundary}`)
-        .slice(1, -1)
-        .map((part) => {
-          const cut = part.indexOf("\r\n\r\n");
-          return {
-            headers: part.slice(0, cut),
-            body: part.slice(cut + 4).replace(/\r\n$/, ""),
-          };
-        })
-    : [{ headers: `Content-Type: ${type}\r\n${rawHeaders}`, body }];
-  for (const part of parts) {
-    const decoded = decodePart(part.headers, part.body);
-    if (/content-type:\s*text\/plain/i.test(part.headers)) text = decoded;
-    if (/content-type:\s*text\/html/i.test(part.headers)) html = decoded;
-  }
-  return { headers, rawHeaders, text, html };
+  const mail: ParsedMail = { headers, rawHeaders, text: null, html: null, attachments: [] };
+  walk(rawHeaders, body, mail);
+  return mail;
 }

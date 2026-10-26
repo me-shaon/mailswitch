@@ -29,11 +29,14 @@ export {
   type MockSmtp,
   type MockSmtpOptions,
   mockSmtp,
+  type ParsedAttachment,
   type ParsedMail,
   parseMail,
 } from "./mock-smtp";
+export { SMTP_CHECK_IDS } from "./smtp-checks";
 export { createSnsSigner, type SnsMessage, type SnsSigner, snsStringToSign } from "./sns-signer";
 export type {
+  AnyConformanceFixture,
   CapturedAttachment,
   CheckEntry,
   CheckId,
@@ -43,6 +46,8 @@ export type {
   EventSample,
   RunChecksOptions,
   SendFixture,
+  SmtpConformanceFixture,
+  SmtpReplies,
   WebhookFixture,
   WebhookSample,
 } from "./types";

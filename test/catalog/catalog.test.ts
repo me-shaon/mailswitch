@@ -42,6 +42,7 @@ describe("catalog", () => {
       ["mailgun", 1],
       ["postmark", 1],
       ["ses", 1],
+      ["smtp", 1],
     ]);
     expect(getProviderMeta("postmark")?.webhooks).toBe(true);
     expect(getProviderMeta("ses")?.name).toBe("Amazon SES");
@@ -74,6 +75,7 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/mailgun/meta.ts");
     expect(files).toContain("../../src/providers/postmark/meta.ts");
     expect(files).toContain("../../src/providers/ses/meta.ts");
+    expect(files).toContain("../../src/providers/smtp/meta.ts");
     for (const [file, text] of Object.entries(sources)) {
       for (const spec of importsOf(text)) {
         expect(spec, `${file} imports ${spec}`).toMatch(ALLOWED);

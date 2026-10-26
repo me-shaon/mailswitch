@@ -4,17 +4,19 @@
 //
 //   runConformance(myAdapter, myFixture, { tier: 1 });
 //
+// The fixture is an HTTP fixture, or an SMTP fixture with `transport: "smtp"`.
+//
 // A check that does not apply shows as skipped, with the reason in its name.
 
 import { describe, expect, it } from "vitest";
 import type { ProviderAdapter } from "../core/adapter";
 import { conformanceChecks } from "./checks";
-import type { ConformanceFixture, RunChecksOptions } from "./types";
+import type { AnyConformanceFixture, RunChecksOptions } from "./types";
 
 /** Registers one describe block with one test per check. */
 export function runConformance(
   adapter: ProviderAdapter,
-  fixture: ConformanceFixture,
+  fixture: AnyConformanceFixture,
   options: RunChecksOptions,
 ): void {
   const name = typeof adapter.meta?.name === "string" ? adapter.meta.name : "adapter";

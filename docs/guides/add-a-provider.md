@@ -502,6 +502,26 @@ The `webhook` part holds:
 | `exchanges` | Optional. Exchanges that verification needs, for example a certificate. |
 | `samples` | The bodies for `parse`, with the expected events. The first sample is used for the signature checks. |
 
+### The SMTP fixture format
+
+An adapter that sends over SMTP uses `SmtpConformanceFixture`. Set `transport: "smtp"`. The suite runs the adapter against the mock SMTP server through `ctx.connect`, and it makes no HTTP call. The example is `src/conformance/fixtures/smtp.ts`.
+
+| Field | What it holds |
+|---|---|
+| `credentials` | Valid credentials for the mock server. |
+| `server` | The `username` and `password` that the mock server accepts, and optional `authMechanisms`. |
+| `replies` | Optional. Recorded replies of the provider: `authFailure`, `recipientRejected`, `rateLimited`, and `afterData`. Each one has a default. |
+| `plaintext` | Optional. `true` for a local test server with no TLS. The TLS check is then `n/a`. |
+| `providerMessageId` | Optional. The id that a sent result must carry. |
+| `canaryCredentials(username, password)` | Builds credentials with a canary login, for the redaction check. |
+| `webhook` | The webhook part, as for an HTTP fixture. |
+
+The SMTP checks are in `SMTP_CHECK_IDS`. Three checks are only for SMTP:
+
+- `smtp.before-data`: every failure before the `354` reply to `DATA` gives `not_sent`.
+- `smtp.tls`: the adapter sends no `AUTH` line and no message on a plain-text connection.
+- `smtp.dot-stuffing`: a line that starts with a dot arrives unchanged.
+
 ## Run the conformance suite
 
 The test file is one call:

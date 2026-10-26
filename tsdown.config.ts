@@ -18,6 +18,8 @@ const config: UserConfig = defineConfig({
     "providers/mailgun/index": "src/providers/mailgun/index.ts",
     "providers/postmark/index": "src/providers/postmark/index.ts",
     "providers/ses/index": "src/providers/ses/index.ts",
+    "providers/smtp/index": "src/providers/smtp/index.ts",
+    "providers/smtp/brevo": "src/providers/smtp/brevo-webhooks.ts",
     "stores/memory": "src/stores/memory.ts",
     "stores/d1": "src/stores/d1.ts",
     "stores/durable-object": "src/stores/durable-object.ts",
