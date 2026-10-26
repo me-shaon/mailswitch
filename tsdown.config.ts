@@ -16,6 +16,7 @@ const config: UserConfig = defineConfig({
     "providers/tosend/index": "src/providers/tosend/index.ts",
     "stores/memory": "src/stores/memory.ts",
     "stores/d1": "src/stores/d1.ts",
+    "stores/durable-object": "src/stores/durable-object.ts",
   },
   format: "esm",
   platform: "neutral",

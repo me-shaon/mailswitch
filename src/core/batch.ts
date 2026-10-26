@@ -83,7 +83,8 @@ export function createBatchSender(
         warned = true;
         steps.warn(UNSAFE_BATCH);
       }
-      // One cap unit per message, as for a single send. A refused message skips the batch.
+      // One cap unit and one rate limit token per message, as for a single send. A refused
+      // message skips the batch.
       const ready: Item[] = [];
       for (const item of batch) {
         const gate = await steps.reserve(primary, item.run.message, item.run.encodedBytes);
@@ -111,7 +112,7 @@ export function createBatchSender(
         results[i] = await steps.finish(run);
       }
     } catch (error) {
-      // A cap store failed. Every open claim gets a final state, then the error leaves.
+      // A cap or rate limit store failed. Every open claim gets a final state, then the error leaves.
       for (const run of open) await steps.abort(run);
       throw error;
     }

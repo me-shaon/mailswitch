@@ -13,6 +13,11 @@ export interface StoreHarness {
   store: IdempotencyStore;
   /** The stored row exactly as the backend holds it. */
   rawRow(key: string): Promise<unknown>;
+  /**
+   * Runs the expiry of a store that has no `purgeExpired` scan, such as the Durable
+   * Object store, over the given keys. Returns the number of deleted records.
+   */
+  purge?(now: number, keys: readonly string[]): Promise<number>;
 }
 
 const NAMESPACE = "app";
@@ -267,7 +272,13 @@ export function idempotencyStoreSuite(name: string, setup: () => Promise<StoreHa
     });
 
     it("purges expired sent and not_sent rows and keeps pending and unknown rows", async () => {
-      const { store } = await setup();
+      const harness = await setup();
+      const { store } = harness;
+      const all = ["sent-old", "sent-new", "not-sent-old", "unknown-old", "pending-old"].map(
+        (key) => `${NAMESPACE}:${key}`,
+      );
+      const purge = (now: number) =>
+        harness.purge ? harness.purge(now, all) : store.purgeExpired(now);
       const network: Network = { calls: 0, status: "sent" };
       await send(store, message({ idempotencyKey: "sent-old" }), T0, network);
       await send(store, message({ idempotencyKey: "sent-new" }), T0 + SENT_RETENTION_MS, network);
@@ -280,14 +291,14 @@ export function idempotencyStoreSuite(name: string, setup: () => Promise<StoreHa
       });
 
       const later = T0 + SENT_RETENTION_MS + 1;
-      expect(await store.purgeExpired(later)).toBe(2);
+      expect(await purge(later)).toBe(2);
       expect(await store.get(`${NAMESPACE}:sent-old`)).toBeNull();
       expect(await store.get(`${NAMESPACE}:not-sent-old`)).toBeNull();
       expect((await store.get(`${NAMESPACE}:sent-new`))?.state).toBe("sent");
       expect((await store.get(`${NAMESPACE}:unknown-old`))?.state).toBe("unknown");
       expect((await store.get(`${NAMESPACE}:pending-old`))?.state).toBe("pending");
       // Pending and unknown rows stay at any age.
-      expect(await store.purgeExpired(Number.MAX_SAFE_INTEGER)).toBe(1);
+      expect(await purge(Number.MAX_SAFE_INTEGER)).toBe(1);
       expect((await store.get(`${NAMESPACE}:unknown-old`))?.state).toBe("unknown");
       expect((await store.get(`${NAMESPACE}:pending-old`))?.state).toBe("pending");
     });

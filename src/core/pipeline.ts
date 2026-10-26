@@ -1,14 +1,20 @@
 // The send pipeline. The order is fixed:
 //   1. Validation.
 //   2. One idempotency claim, when a store is set and the message has a key.
-//   3. For each provider: capability check, daily cap reserve, send, observe hook.
+//   3. For each provider: capability check, daily cap reserve, rate limit, send, observe
+//      hook. A rate limit refusal refunds the cap unit of the attempt.
 //      Stop on `sent` or `unknown`. Go on after `not_sent` only when fallback allows it.
 //   4. One final record, when there is a claim.
 // `sendBatch` (batch.ts) runs the same steps. Only the primary attempt changes.
 // Every exit after a claim writes a final state.
 
 import { DEFAULT_TIMEOUT_MS, type FetchLike } from "../internal/http";
-import type { DailyCapStore, IdempotencyAttempt, IdempotencyStore } from "../stores/types";
+import type {
+  DailyCapStore,
+  IdempotencyAttempt,
+  IdempotencyStore,
+  RateLimitStore,
+} from "../stores/types";
 import type { ProviderAdapter, ProviderCredentials, SendContext } from "./adapter";
 import { createBatchSender } from "./batch";
 import { checkCapabilities } from "./capabilities";
@@ -24,6 +30,7 @@ import {
   namespacedKey,
 } from "./idempotency";
 import { validateMessage } from "./message";
+import { checkRate, type RateRule } from "./rate-limit";
 import type { SocketConnect } from "./socket";
 import type { OutgoingMessage, SendResult, UnknownResult } from "./types";
 
@@ -39,8 +46,17 @@ export interface MailerProvider {
    * the `defaultDailyCap` of the preset when a `dailyCaps` store is set.
    */
   dailyCap?: number;
-  /** The cap counter name. Defaults to the provider id. Give one per provider account. */
+  /**
+   * The cap counter and rate limit bucket name. Defaults to the provider id. Give one
+   * per provider account.
+   */
   scope?: string;
+  /**
+   * The most send attempts per second, as a token bucket. It needs the `rateLimits`
+   * store. `burst` is the most tokens the bucket holds. It defaults to `perSecond`, and
+   * is at least 1. A batch request takes one token per message.
+   */
+  rate?: { perSecond: number; burst?: number };
 }
 
 /** Options of `createMailer`. */
@@ -56,6 +72,8 @@ export interface MailerOptions {
   idempotency?: IdempotencyStore;
   /** Counts the daily cap of each provider with a `dailyCap`. */
   dailyCaps?: DailyCapStore;
+  /** Keeps the token bucket of each provider with a `rate`. */
+  rateLimits?: RateLimitStore;
   /**
    * The time after which a `pending` claim is stale. Defaults to 10 minutes. It must be
    * at least `timeoutMs` multiplied by the chain length.
@@ -93,6 +111,7 @@ export interface Entry {
   adapter: ProviderAdapter;
   credentials: ProviderCredentials;
   cap?: number;
+  rate?: RateRule;
   scope: string;
 }
 
@@ -139,6 +158,7 @@ function prepareEntries(options: MailerOptions): Entry[] {
     throw new TypeError("createMailer needs at least one provider.");
   }
   const scopes = new Set<string>();
+  const rateScopes = new Set<string>();
   return list.map((item: MailerProvider, index) => {
     const adapter = item?.adapter;
     if (typeof adapter?.send !== "function" || typeof adapter.meta?.id !== "string") {
@@ -162,6 +182,16 @@ function prepareEntries(options: MailerOptions): Entry[] {
         throw new TypeError(`createMailer: the cap scope "${entry.scope}" is used twice.`);
       }
       scopes.add(entry.scope);
+    }
+    if (item.rate !== undefined) {
+      if (!options.rateLimits) {
+        throw new TypeError(`createMailer: provider "${id}" has a rate but no rateLimits store.`);
+      }
+      entry.rate = checkRate(item.rate, `createMailer: provider "${id}"`);
+      if (rateScopes.has(entry.scope)) {
+        throw new TypeError(`createMailer: the rate limit scope "${entry.scope}" is used twice.`);
+      }
+      rateScopes.add(entry.scope);
     }
     return entry;
   });
@@ -210,7 +240,7 @@ export function createMailer(options: MailerOptions): Mailer {
     throw new TypeError("createMailer expects an options object.");
   }
   const entries = prepareEntries(options);
-  const { idempotency, dailyCaps, shouldFallback, onAttempt, logger } = options;
+  const { idempotency, dailyCaps, rateLimits, shouldFallback, onAttempt, logger } = options;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new RangeError("createMailer: timeoutMs must be a positive number.");
@@ -275,7 +305,48 @@ export function createMailer(options: MailerOptions): Mailer {
     return ctx;
   }
 
-  /** The capability check and the daily cap reserve. Only a cap store failure can throw. */
+  /**
+   * Takes one rate limit token. Returns a refusal when the bucket is empty. When the
+   * store throws or refuses, the cap unit of this attempt goes back first.
+   */
+  async function limit(entry: Entry, bucketStart?: number): Promise<SendResult | undefined> {
+    if (!rateLimits || entry.rate === undefined) return undefined;
+    const id = entry.adapter.meta.id;
+    let refusal: SendResult | undefined;
+    try {
+      const grant = await rateLimits.acquire({
+        scope: entry.scope,
+        ratePerSecond: entry.rate.perSecond,
+        burst: entry.rate.burst,
+        now: clock(),
+      });
+      if (!grant.ok) {
+        refusal = {
+          status: "not_sent",
+          reason: "rate_limited",
+          message: "The rate limit of the provider is reached.",
+          retryAfterMs: grant.retryAfterMs,
+          provider: id,
+        };
+      }
+    } catch (error) {
+      if (bucketStart !== undefined) {
+        await refund(entry, bucketStart, {
+          status: "not_sent",
+          reason: "rate_limited",
+          message: "The rate limit store failed.",
+        });
+      }
+      throw error;
+    }
+    if (refusal && bucketStart !== undefined) await refund(entry, bucketStart, refusal);
+    return refusal;
+  }
+
+  /**
+   * The capability check, the daily cap reserve, and the rate limit. Only a cap or rate
+   * limit store failure can throw.
+   */
   async function reserve(
     entry: Entry,
     message: OutgoingMessage,
@@ -284,7 +355,10 @@ export function createMailer(options: MailerOptions): Mailer {
     const { meta } = entry.adapter;
     const refusal = checkCapabilities(message, meta.capabilities, encodedBytes);
     if (refusal) return { refusal: { ...refusal, provider: meta.id } };
-    if (!dailyCaps || entry.cap === undefined) return {};
+    if (!dailyCaps || entry.cap === undefined) {
+      const limited = await limit(entry);
+      return limited ? { refusal: limited } : {};
+    }
     const reservation = await dailyCaps.reserve({
       scope: entry.scope,
       cap: entry.cap,
@@ -301,10 +375,12 @@ export function createMailer(options: MailerOptions): Mailer {
         },
       };
     }
+    const limited = await limit(entry, reservation.bucketStart);
+    if (limited) return { refusal: limited };
     return { bucketStart: reservation.bucketStart };
   }
 
-  /** One attempt. Only a daily cap store failure can throw. Adapter errors are results. */
+  /** One attempt. Only a cap or rate limit store failure can throw. Adapter errors are results. */
   async function attempt(
     entry: Entry,
     message: OutgoingMessage,
@@ -415,7 +491,7 @@ export function createMailer(options: MailerOptions): Mailer {
     try {
       await chain(run, 0);
     } catch (error) {
-      // The daily cap store failed before a send. Write a final state from the attempts
+      // A cap or rate limit store failed before a send. Write a final state from the attempts
       // so far, then let the error leave the pipeline.
       await abort(run);
       throw error;

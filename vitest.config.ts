@@ -18,9 +18,15 @@ const config: ViteUserConfig = defineConfig({
       {
         plugins: [
           cloudflareTest({
+            // The main module exports the Durable Object classes that the bindings use.
+            main: "./test/workers/fixtures/do-worker.ts",
             miniflare: {
               compatibilityDate: "2026-10-01",
               d1Databases: ["DB"],
+              durableObjects: {
+                LIMITER: { className: "MailswitchLimiter", useSQLite: true },
+                IDEMPOTENCY: { className: "MailswitchIdempotency", useSQLite: true },
+              },
             },
           }),
         ],

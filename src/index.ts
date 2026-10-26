@@ -96,4 +96,7 @@ export type {
   IdempotencyRecord,
   IdempotencyState,
   IdempotencyStore,
+  RateLimitAcquireInput,
+  RateLimitGrant,
+  RateLimitStore,
 } from "./stores/types";

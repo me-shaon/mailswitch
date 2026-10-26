@@ -1,7 +1,10 @@
 // Store interfaces. Each concern has its own interface, so a store implements only what it
 // supports.
 
+import type { RateLimitGrant } from "../core/rate-limit";
 import type { DeliveryStatus, FailureReason } from "../core/types";
+
+export type { RateLimitGrant } from "../core/rate-limit";
 
 /**
  * The state of one idempotency record.
@@ -180,6 +183,29 @@ export interface DailyCapStore {
   fill(input: DailyCapFillInput): Promise<void>;
   /** The units in the window now. For operators and tests. */
   used(scope: string, now: number): Promise<number>;
+}
+
+/** The input of `RateLimitStore.acquire`. */
+export interface RateLimitAcquireInput {
+  /** The rate limit scope, usually the provider id. One scope is one token bucket. */
+  scope: string;
+  /** The refill rate, in tokens per second. A positive number. */
+  ratePerSecond: number;
+  /** The most tokens the bucket holds. At least 1. */
+  burst: number;
+  /** Unix milliseconds. */
+  now: number;
+}
+
+/**
+ * Keeps one token bucket per scope. Each send attempt takes one token.
+ *
+ * Implementations must make `acquire` atomic: two parallel calls cannot both take the
+ * last token.
+ */
+export interface RateLimitStore {
+  /** Takes one token when the bucket has one. A refusal takes nothing. */
+  acquire(input: RateLimitAcquireInput): Promise<RateLimitGrant>;
 }
 
 /**

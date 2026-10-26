@@ -37,6 +37,12 @@
   },
   { "name": "mailswitch/stores/d1", "path": "dist/stores/d1.js", "limit": "3 KB", "gzip": true },
   {
+    "name": "mailswitch/stores/durable-object",
+    "path": "dist/stores/durable-object.js",
+    "limit": "4 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/crypto",
     "path": "dist/crypto/index.js",
     "limit": "3 KB",

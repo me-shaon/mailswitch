@@ -72,6 +72,10 @@
       "types": "./dist/stores/d1.d.ts",
       "import": "./dist/stores/d1.js"
     },
+    "./stores/durable-object": {
+      "types": "./dist/stores/durable-object.d.ts",
+      "import": "./dist/stores/durable-object.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

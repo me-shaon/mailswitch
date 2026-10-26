@@ -2,6 +2,7 @@
 // so do not use these stores in production: a second isolate does not see the claims.
 
 import { bucketExpiry, bucketStartOf, windowFloor } from "../core/daily-cap";
+import { type TokenBucket, takeToken } from "../core/rate-limit";
 import type {
   DailyCapFillInput,
   DailyCapReleaseInput,
@@ -19,6 +20,9 @@ import type {
   IdempotencyFinishInput,
   IdempotencyRecord,
   IdempotencyStore,
+  RateLimitAcquireInput,
+  RateLimitGrant,
+  RateLimitStore,
 } from "./types";
 
 export type {
@@ -41,6 +45,9 @@ export type {
   IdempotencyRecord,
   IdempotencyState,
   IdempotencyStore,
+  RateLimitAcquireInput,
+  RateLimitGrant,
+  RateLimitStore,
 } from "./types";
 
 function copy(record: IdempotencyRecord): IdempotencyRecord {
@@ -235,5 +242,24 @@ export class MemoryDedupeStore implements DedupeStore {
       }
     }
     return deleted;
+  }
+}
+
+/**
+ * A `RateLimitStore` in a `Map` of token buckets per scope. Each call runs to completion
+ * before it yields, so `acquire` is atomic inside one isolate.
+ */
+export class MemoryRateLimitStore implements RateLimitStore {
+  readonly #buckets = new Map<string, TokenBucket>();
+
+  async acquire(input: RateLimitAcquireInput): Promise<RateLimitGrant> {
+    const { bucket, grant } = takeToken(
+      this.#buckets.get(input.scope),
+      input.ratePerSecond,
+      input.burst,
+      input.now,
+    );
+    this.#buckets.set(input.scope, bucket);
+    return grant;
   }
 }
