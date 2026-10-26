@@ -80,7 +80,7 @@
   },
   "scripts": {
     "build": "tsdown",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/worker-basic",
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "vitest run",

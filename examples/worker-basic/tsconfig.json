@@ -1,0 +1,6 @@
+{
+  // The root `pnpm typecheck` script checks this project. The paths in the base config
+  // map `mailswitch` to the source files of this repository.
+  "extends": "../../tsconfig.examples.json",
+  "include": ["src"]
+}
