@@ -8,7 +8,7 @@
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
-    "limit": "4.2 KB",
+    "limit": "4.33 KB",
     "gzip": true
   },
   {
@@ -57,6 +57,12 @@
     "name": "mailswitch/mailersend",
     "path": "dist/providers/mailersend/index.js",
     "limit": "8 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/mailjet",
+    "path": "dist/providers/mailjet/index.js",
+    "limit": "8.47 KB",
     "gzip": true
   },
   {

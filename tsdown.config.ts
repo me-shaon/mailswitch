@@ -19,6 +19,7 @@ const config: UserConfig = defineConfig({
     "providers/postmark/index": "src/providers/postmark/index.ts",
     "providers/brevo/index": "src/providers/brevo/index.ts",
     "providers/mailersend/index": "src/providers/mailersend/index.ts",
+    "providers/mailjet/index": "src/providers/mailjet/index.ts",
     "providers/sendgrid/index": "src/providers/sendgrid/index.ts",
     "providers/ses/index": "src/providers/ses/index.ts",
     "providers/smtp/index": "src/providers/smtp/index.ts",

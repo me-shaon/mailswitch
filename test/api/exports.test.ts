@@ -202,6 +202,22 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "verifyMailersendWebhook",
     ],
   },
+  "./mailjet": {
+    load: () => import("../../src/providers/mailjet/index"),
+    names: [
+      "MAILJET_API_BASE",
+      "MAILJET_MAX_REQUEST_BYTES",
+      "MAILJET_WEBHOOK_USERNAME",
+      "checkMailjetWebhookSecret",
+      "generateMailjetWebhookSecret",
+      "mailjet",
+      "mailjetMeta",
+      "mailjetWebhookAuthorization",
+      "mailjetWebhookUrl",
+      "mailjetWebhooks",
+      "parseMailjetEvents",
+    ],
+  },
   "./sendgrid": {
     load: () => import("../../src/providers/sendgrid/index"),
     names: [

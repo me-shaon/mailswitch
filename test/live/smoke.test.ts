@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { brevo } from "../../src/providers/brevo/index";
 import { mailersend } from "../../src/providers/mailersend/index";
+import { mailjet } from "../../src/providers/mailjet/index";
 import { resend } from "../../src/providers/resend/index";
 import { sendgrid } from "../../src/providers/sendgrid/index";
 import { tosend } from "../../src/providers/tosend/index";
@@ -17,6 +18,9 @@ import { tosend } from "../../src/providers/tosend/index";
 // - MailerSend: MAILSWITCH_LIVE_MAILERSEND_KEY, MAILSWITCH_LIVE_MAILERSEND_FROM, MAILSWITCH_LIVE_TO.
 //   MailerSend has no sandbox flag, so it sends one real email. Set MAILSWITCH_LIVE_TO to an
 //   address of the account owner.
+// - Mailjet: MAILSWITCH_LIVE_MAILJET_KEY, MAILSWITCH_LIVE_MAILJET_SECRET,
+//   MAILSWITCH_LIVE_MAILJET_FROM, MAILSWITCH_LIVE_TO. It uses SandboxMode, so Mailjet checks
+//   the request and delivers no email.
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -42,6 +46,12 @@ const BREVO = ["MAILSWITCH_LIVE_BREVO_KEY", "MAILSWITCH_LIVE_BREVO_FROM", "MAILS
 const MAILERSEND = [
   "MAILSWITCH_LIVE_MAILERSEND_KEY",
   "MAILSWITCH_LIVE_MAILERSEND_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const MAILJET = [
+  "MAILSWITCH_LIVE_MAILJET_KEY",
+  "MAILSWITCH_LIVE_MAILJET_SECRET",
+  "MAILSWITCH_LIVE_MAILJET_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
 
@@ -186,5 +196,35 @@ describe.skipIf(!hasLiveEnv(MAILERSEND[0] as string))("live smoke: MailerSend", 
       ctx,
     );
     expect(result).toMatchObject({ status: "sent", provider: "mailersend" });
+  });
+});
+
+describe.skipIf(!hasLiveEnv(MAILJET[0] as string))("live smoke: Mailjet", () => {
+  it("has the env vars of the Mailjet smoke test", () => {
+    expect(hasLiveEnv(...MAILJET)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...MAILJET))("verifies the keys and sends in sandbox mode", async () => {
+    const adapter = mailjet({ sandbox: true });
+    const ctx = {
+      fetch: (input: string, init: RequestInit) => fetch(input, init),
+      timeoutMs: 15_000,
+      credentials: {
+        apiKey: env.MAILSWITCH_LIVE_MAILJET_KEY ?? "",
+        secretKey: env.MAILSWITCH_LIVE_MAILJET_SECRET ?? "",
+      },
+      now: Date.now(),
+    };
+    expect(await adapter.verify(ctx)).toEqual({ ok: true });
+    const result = await adapter.send(
+      {
+        from: env.MAILSWITCH_LIVE_MAILJET_FROM ?? "",
+        to: [env.MAILSWITCH_LIVE_TO ?? ""],
+        subject: "mailswitch live smoke test (Mailjet)",
+        text: "This email comes from the mailswitch live smoke test. SandboxMode delivers nothing.",
+      },
+      ctx,
+    );
+    expect(result).toMatchObject({ status: "sent", provider: "mailjet" });
   });
 });
