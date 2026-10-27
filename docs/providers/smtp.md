@@ -178,7 +178,7 @@ Brevo signs nothing. It sends a bearer token that you set on the webhook. mailsw
 
 The token must hold at least 128 bits. A token of only hex characters needs at least 32 characters. Any other token needs at least 22 characters. Make it with `generateBrevoWebhookToken()`, which gives 256 random bits as 43 base64url characters.
 
-A token that is too short is a setup error. The webhook check throws a `TypeError`. The message does not hold the token.
+A token that is too short is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the token.
 
 ### Set up the webhook in Brevo
 

@@ -139,7 +139,7 @@ Use the full handler from the [README](../../README.md#receive-webhooks): answer
 | Item | Value |
 |---|---|
 | Signature headers | `svix-id`, `svix-timestamp`, `svix-signature` (the `webhook-` prefix also works) |
-| Secret | The `whsec_` secret. A secret that is not valid base64 throws a `TypeError`, because it is a setup error. |
+| Secret | The `whsec_` secret. A secret that is not valid base64 is a setup error. The webhook check refuses each request as `invalid_secret` (HTTP 500). |
 | Signed timestamp | Yes. A timestamp more than 5 minutes away from now is refused as `stale` (HTTP 401). |
 | Secret rotation | The header can hold more than one `v1,` signature. One valid signature is enough. |
 | Event key | The `svix-id` header. It stays the same across retries of one delivery. |

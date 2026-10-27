@@ -404,12 +404,12 @@ describe("sendgrid webhooks", () => {
     expect(await hooks.verify(input(sample))).toEqual({ ok: false, reason: "malformed" });
   });
 
-  it("throws at setup for a key that is not base64, with no key in the message", async () => {
+  it("refuses a key that is not base64 as invalid_secret", async () => {
     const sample = await signed(FOUR_EVENTS);
-    const secret = "not a key at all!";
-    const error = await hooks.verify(input(sample, secret)).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(TypeError);
-    expect((error as Error).message).not.toContain(secret);
+    expect(await hooks.verify(input(sample, "not a key at all!"))).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
   });
 
   it("gives unknown for an unmapped event and for a bounce of another type", () => {

@@ -44,6 +44,8 @@ export interface NormalizedEvent {
  * - `replay`: the event key was handled before.
  * - `in_flight`: another request holds a claim for the same event key now.
  * - `untrusted_topic`: the SNS topic is not in the allowlist.
+ * - `invalid_secret`: the configured secret is too short or has the wrong form. This is a
+ *   setup error on the receiving side, not a bad request.
  */
 export type WebhookRejection =
   | "bad_signature"
@@ -53,7 +55,8 @@ export type WebhookRejection =
   | "body_used"
   | "replay"
   | "in_flight"
-  | "untrusted_topic";
+  | "untrusted_topic"
+  | "invalid_secret";
 
 /** Every webhook rejection code, in a fixed order. */
 export const WEBHOOK_REJECTIONS: readonly WebhookRejection[] = [
@@ -65,4 +68,5 @@ export const WEBHOOK_REJECTIONS: readonly WebhookRejection[] = [
   "replay",
   "in_flight",
   "untrusted_topic",
+  "invalid_secret",
 ];

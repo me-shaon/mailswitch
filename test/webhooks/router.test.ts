@@ -236,6 +236,15 @@ describe("handleWebhook refusals", () => {
     expect(JSON.stringify(outcome)).not.toContain("sha256=");
   });
 
+  it("refuses a malformed secret as invalid_secret with 500, without a throw", async () => {
+    const outcome = await handleWebhook(await resendRequest(resendEvent("email.bounced")), {
+      adapter: resend(),
+      secret: "whsec_%%%%",
+      now: () => NOW,
+    });
+    expect(outcome).toEqual({ ok: false, rejection: "invalid_secret", status: 500 });
+  });
+
   it("refuses a used body", async () => {
     const request = await toSendRequest(toSendBounce("ana@example.org"));
     await request.text();

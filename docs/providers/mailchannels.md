@@ -88,7 +88,7 @@ MailChannels signs each webhook request with Ed25519, as an HTTP Message Signatu
 3. Get the key with `GET https://api.mailchannels.net/tx/v1/webhook/public-key?id=<keyid>`.
 4. Store the key as the webhook secret, for example in `MAILCHANNELS_WEBHOOK_PUBLIC_KEY`.
 
-mailswitch accepts the key as base64 SubjectPublicKeyInfo text or as a PEM block. A key that is not base64 is a setup error. The webhook check then throws a `TypeError`, and the message does not hold the key.
+mailswitch accepts the key as base64 SubjectPublicKeyInfo text or as a PEM block. A key that is not base64 is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the key.
 
 mailswitch does not fetch the key, and it does not read the `keyid`. If MailChannels rotates its key, requests signed with the new key fail as `bad_signature`. Then get the key for the new `keyid` and update the secret.
 

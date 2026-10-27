@@ -512,23 +512,22 @@ describe("mailchannels webhooks", () => {
     expect(await hooks.verify(input(many))).toEqual({ ok: false, reason: "malformed" });
   });
 
-  it("throws at setup for a key that is not base64, with no key in the message", async () => {
+  it("refuses a key that is not base64 as invalid_secret", async () => {
     const sample = await signed(THREE_EVENTS);
-    const secret = "not a key at all!";
-    const error = await hooks.verify(input(sample, secret)).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(TypeError);
-    expect((error as Error).message).not.toContain(secret);
+    expect(await hooks.verify(input(sample, "not a key at all!"))).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
   });
 
-  it("throws at setup for a PEM block that is not a PUBLIC KEY", async () => {
+  it("refuses a PEM block that is not a PUBLIC KEY as invalid_secret", async () => {
     const sample = await signed(THREE_EVENTS);
     for (const label of ["PRIVATE KEY", "CERTIFICATE"]) {
       const secret = `-----BEGIN ${label}-----\n${PUBLIC_KEY}\n-----END ${label}-----\n`;
-      const error = await hooks.verify(input(sample, secret)).catch((caught: unknown) => caught);
-      expect(error).toEqual(
-        new TypeError("The MailChannels webhook secret is not a base64 public key."),
-      );
-      expect((error as Error).message).not.toContain(PUBLIC_KEY);
+      expect(await hooks.verify(input(sample, secret))).toEqual({
+        ok: false,
+        reason: "invalid_secret",
+      });
     }
   });
 

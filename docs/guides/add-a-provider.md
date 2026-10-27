@@ -377,7 +377,7 @@ interface ProviderWebhooks {
 - Compare with `hmacVerify`, which uses `crypto.subtle.verify`. Do not compare signature text with `===` or with a loop.
 - Refuse an empty secret.
 - If the signature covers a timestamp, refuse a timestamp outside the window in both directions, past and future. Use `input.now`, not `Date.now()`.
-- Return a typed rejection. Do not throw for a bad request.
+- Return a typed rejection. Do not throw for a bad request or for a bad secret.
 - Decode the body with a fatal `TextDecoder`, so invalid UTF-8 is `malformed`.
 - Make no network call, except to fetch a signing certificate (SNS) with `input.fetch`.
 
@@ -386,6 +386,7 @@ interface ProviderWebhooks {
 | `bad_signature` | The signature is missing or wrong, or the secret is empty. |
 | `malformed` | A header or the body cannot be parsed. |
 | `stale` | The signed timestamp is outside the window. |
+| `invalid_secret` | The secret is set but is too short or has the wrong form. This is a setup error on the receiving side. |
 
 The router sets `too_large`, `body_used`, `replay`, `in_flight`, and `untrusted_topic`.
 

@@ -85,7 +85,7 @@ SendGrid signs each Event Webhook request with ECDSA P-256 and SHA-256. The sign
 6. Open the webhook again. Copy the **Verification Key**. SendGrid makes the key pair only when you save. The test button does not check the signature before you save.
 7. Store the key as the webhook secret, for example in `SENDGRID_WEBHOOK_PUBLIC_KEY`.
 
-The key is base64 text that starts with `MFkw`. mailswitch also accepts the key in PEM form. A key that is not base64 is a setup error. The webhook check then throws a `TypeError`, and the message does not hold the key.
+The key is base64 text that starts with `MFkw`. mailswitch also accepts the key in PEM form. A key that is not base64 is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the key.
 
 ### Handle a webhook
 

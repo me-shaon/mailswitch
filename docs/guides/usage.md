@@ -105,6 +105,7 @@ export async function onWebhook(request: Request, env: Env): Promise<Response> {
 ```
 
 - A request that arrives while another request handles the same event gets `in_flight`, which maps to HTTP 409.
+- A secret that is too short or has the wrong form gets `invalid_secret`, which maps to HTTP 500. The provider retries, so fix the secret and the events arrive.
 - A replay of an acknowledged event is left out of `events`. The handler answers 200.
 - toSend signs no timestamp, so its adapter requires a dedupe store. The types refuse a call without one.
 - toSend sends each event once and does not retry. A non-2xx answer to toSend loses that event. Check the toSend logs after an outage. Resend retries a non-2xx answer for about a day.

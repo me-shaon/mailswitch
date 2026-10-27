@@ -46,11 +46,21 @@ export function svixSignedPayload(id: string, timestamp: string, body: Uint8Arra
  * message never holds the secret.
  */
 export function svixVerifier(secret: string): SvixVerifier {
-  const text = typeof secret === "string" ? secret.replace(/^whsec_/, "") : "";
-  const key = base64ToBytes(text);
-  if (!key || key.length === 0) {
+  const key = svixKey(secret);
+  if (key === null) {
     throw new TypeError("The Resend webhook secret is not a valid whsec_ base64 secret.");
   }
+  return keyVerifier(key);
+}
+
+/** The decoded key of a Svix signing secret, or null when it is not valid base64. */
+function svixKey(secret: string): Uint8Array | null {
+  const text = typeof secret === "string" ? secret.replace(/^whsec_/, "") : "";
+  const key = base64ToBytes(text);
+  return key && key.length > 0 ? key : null;
+}
+
+function keyVerifier(key: Uint8Array): SvixVerifier {
   return {
     async verify(headers, body, now) {
       const id = header(headers, "id");
@@ -89,15 +99,15 @@ let cached: { secret: string; verifier: SvixVerifier } | null = null;
 
 /**
  * The `webhooks.verify` method of the Resend adapter. An empty secret is refused as
- * `bad_signature`.
- *
- * @throws TypeError when the secret is set but is not a valid `whsec_` secret. That is a
- * setup error, not a bad request.
+ * `bad_signature`. A secret that is not a valid `whsec_` secret is refused as
+ * `invalid_secret`, because that is a setup error on this side.
  */
 export function verifyResendWebhook(input: WebhookVerifyInput): Promise<WebhookVerifyResult> {
   if (input.secret === "") return Promise.resolve({ ok: false, reason: "bad_signature" });
   if (cached?.secret !== input.secret) {
-    cached = { secret: input.secret, verifier: svixVerifier(input.secret) };
+    const key = svixKey(input.secret);
+    if (key === null) return Promise.resolve({ ok: false, reason: "invalid_secret" });
+    cached = { secret: input.secret, verifier: keyVerifier(key) };
   }
   return cached.verifier.verify(input.headers, input.body, input.now);
 }

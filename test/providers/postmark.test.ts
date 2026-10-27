@@ -236,9 +236,9 @@ describe("postmark webhook auth", () => {
     expect(() => checkPostmarkWebhookSecret("0123456789abcdef0123456789abcdef")).not.toThrow();
     expect(() => checkPostmarkWebhookSecret(`${"Ab-_".repeat(5)}zz`)).not.toThrow();
     expect(generatePostmarkWebhookSecret()).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    await expect(
-      hooks.verify({ ...verifyInput(basic("mailswitch", "short")), secret: "short" }),
-    ).rejects.toThrow(/too short/);
+    expect(
+      await hooks.verify({ ...verifyInput(basic("mailswitch", "short")), secret: "short" }),
+    ).toEqual({ ok: false, reason: "invalid_secret" });
     expect(() => postmark({ previousWebhookSecret: "short" })).toThrow(/too short/);
     expect(() => postmark({ webhookUsername: "a:b" })).toThrow(/colon/);
   });

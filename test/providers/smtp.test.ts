@@ -552,9 +552,11 @@ describe("Brevo webhooks", () => {
       ok: false,
       reason: "bad_signature",
     });
-    await expect(hooks.verify({ headers, body, secret: "short", now: NOW })).rejects.toThrow(
-      /too short/,
-    );
+    expect(await hooks.verify({ headers, body, secret: "short", now: NOW })).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
+    expect(() => checkBrevoWebhookToken("short")).toThrow(/too short/);
     expect(() => checkBrevoWebhookToken(generateBrevoWebhookToken())).not.toThrow();
   });
 

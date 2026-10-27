@@ -73,7 +73,7 @@ The secret must hold at least 128 bits. mailswitch checks the length:
 
 mailswitch cannot measure the real randomness of a secret. A long secret of one repeated character passes the length check. Do not type a secret by hand. Make it with `generatePostmarkWebhookSecret()`, which gives 256 random bits as 43 base64url characters.
 
-A secret that is too short is a setup error. The webhook check throws a `TypeError`, and the message does not hold the secret.
+A secret that is too short is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the secret. A weak `previousWebhookSecret` throws a `TypeError` when you create the adapter. The message does not hold the secret.
 
 ### Set up the webhook in Postmark
 

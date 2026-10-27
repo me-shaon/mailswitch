@@ -32,30 +32,25 @@ export function sendgridSignedPayload(timestamp: string, body: Uint8Array): Uint
 
 /**
  * Reads the public key text. It accepts the base64 key as the console shows it, and also
- * a PEM block, with the armor lines and the white space removed.
- *
- * @throws TypeError when the key is not base64. The message never holds the key.
+ * a PEM block, with the armor lines and the white space removed. Returns null when the
+ * key is not base64.
  */
-function keyText(secret: string): string {
+function keyText(secret: string): string | null {
   const text = secret.replace(/-----[A-Z ]+-----/g, "").replace(/\s+/g, "");
-  if (!isBase64(text)) {
-    throw new TypeError("The SendGrid webhook secret is not a base64 public key.");
-  }
-  return text;
+  return isBase64(text) ? text : null;
 }
 
 /**
  * The `webhooks.verify` method of the SendGrid adapter. An empty secret is refused as
- * `bad_signature`.
- *
- * @throws TypeError when the secret is set but is not base64. That is a setup error, not
- * a bad request.
+ * `bad_signature`. A secret that is not base64 is refused as `invalid_secret`, because
+ * that is a setup error on this side.
  */
 export async function verifySendgridWebhook(
   input: WebhookVerifyInput,
 ): Promise<WebhookVerifyResult> {
   if (input.secret === "") return { ok: false, reason: "bad_signature" };
   const key = keyText(input.secret);
+  if (key === null) return { ok: false, reason: "invalid_secret" };
   const signature = input.headers.get(SENDGRID_SIGNATURE_HEADER);
   const timestamp = input.headers.get(SENDGRID_TIMESTAMP_HEADER);
   if (!signature || !timestamp) return { ok: false, reason: "bad_signature" };

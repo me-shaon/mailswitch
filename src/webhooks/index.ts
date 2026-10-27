@@ -45,6 +45,8 @@ export const REJECTION_STATUS: Readonly<Record<WebhookRejection, number>> = {
   body_used: 500,
   replay: 200,
   in_flight: 409,
+  // The secret on this side is wrong. A 500 makes the provider retry after the fix.
+  invalid_secret: 500,
 };
 
 /** An adapter whose webhooks need a dedupe store, such as the toSend adapter. */
