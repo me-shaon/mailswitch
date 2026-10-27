@@ -189,6 +189,19 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "verifyBrevoWebhook",
     ],
   },
+  "./mailersend": {
+    load: () => import("../../src/providers/mailersend/index"),
+    names: [
+      "MAILERSEND_API_BASE",
+      "MAILERSEND_SIGNATURE_HEADER",
+      "mailersend",
+      "mailersendMeta",
+      "mailersendSignature",
+      "mailersendWebhooks",
+      "parseMailersendEvents",
+      "verifyMailersendWebhook",
+    ],
+  },
   "./sendgrid": {
     load: () => import("../../src/providers/sendgrid/index"),
     names: [

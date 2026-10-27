@@ -88,6 +88,10 @@
       "types": "./dist/providers/brevo/index.d.ts",
       "import": "./dist/providers/brevo/index.js"
     },
+    "./mailersend": {
+      "types": "./dist/providers/mailersend/index.d.ts",
+      "import": "./dist/providers/mailersend/index.js"
+    },
     "./sendgrid": {
       "types": "./dist/providers/sendgrid/index.d.ts",
       "import": "./dist/providers/sendgrid/index.js"

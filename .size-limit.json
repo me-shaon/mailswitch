@@ -8,7 +8,7 @@
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
-    "limit": "4 KB",
+    "limit": "4.2 KB",
     "gzip": true
   },
   {
@@ -50,6 +50,12 @@
   {
     "name": "mailswitch/brevo",
     "path": "dist/providers/brevo/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/mailersend",
+    "path": "dist/providers/mailersend/index.js",
     "limit": "8 KB",
     "gzip": true
   },
