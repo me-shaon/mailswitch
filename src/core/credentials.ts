@@ -27,6 +27,26 @@ export function parseCredentials(
   input: Readonly<Record<string, unknown>>,
   presetId?: string,
 ): CredentialParseResult {
+  const result = checkCredentials(meta, input, presetId);
+  return result.ok ? { ok: true, values: result.values } : result;
+}
+
+/** What `checkCredentials` returns: `parseCredentials` plus the defaulted field names. */
+export type CredentialCheckResult =
+  | { ok: true; values: Readonly<Record<string, string>>; defaulted: ReadonlySet<string> }
+  | { ok: false; errors: readonly CredentialError[] };
+
+/**
+ * The checks of `parseCredentials`. It also returns the names of the fields whose value
+ * is the field default, because the caller left them empty. Internal: `createMailer`
+ * puts the set in `SendContext.defaultedFields`.
+ */
+export function checkCredentials(
+  meta: ProviderMeta,
+  input: Readonly<Record<string, unknown>>,
+  presetId?: string,
+): CredentialCheckResult {
+  const defaulted = new Set<string>();
   const errors: CredentialError[] = [];
   let fixed: Readonly<Record<string, string>> = {};
   if (presetId !== undefined) {
@@ -56,6 +76,7 @@ export function parseCredentials(
       continue;
     }
     values[field.name] = value;
+    if (given === "") defaulted.add(field.name);
   }
-  return errors.length > 0 ? { ok: false, errors } : { ok: true, values };
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, values, defaulted };
 }

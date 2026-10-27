@@ -122,7 +122,7 @@ export function smtp(options: SmtpOptions = {}): ProviderAdapter {
         ),
       };
     }
-    const resolved = resolveSmtpSettings(ctx.credentials, options);
+    const resolved = resolveSmtpSettings(ctx.credentials, options, ctx.defaultedFields);
     if (!resolved.ok) {
       return {
         ok: false,

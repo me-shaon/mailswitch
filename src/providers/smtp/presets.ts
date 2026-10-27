@@ -2,10 +2,11 @@
 // catalog imports only meta files. This file turns credentials, a preset, and adapter
 // options into the settings of the client.
 //
-// Precedence, from high to low: the fixed values of the preset, the credentials, the
-// adapter options, and the defaults of this file.
+// Precedence, from high to low: the fixed values of the preset, the credentials that the
+// caller gave, the adapter options, the field defaults, and the defaults of this file.
 
 import type { ProviderPreset } from "../../core/meta";
+import { credentialOrOption } from "../../internal/credential";
 import { HOST_NAME, type SmtpSecurity, type SmtpSettings } from "./client";
 import { SMTP_PRESETS, type SmtpPresetId } from "./meta";
 
@@ -38,19 +39,21 @@ export type SmtpSettingsResult =
   | { ok: true; settings: SmtpSettings; preset: string }
   | { ok: false; message: string };
 
-/** Resolves the client settings. It never throws. */
+/**
+ * Resolves the client settings. It never throws. `defaulted` is
+ * `SendContext.defaultedFields`: an option takes precedence over those fields.
+ */
 export function resolveSmtpSettings(
   credentials: Readonly<Record<string, string>>,
   options: SmtpConnectionOptions = {},
+  defaulted?: ReadonlySet<string>,
 ): SmtpSettingsResult {
-  const presetId = credentials.preset || options.preset || "custom";
+  const pick = (name: string): string =>
+    credentialOrOption(credentials, defaulted, name, (options as Record<string, unknown>)[name]);
+  const presetId = pick("preset") || "custom";
   const preset = smtpPreset(presetId);
   if (!preset) return { ok: false, message: "The SMTP preset is not known." };
-  const value = (name: string): string => {
-    const given =
-      preset.fixed[name] ?? (credentials[name] || (options as Record<string, unknown>)[name]);
-    return given === undefined ? "" : String(given).trim();
-  };
+  const value = (name: string): string => (preset.fixed[name] ?? pick(name)).trim();
 
   const host = value("host").toLowerCase();
   if (!HOST_NAME.test(host)) {

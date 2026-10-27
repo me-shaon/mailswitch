@@ -15,6 +15,7 @@ import {
 import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "../../core/types";
+import { credentialOrOption } from "../../internal/credential";
 import { bytesToBase64, bytesToHex, utf8 } from "../../internal/encoding";
 import {
   callProvider,
@@ -52,7 +53,7 @@ export interface MailgunOptions {
   apiKey?: string;
   /** The sending domain, for example `mg.example.com`. The `domain` credential takes precedence. */
   domain?: string;
-  /** The region of the domain. The `region` credential takes precedence. Defaults to `us`. */
+  /** The region of the domain. The `region` credential takes precedence. Without both, it is `us`. */
   region?: MailgunRegion;
   /** The API origin, for tests or a proxy. It replaces the region origin. */
   baseUrl?: string;
@@ -140,7 +141,12 @@ export function mailgun(options: MailgunOptions = {}): MailgunAdapter {
 
   function base(ctx: SendContext): string {
     if (baseUrl !== undefined) return baseUrl;
-    const region = (ctx.credentials.region || options.region || "us").toLowerCase();
+    const region = credentialOrOption(
+      ctx.credentials,
+      ctx.defaultedFields,
+      "region",
+      options.region,
+    ).toLowerCase();
     return region === "eu" ? MAILGUN_REGIONS.eu : MAILGUN_REGIONS.us;
   }
 

@@ -52,7 +52,14 @@ const adapter = smtp({ heloName: "mail.example.com" });
 | `webhooks` | The webhook methods of a relay, for example `brevoWebhooks()`. See [Brevo webhooks](#brevo-webhooks). |
 | `preset`, `host`, `port`, `security`, `insecure`, `username`, `password` | Default connection values. The credentials take precedence. |
 
-The order of precedence is: the fixed values of the preset, then the credentials, then the adapter options.
+The order of precedence is:
+
+1. The fixed values of the preset.
+2. A value in the credentials.
+3. The adapter option.
+4. The default of the credential field, for example `starttls` for `security`.
+
+So `smtp({ preset: "gmail" })` or `smtp({ security: "tls" })` applies when the credentials do not set the same field. The fixed values of Mailpit and MailCrab always apply. `parseCredentials` puts the field defaults in its values. If you pass its values to the adapter yourself, the defaults take precedence over the adapter options.
 
 ## Credentials
 

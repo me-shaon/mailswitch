@@ -23,7 +23,7 @@ import type {
 import type { ProviderAdapter, ProviderCredentials, SendContext } from "./adapter";
 import { createBatchSender } from "./batch";
 import { checkCapabilities } from "./capabilities";
-import { parseCredentials } from "./credentials";
+import { checkCredentials } from "./credentials";
 import { checkDailyCap } from "./daily-cap";
 import { allowFallback, type ShouldFallback } from "./fallback";
 import { type AttemptView, errorName, type MailerLogger, safeWarn } from "./hooks";
@@ -115,6 +115,8 @@ export interface Mailer {
 export interface Entry {
   adapter: ProviderAdapter;
   credentials: ProviderCredentials;
+  /** The credential fields that got the field default. */
+  defaulted: ReadonlySet<string>;
   cap?: number;
   rate?: RateRule;
   scope: string;
@@ -179,12 +181,17 @@ function prepareEntries(options: MailerOptions): Entry[] {
       throw new TypeError(`createMailer: providers[${index}] has no valid adapter.`);
     }
     const id = adapter.meta.id;
-    const parsed = parseCredentials(adapter.meta, item.credentials ?? {}, item.preset);
+    const parsed = checkCredentials(adapter.meta, item.credentials ?? {}, item.preset);
     if (!parsed.ok) {
       const fields = parsed.errors.map((error) => `${error.field} (${error.code})`).join(", ");
       throw new TypeError(`createMailer: provider "${id}" has invalid credentials: ${fields}.`);
     }
-    const entry: Entry = { adapter, credentials: parsed.values, scope: item.scope ?? id };
+    const entry: Entry = {
+      adapter,
+      credentials: parsed.values,
+      defaulted: parsed.defaulted,
+      scope: item.scope ?? id,
+    };
     const presetCap = adapter.meta.presets?.find((p) => p.id === item.preset)?.defaultDailyCap;
     if (item.dailyCap !== undefined && !options.dailyCaps) {
       throw new TypeError(`createMailer: provider "${id}" has a dailyCap but no dailyCaps store.`);
@@ -232,6 +239,12 @@ function checkResult(result: unknown, provider: string): SendResult {
 
 /**
  * Creates a mailer over a provider chain.
+ *
+ * `SendContext.credentials` holds the field defaults, as `parseCredentials` gives them.
+ * `SendContext.defaultedFields` names the fields that got a default. The built-in
+ * adapters then use this order: the fixed value of the preset, a value in `credentials`,
+ * the adapter option, and the field default. So `smtp({ security: "tls" })` applies when
+ * the credentials do not set `security`.
  *
  * When a provider in the chain has no native idempotency and no `idempotency` store is
  * set, `createMailer` writes one warning to the logger. A keyed retry through that
@@ -324,6 +337,7 @@ export function createMailer(options: MailerOptions): Mailer {
       fetch: doFetch,
       timeoutMs,
       credentials: entry.credentials,
+      defaultedFields: entry.defaulted,
       now: clock(),
     };
     if (options.connect) ctx.connect = options.connect;

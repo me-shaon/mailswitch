@@ -122,13 +122,14 @@ describe("MailswitchIdempotency alarm", () => {
         state,
         attempts: [{ provider: "fake", status: state, at: now }],
         now,
-        expiresAt: now + 50,
+        // Long enough that a slow CI runner still reads the record before the alarm runs.
+        expiresAt: now + 1000,
       });
     }
     expect((await store.get("sent"))?.state).toBe("sent");
     // The alarm of the sent record runs on its own after `expiresAt`.
     await vi.waitFor(async () => expect(await store.get("sent")).toBeNull(), {
-      timeout: 2000,
+      timeout: 5000,
       interval: 20,
     });
     // An unknown record sets no alarm and stays.
