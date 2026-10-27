@@ -19,6 +19,7 @@ export {
 } from "./core/credentials";
 export { DAILY_CAP_WINDOW_MS } from "./core/daily-cap";
 export {
+  type BounceDetail,
   NORMALIZED_EVENT_TYPES,
   type NormalizedEvent,
   type NormalizedEventType,

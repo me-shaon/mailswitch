@@ -16,7 +16,12 @@ export type {
   WebhookVerifyInput,
   WebhookVerifyResult,
 } from "../core/adapter";
-export type { NormalizedEvent, NormalizedEventType, WebhookRejection } from "../core/events";
+export type {
+  BounceDetail,
+  NormalizedEvent,
+  NormalizedEventType,
+  WebhookRejection,
+} from "../core/events";
 export type {
   DedupeClaimInput,
   DedupeClaimManyInput,

@@ -12,11 +12,32 @@ export const NORMALIZED_EVENT_TYPES: readonly NormalizedEventType[] = [
   "unknown",
 ];
 
+/**
+ * The reason for a bounce, as the provider sends it. mailswitch removes control and
+ * invisible characters from the text, trims it, and cuts it at 1,000 UTF-16 code units.
+ * It never reads a code out of the text.
+ */
+export interface BounceDetail {
+  /** The reason text from the remote mail server or the provider. */
+  text?: string;
+  /** The SMTP reply code, an integer from 200 to 599. */
+  smtpCode?: number;
+  /** The enhanced status code, for example `5.1.1`. */
+  enhancedCode?: string;
+}
+
 /** One provider event in the shared shape. */
 export interface NormalizedEvent {
   type: NormalizedEventType;
   /** For `bounced` only: `hard` for a permanent failure, `soft` for a temporary one. */
   bounce?: "hard" | "soft";
+  /**
+   * For `bounced` only: the reason that the provider gives for the bounce. It is set only
+   * when the provider sends at least one part. The text comes from a remote mail server
+   * and can hold personal data. mailswitch does not escape markup in it. Escape the text
+   * for your output (HTML, Markdown, or email) before you show it.
+   */
+  bounceDetail?: BounceDetail;
   /** The address that the event is about. */
   recipient?: string;
   /** The id that the provider gave the message at send time. */

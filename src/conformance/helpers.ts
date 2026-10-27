@@ -366,6 +366,72 @@ export function check(
   };
 }
 
+/** The longest bounce detail text that the event check accepts, in UTF-16 code units. */
+export const MAX_BOUNCE_TEXT = 1000;
+
+const ENHANCED_CODE = /^[245]\.\d{1,3}\.\d{1,3}$/;
+
+/** Checks the bounce fields of one parsed event. */
+export function checkBounceFields(event: unknown, at: string, problems: string[]): void {
+  if (!isRecord(event)) return;
+  if (event.bounce !== undefined && event.type !== "bounced") {
+    problems.push(`${at}: only a bounced event can set bounce.`);
+  }
+  const detail = event.bounceDetail;
+  if (detail === undefined) return;
+  if (event.type !== "bounced") {
+    problems.push(`${at}: only a bounced event can set bounceDetail.`);
+  }
+  if (!isRecord(detail)) {
+    problems.push(`${at}: bounceDetail is not an object.`);
+    return;
+  }
+  const { text, smtpCode, enhancedCode } = detail;
+  if (text === undefined && smtpCode === undefined && enhancedCode === undefined) {
+    problems.push(`${at}: bounceDetail is set but has no part.`);
+  }
+  if (text !== undefined && (typeof text !== "string" || text === "")) {
+    problems.push(`${at}: bounceDetail.text is not a string with characters.`);
+  }
+  if (typeof text === "string" && text.length > MAX_BOUNCE_TEXT) {
+    problems.push(`${at}: bounceDetail.text is longer than ${MAX_BOUNCE_TEXT} characters.`);
+  }
+  if (
+    smtpCode !== undefined &&
+    !(
+      typeof smtpCode === "number" &&
+      Number.isInteger(smtpCode) &&
+      smtpCode >= 200 &&
+      smtpCode <= 599
+    )
+  ) {
+    problems.push(`${at}: bounceDetail.smtpCode is not an integer from 200 to 599.`);
+  }
+  if (
+    enhancedCode !== undefined &&
+    !(typeof enhancedCode === "string" && ENHANCED_CODE.test(enhancedCode))
+  ) {
+    problems.push(`${at}: bounceDetail.enhancedCode is not a valid enhanced status code.`);
+  }
+}
+
+/** True when two event field values are equal. Objects compare field by field. */
+export function sameField(actual: unknown, want: unknown): boolean {
+  if (isRecord(actual) && isRecord(want)) {
+    const keys = new Set([...Object.keys(actual), ...Object.keys(want)]);
+    for (const key of keys) {
+      if (!sameField(actual[key], want[key])) return false;
+    }
+    return true;
+  }
+  return actual === want;
+}
+
+/** A field value as short text for a problem message. */
+export function fieldText(value: unknown): string {
+  return isRecord(value) ? JSON.stringify(value) : String(value);
+}
+
 /** Checks a rejection. Returns true when the request was rejected. */
 export function rejected(result: unknown, where: string, problems: string[]): boolean {
   if (!isRecord(result) || typeof result.ok !== "boolean") {
