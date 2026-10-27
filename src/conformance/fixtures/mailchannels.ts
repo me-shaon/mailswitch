@@ -11,7 +11,7 @@
 // The webhook keys are two fixed Ed25519 key pairs, made once for tests. They protect
 // nothing. The sign helper imports a private key on its first call.
 
-import { base64ToBytes, bytesToBase64 } from "../../internal/encoding";
+import { bytesToBase64 } from "../../internal/encoding";
 import {
   MAILCHANNELS_API_BASE,
   MAILCHANNELS_DIGEST_HEADER,
@@ -21,6 +21,7 @@ import {
   mailchannelsSignatureBase,
 } from "../../providers/mailchannels/index";
 import type { ConformanceFixture, WebhookSample } from "../types";
+import { importPrivateKey } from "./private-keys";
 
 const NOW = Date.parse("2026-10-27T12:00:30.000Z");
 const MESSAGE_ID = "mc-message-0001";
@@ -43,27 +44,10 @@ export const MAILCHANNELS_FIXTURE_OTHER_PUBLIC_KEY =
 const FIXTURE_PRIVATE_KEY = "MC4CAQAwBQYDK2VwBCIEIJ7LELDYV+fs8DqakGIXZ0R29VfFv2MfnIVonXCFANGJ";
 const OTHER_PRIVATE_KEY = "MC4CAQAwBQYDK2VwBCIEIBEpfeLBiZ5jwEcvzwlXycBEwSYH+i+NJl5RoT/rgSNK";
 
-const privateKeys = new Map<string, Promise<CryptoKey>>();
-
-/** Imports one PKCS #8 private key on first use, and keeps it for later calls. */
-function importPrivateKey(pkcs8: string): Promise<CryptoKey> {
-  let key = privateKeys.get(pkcs8);
-  if (key === undefined) {
-    key = crypto.subtle.importKey(
-      "pkcs8",
-      base64ToBytes(pkcs8) as Uint8Array<ArrayBuffer>,
-      { name: "Ed25519" },
-      false,
-      ["sign"],
-    );
-    privateKeys.set(pkcs8, key);
-  }
-  return key;
-}
-
 function privateKeyOf(publicKey: string): Promise<CryptoKey> {
   return importPrivateKey(
     publicKey === MAILCHANNELS_FIXTURE_OTHER_PUBLIC_KEY ? OTHER_PRIVATE_KEY : FIXTURE_PRIVATE_KEY,
+    { name: "Ed25519" },
   );
 }
 

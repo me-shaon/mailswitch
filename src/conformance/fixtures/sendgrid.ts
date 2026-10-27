@@ -10,7 +10,7 @@
 // The webhook keys are two fixed P-256 key pairs, made once for tests. They protect
 // nothing. The sign helper imports a private key on its first call.
 
-import { base64ToBytes, bytesToBase64 } from "../../internal/encoding";
+import { bytesToBase64 } from "../../internal/encoding";
 import {
   SENDGRID_API_BASE,
   SENDGRID_SIGNATURE_HEADER,
@@ -18,6 +18,7 @@ import {
   sendgridSignedPayload,
 } from "../../providers/sendgrid/index";
 import type { ConformanceFixture, WebhookSample } from "../types";
+import { importPrivateKey } from "./private-keys";
 
 const NOW = Date.parse("2026-10-27T12:00:30.000Z");
 const MESSAGE_ID = "W4bXK2lzRz-9fI0sJ3a1Rg";
@@ -42,24 +43,6 @@ const FIXTURE_PRIVATE_KEY =
 const OTHER_PRIVATE_KEY =
   "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgsapNVq9SlePozErMELFMu+k+JDF4LaVvOsCf9XhlCk2hRANCAAQCmE67RnQ7kgXgJpWSXv3maPXXc/64YPgVcBAkAb3eMaOa2DRcq2mNtGYaFyZ+80dGmFOlR8Yyl9Hc4zjso6VG";
 
-const privateKeys = new Map<string, Promise<CryptoKey>>();
-
-/** Imports one PKCS #8 private key on first use, and keeps it for later calls. */
-function importPrivateKey(pkcs8: string): Promise<CryptoKey> {
-  let key = privateKeys.get(pkcs8);
-  if (key === undefined) {
-    key = crypto.subtle.importKey(
-      "pkcs8",
-      base64ToBytes(pkcs8) as Uint8Array<ArrayBuffer>,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"],
-    );
-    privateKeys.set(pkcs8, key);
-  }
-  return key;
-}
-
 /** The DER form of one 32-byte integer: no leading zero bytes, and a 0x00 when the top bit is set. */
 function derInteger(bytes: Uint8Array): number[] {
   let start = 0;
@@ -78,6 +61,7 @@ export function rawToDerSignature(raw: Uint8Array): Uint8Array {
 function privateKeyOf(publicKey: string): Promise<CryptoKey> {
   return importPrivateKey(
     publicKey === SENDGRID_FIXTURE_OTHER_PUBLIC_KEY ? OTHER_PRIVATE_KEY : FIXTURE_PRIVATE_KEY,
+    { name: "ECDSA", namedCurve: "P-256" },
   );
 }
 

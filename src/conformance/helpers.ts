@@ -366,8 +366,11 @@ export function check(
   };
 }
 
+// The bounce detail rules are written again here on purpose. The check must catch a
+// custom adapter that skips the shared cleaner, so it does not reuse that code.
+
 /** The longest bounce detail text that the event check accepts, in UTF-16 code units. */
-export const MAX_BOUNCE_TEXT = 1000;
+const MAX_BOUNCE_TEXT = 1000;
 
 const ENHANCED_CODE = /^[245]\.\d{1,3}\.\d{1,3}$/;
 
