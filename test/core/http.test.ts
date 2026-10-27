@@ -46,6 +46,23 @@ describe("callProvider", () => {
     expect(seen?.init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("passes redirect to fetch only when it is set", async () => {
+    const inits: RequestInit[] = [];
+    const fetch: FetchLike = async (_input, init) => {
+      inits.push(init);
+      return new Response(null, { status: 302, headers: { location: "https://example.com/" } });
+    };
+    const manual = await callProvider({
+      url: "https://api.example.com/send",
+      redirect: "manual",
+      fetch,
+    });
+    await callProvider({ url: "https://api.example.com/send", fetch });
+    expect(manual.ok && manual.response.status).toBe(302);
+    expect(inits[0]?.redirect).toBe("manual");
+    expect(inits[1]).not.toHaveProperty("redirect");
+  });
+
   it("uses a 15 second default timeout", () => {
     expect(DEFAULT_TIMEOUT_MS).toBe(15_000);
   });

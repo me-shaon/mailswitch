@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { derToRawSignature, ecdsaP256Verify } from "../../src/internal/ecdsa";
+import { ed25519Verify } from "../../src/internal/ed25519";
 import {
   base64ToBytes,
   base64ToBytesFallback,
@@ -85,6 +86,27 @@ describe("ECDSA P-256 (workerd)", () => {
     const signature = toDer(new Uint8Array(64).fill(1));
     expect(await ecdsaP256Verify(spki, signature, utf8("x"))).toBe(false);
     expect(await ecdsaP256Verify("not base64!", signature, utf8("x"))).toBe(false);
+  });
+});
+
+describe("Ed25519 (workerd)", () => {
+  it("verifies a Web Crypto signature with a base64 key and a PEM key", async () => {
+    const key = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const spki = bytesToBase64(
+      new Uint8Array((await crypto.subtle.exportKey("spki", key.publicKey)) as ArrayBuffer),
+    );
+    const pem = `-----BEGIN PUBLIC KEY-----\n${spki}\n-----END PUBLIC KEY-----\n`;
+    const data = utf8('"@method": POST\n"@signature-params": ("@method");created=1700000000');
+    const signature = new Uint8Array(
+      await crypto.subtle.sign({ name: "Ed25519" }, key.privateKey, data),
+    );
+    expect(await ed25519Verify(spki, signature, data)).toBe(true);
+    expect(await ed25519Verify(pem, signature, data)).toBe(true);
+    expect(await ed25519Verify(spki, signature, utf8("tampered"))).toBe(false);
+    expect(await ed25519Verify("not base64!", signature, data)).toBe(false);
   });
 });
 

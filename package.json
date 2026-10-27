@@ -104,6 +104,30 @@
       "types": "./dist/providers/zeptomail/index.d.ts",
       "import": "./dist/providers/zeptomail/index.js"
     },
+    "./mailchannels": {
+      "types": "./dist/providers/mailchannels/index.d.ts",
+      "import": "./dist/providers/mailchannels/index.js"
+    },
+    "./ahasend": {
+      "types": "./dist/providers/ahasend/index.d.ts",
+      "import": "./dist/providers/ahasend/index.js"
+    },
+    "./mailtrap": {
+      "types": "./dist/providers/mailtrap/index.d.ts",
+      "import": "./dist/providers/mailtrap/index.js"
+    },
+    "./autosend": {
+      "types": "./dist/providers/autosend/index.d.ts",
+      "import": "./dist/providers/autosend/index.js"
+    },
+    "./http": {
+      "types": "./dist/providers/http/index.d.ts",
+      "import": "./dist/providers/http/index.js"
+    },
+    "./scaleway": {
+      "types": "./dist/providers/scaleway/index.d.ts",
+      "import": "./dist/providers/scaleway/index.js"
+    },
     "./sendgrid": {
       "types": "./dist/providers/sendgrid/index.d.ts",
       "import": "./dist/providers/sendgrid/index.js"

@@ -3,6 +3,7 @@ import {
   classifyResponse,
   classifyThrown,
   defineStatusMap,
+  MAX_RETRY_AFTER_MS,
   parseRetryAfter,
   redactUrl,
   type StatusOverride,
@@ -83,6 +84,17 @@ describe("Retry-After", () => {
     expect(parseRetryAfter("soon")).toBeUndefined();
     expect(parseRetryAfter("")).toBeUndefined();
     expect(parseRetryAfter(null)).toBeUndefined();
+  });
+
+  it("caps a long wait at one hour and never returns Infinity", () => {
+    const now = Date.parse("Wed, 21 Oct 2026 07:28:00 GMT");
+    // 400 digits parse to Infinity. A non-finite value is not a wait, so it is undefined.
+    expect(parseRetryAfter("9".repeat(400))).toBeUndefined();
+    expect(parseRetryAfter("7200")).toBe(MAX_RETRY_AFTER_MS);
+    expect(MAX_RETRY_AFTER_MS).toBe(3_600_000);
+    expect(parseRetryAfter("3600")).toBe(3_600_000);
+    expect(parseRetryAfter("Wed, 21 Oct 2026 09:28:00 GMT", now)).toBe(3_600_000);
+    expect(parseRetryAfter("Wed, 21 Oct 2026 07:28:10 GMT", now)).toBe(10_000);
   });
 
   it("omits retryAfterMs when the header is absent", () => {

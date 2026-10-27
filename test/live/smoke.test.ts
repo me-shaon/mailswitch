@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { ahasend } from "../../src/providers/ahasend/index";
+import { autosend } from "../../src/providers/autosend/index";
 import { brevo } from "../../src/providers/brevo/index";
+import { mailchannels } from "../../src/providers/mailchannels/index";
 import { mailersend } from "../../src/providers/mailersend/index";
 import { mailjet } from "../../src/providers/mailjet/index";
+import { mailtrap } from "../../src/providers/mailtrap/index";
 import { resend } from "../../src/providers/resend/index";
+import { scaleway } from "../../src/providers/scaleway/index";
 import { sendgrid } from "../../src/providers/sendgrid/index";
 import { smtp2go } from "../../src/providers/smtp2go/index";
 import { tosend } from "../../src/providers/tosend/index";
@@ -31,6 +36,23 @@ import { zeptomail } from "../../src/providers/zeptomail/index";
 //   the release gate of the ZeptoMail verify request. It records that a good token gets
 //   400 TM_3201 (ok) and that a wrong token gets 401 TM_4001 (not_sent/auth). Then it sends
 //   one real email. The FROM address must be on a verified domain.
+// - MailChannels: MAILSWITCH_LIVE_MAILCHANNELS_KEY, MAILSWITCH_LIVE_MAILCHANNELS_FROM,
+//   MAILSWITCH_LIVE_TO. It uses dry-run mode, so MailChannels renders the message and sends
+//   no email. The FROM domain needs a Domain Lockdown TXT record.
+// - AhaSend: MAILSWITCH_LIVE_AHASEND_KEY, MAILSWITCH_LIVE_AHASEND_ACCOUNT_ID,
+//   MAILSWITCH_LIVE_AHASEND_FROM, MAILSWITCH_LIVE_TO. It sends with sandbox: true, so
+//   AhaSend checks the request and delivers no email. The key must have no IP allowlist.
+// - Mailtrap: MAILSWITCH_LIVE_MAILTRAP_TOKEN, MAILSWITCH_LIVE_MAILTRAP_FROM, MAILSWITCH_LIVE_TO,
+//   and the optional MAILSWITCH_LIVE_MAILTRAP_SANDBOX_ID. With the sandbox id, the send goes
+//   to that sandbox inbox and delivers no email. Without it, it sends one real email. Set
+//   MAILSWITCH_LIVE_TO to an address of the account owner.
+// - AutoSend: MAILSWITCH_LIVE_AUTOSEND_KEY, MAILSWITCH_LIVE_AUTOSEND_FROM, MAILSWITCH_LIVE_TO.
+//   AutoSend has no sandbox, so it sends one real email. Set MAILSWITCH_LIVE_TO to an
+//   address of the account owner. Use a project key (AS_).
+// - Scaleway: MAILSWITCH_LIVE_SCALEWAY_SECRET_KEY, MAILSWITCH_LIVE_SCALEWAY_PROJECT_ID,
+//   MAILSWITCH_LIVE_SCALEWAY_FROM, MAILSWITCH_LIVE_TO. Scaleway has no sandbox, so it sends
+//   one real email. Set MAILSWITCH_LIVE_TO to an address of the account owner. The FROM
+//   address must be on a checked domain of the Project.
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -67,6 +89,33 @@ const MAILJET = [
 const SMTP2GO = [
   "MAILSWITCH_LIVE_SMTP2GO_KEY",
   "MAILSWITCH_LIVE_SMTP2GO_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const MAILCHANNELS = [
+  "MAILSWITCH_LIVE_MAILCHANNELS_KEY",
+  "MAILSWITCH_LIVE_MAILCHANNELS_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const AHASEND = [
+  "MAILSWITCH_LIVE_AHASEND_KEY",
+  "MAILSWITCH_LIVE_AHASEND_ACCOUNT_ID",
+  "MAILSWITCH_LIVE_AHASEND_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const MAILTRAP = [
+  "MAILSWITCH_LIVE_MAILTRAP_TOKEN",
+  "MAILSWITCH_LIVE_MAILTRAP_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const AUTOSEND = [
+  "MAILSWITCH_LIVE_AUTOSEND_KEY",
+  "MAILSWITCH_LIVE_AUTOSEND_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const SCALEWAY = [
+  "MAILSWITCH_LIVE_SCALEWAY_SECRET_KEY",
+  "MAILSWITCH_LIVE_SCALEWAY_PROJECT_ID",
+  "MAILSWITCH_LIVE_SCALEWAY_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
 const ZEPTOMAIL = [
@@ -318,4 +367,156 @@ describe.skipIf(!hasLiveEnv(ZEPTOMAIL[0] as string))("live smoke: ZeptoMail", ()
       expect(result).toMatchObject({ status: "sent", provider: "zeptomail" });
     },
   );
+});
+
+describe.skipIf(!hasLiveEnv(MAILCHANNELS[0] as string))("live smoke: MailChannels", () => {
+  it("has the env vars of the MailChannels smoke test", () => {
+    expect(hasLiveEnv(...MAILCHANNELS)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...MAILCHANNELS))(
+    "verifies the key and sends in dry-run mode",
+    async () => {
+      const adapter = mailchannels({ dryRun: true });
+      const ctx = {
+        fetch: (input: string, init: RequestInit) => fetch(input, init),
+        timeoutMs: 15_000,
+        credentials: { apiKey: env.MAILSWITCH_LIVE_MAILCHANNELS_KEY ?? "" },
+        now: Date.now(),
+      };
+      expect(await adapter.verify(ctx)).toEqual({ ok: true });
+      const result = await adapter.send(
+        {
+          from: env.MAILSWITCH_LIVE_MAILCHANNELS_FROM ?? "",
+          to: [env.MAILSWITCH_LIVE_TO ?? ""],
+          subject: "mailswitch live smoke test (MailChannels dry run)",
+          text: "This request comes from the mailswitch live smoke test. Dry-run mode sends no email.",
+        },
+        ctx,
+      );
+      expect(result).toMatchObject({ status: "sent", provider: "mailchannels" });
+    },
+  );
+});
+
+describe.skipIf(!hasLiveEnv(AHASEND[0] as string))("live smoke: AhaSend", () => {
+  it("has the env vars of the AhaSend smoke test", () => {
+    expect(hasLiveEnv(...AHASEND)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...AHASEND))(
+    "verifies the key and sends in sandbox mode with an idempotency key",
+    async () => {
+      const adapter = ahasend({ sandbox: true });
+      const ctx = {
+        fetch: (input: string, init: RequestInit) => fetch(input, init),
+        timeoutMs: 15_000,
+        credentials: {
+          apiKey: env.MAILSWITCH_LIVE_AHASEND_KEY ?? "",
+          accountId: env.MAILSWITCH_LIVE_AHASEND_ACCOUNT_ID ?? "",
+        },
+        now: Date.now(),
+      };
+      expect(await adapter.verify(ctx)).toEqual({ ok: true });
+      const result = await adapter.send(
+        {
+          from: env.MAILSWITCH_LIVE_AHASEND_FROM ?? "",
+          to: [env.MAILSWITCH_LIVE_TO ?? ""],
+          subject: "mailswitch live smoke test (AhaSend sandbox)",
+          text: "This request comes from the mailswitch live smoke test. Sandbox mode delivers no email.",
+          idempotencyKey: `mailswitch-smoke-${Date.now()}`,
+        },
+        ctx,
+      );
+      expect(result).toMatchObject({ status: "sent", provider: "ahasend" });
+    },
+  );
+});
+
+describe.skipIf(!hasLiveEnv(MAILTRAP[0] as string))("live smoke: Mailtrap", () => {
+  it("has the env vars of the Mailtrap smoke test", () => {
+    expect(hasLiveEnv(...MAILTRAP)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...MAILTRAP))(
+    "verifies the token and sends to the sandbox inbox when its id is set",
+    async () => {
+      const inbox = env.MAILSWITCH_LIVE_MAILTRAP_SANDBOX_ID ?? "";
+      const adapter = mailtrap(inbox === "" ? {} : { sandboxInboxId: inbox });
+      const ctx = {
+        fetch: (input: string, init: RequestInit) => fetch(input, init),
+        timeoutMs: 15_000,
+        credentials: { apiKey: env.MAILSWITCH_LIVE_MAILTRAP_TOKEN ?? "" },
+        now: Date.now(),
+      };
+      expect(await adapter.verify(ctx)).toEqual({ ok: true });
+      const result = await adapter.send(
+        {
+          from: env.MAILSWITCH_LIVE_MAILTRAP_FROM ?? "",
+          to: [env.MAILSWITCH_LIVE_TO ?? ""],
+          subject: "mailswitch live smoke test (Mailtrap)",
+          text: "This email comes from the mailswitch live smoke test.",
+        },
+        ctx,
+      );
+      expect(result).toMatchObject({ status: "sent", provider: "mailtrap" });
+    },
+  );
+});
+
+describe.skipIf(!hasLiveEnv(AUTOSEND[0] as string))("live smoke: AutoSend", () => {
+  it("has the env vars of the AutoSend smoke test", () => {
+    expect(hasLiveEnv(...AUTOSEND)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...AUTOSEND))("verifies the key and sends one real email", async () => {
+    const adapter = autosend();
+    const ctx = {
+      fetch: (input: string, init: RequestInit) => fetch(input, init),
+      timeoutMs: 15_000,
+      credentials: { apiKey: env.MAILSWITCH_LIVE_AUTOSEND_KEY ?? "" },
+      now: Date.now(),
+    };
+    expect(await adapter.verify(ctx)).toEqual({ ok: true });
+    const result = await adapter.send(
+      {
+        from: env.MAILSWITCH_LIVE_AUTOSEND_FROM ?? "",
+        to: [env.MAILSWITCH_LIVE_TO ?? ""],
+        subject: "mailswitch live smoke test (AutoSend)",
+        text: "This email comes from the mailswitch live smoke test.",
+      },
+      ctx,
+    );
+    expect(result).toMatchObject({ status: "sent", provider: "autosend" });
+  });
+});
+
+describe.skipIf(!hasLiveEnv(SCALEWAY[0] as string))("live smoke: Scaleway", () => {
+  it("has the env vars of the Scaleway smoke test", () => {
+    expect(hasLiveEnv(...SCALEWAY)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...SCALEWAY))("verifies the key and sends one real email", async () => {
+    const adapter = scaleway();
+    const ctx = {
+      fetch: (input: string, init: RequestInit) => fetch(input, init),
+      timeoutMs: 15_000,
+      credentials: {
+        secretKey: env.MAILSWITCH_LIVE_SCALEWAY_SECRET_KEY ?? "",
+        projectId: env.MAILSWITCH_LIVE_SCALEWAY_PROJECT_ID ?? "",
+      },
+      now: Date.now(),
+    };
+    expect(await adapter.verify(ctx)).toEqual({ ok: true });
+    const result = await adapter.send(
+      {
+        from: env.MAILSWITCH_LIVE_SCALEWAY_FROM ?? "",
+        to: [env.MAILSWITCH_LIVE_TO ?? ""],
+        subject: "mailswitch live smoke test (Scaleway)",
+        text: "This email comes from the mailswitch live smoke test.",
+      },
+      ctx,
+    );
+    expect(result).toMatchObject({ status: "sent", provider: "scaleway" });
+  });
 });

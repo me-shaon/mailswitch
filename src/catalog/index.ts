@@ -2,13 +2,19 @@
 // It imports only meta files, so no adapter code is in this bundle.
 
 import type { ProviderMeta } from "../core/meta";
+import { ahasendMeta } from "../providers/ahasend/meta";
+import { autosendMeta } from "../providers/autosend/meta";
 import { brevoMeta } from "../providers/brevo/meta";
 import { cloudflareBindingMeta, cloudflareRestMeta } from "../providers/cloudflare/meta";
+import { httpMeta } from "../providers/http/meta";
+import { mailchannelsMeta } from "../providers/mailchannels/meta";
 import { mailersendMeta } from "../providers/mailersend/meta";
 import { mailgunMeta } from "../providers/mailgun/meta";
 import { mailjetMeta } from "../providers/mailjet/meta";
+import { mailtrapMeta } from "../providers/mailtrap/meta";
 import { postmarkMeta } from "../providers/postmark/meta";
 import { resendMeta } from "../providers/resend/meta";
+import { scalewayMeta } from "../providers/scaleway/meta";
 import { sendgridMeta } from "../providers/sendgrid/meta";
 import { sesMeta } from "../providers/ses/meta";
 import { smtpMeta } from "../providers/smtp/meta";
@@ -34,6 +40,12 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   sendgridMeta,
   sesMeta,
   smtpMeta,
+  mailchannelsMeta,
+  ahasendMeta,
+  mailtrapMeta,
+  autosendMeta,
+  scalewayMeta,
+  httpMeta,
 ]);
 
 /** Returns the meta of a built-in provider, or undefined for an unknown id. */

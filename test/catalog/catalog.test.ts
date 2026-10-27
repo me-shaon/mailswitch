@@ -49,6 +49,12 @@ describe("catalog", () => {
       ["sendgrid", 1],
       ["ses", 1],
       ["smtp", 1],
+      ["mailchannels", 1],
+      ["ahasend", 1],
+      ["mailtrap", 1],
+      ["autosend", 1],
+      ["scaleway", 2],
+      ["http", 2],
     ]);
     expect(getProviderMeta("postmark")?.webhooks).toBe(true);
     expect(getProviderMeta("ses")?.name).toBe("Amazon SES");
@@ -56,6 +62,18 @@ describe("catalog", () => {
     expect(getProviderMeta("tosend")?.capabilities.idempotency).toBe(false);
     expect(getProviderMeta("sendgrid")?.name).toBe("SendGrid");
     expect(getProviderMeta("sendgrid")?.webhooks).toBe(true);
+    expect(getProviderMeta("mailchannels")?.name).toBe("MailChannels");
+    expect(getProviderMeta("mailchannels")?.capabilities.maxMessageBytes).toBe(30_000_000);
+    expect(getProviderMeta("ahasend")?.name).toBe("AhaSend");
+    expect(getProviderMeta("ahasend")?.nativeIdempotencyWindowMs).toBe(86_400_000);
+    expect(getProviderMeta("mailtrap")?.name).toBe("Mailtrap");
+    expect(getProviderMeta("mailtrap")?.capabilities.maxRecipients).toBe(1000);
+    expect(getProviderMeta("autosend")?.name).toBe("AutoSend");
+    expect(getProviderMeta("autosend")?.capabilities.maxRecipients).toBe(50);
+    expect(getProviderMeta("scaleway")?.name).toBe("Scaleway Transactional Email");
+    expect(getProviderMeta("scaleway")?.capabilities.maxRecipients).toBe(10);
+    expect(getProviderMeta("http")?.name).toBe("Generic HTTP");
+    expect(getProviderMeta("http")?.credentialFields.map((field) => field.name)).toEqual(["token"]);
     expect(getProviderMeta("brevo")?.name).toBe("Brevo");
     expect(getProviderMeta("brevo")?.nativeIdempotencyWindowMs).toBe(1_800_000);
     expect(getProviderMeta("mailersend")?.name).toBe("MailerSend");
@@ -120,6 +138,12 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/sendgrid/meta.ts");
     expect(files).toContain("../../src/providers/ses/meta.ts");
     expect(files).toContain("../../src/providers/smtp/meta.ts");
+    expect(files).toContain("../../src/providers/mailchannels/meta.ts");
+    expect(files).toContain("../../src/providers/ahasend/meta.ts");
+    expect(files).toContain("../../src/providers/mailtrap/meta.ts");
+    expect(files).toContain("../../src/providers/autosend/meta.ts");
+    expect(files).toContain("../../src/providers/scaleway/meta.ts");
+    expect(files).toContain("../../src/providers/http/meta.ts");
     for (const [file, text] of Object.entries(sources)) {
       for (const spec of importsOf(text)) {
         expect(spec, `${file} imports ${spec}`).toMatch(ALLOWED);

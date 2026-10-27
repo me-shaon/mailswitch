@@ -25,6 +25,8 @@ The worked example is Lettermill. Lettermill is a fictional provider. Its full a
 
 ## Choose a mode
 
+For a simple JSON API, you may not need an adapter. The generic HTTP provider in `mailswitch/http` sends to any `https` endpoint from a code callback or a JSON config, with no adapter code. See the [generic HTTP guide](../providers/http.md). Write an adapter when the provider has webhooks, native idempotency, or answers that need their own rules.
+
 There are two modes. The files and the rules are the same in both modes. Only the import paths and the file locations change.
 
 | Mode | Use it for | Imports |

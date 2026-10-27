@@ -22,6 +22,8 @@ export interface ProviderRequest {
   timeoutMs?: number;
   /** Defaults to the global `fetch`. */
   fetch?: FetchLike;
+  /** How fetch handles a redirect. Unset leaves the fetch default, which is `follow`. */
+  redirect?: RequestInit["redirect"];
 }
 
 /** The outcome of `callProvider`: a response with any status, or an `unknown` result. */
@@ -42,6 +44,7 @@ export async function callProvider(request: ProviderRequest): Promise<ProviderCa
   const init: RequestInit = { method: request.method ?? "POST", signal };
   if (request.headers !== undefined) init.headers = request.headers;
   if (request.body !== undefined) init.body = request.body;
+  if (request.redirect !== undefined) init.redirect = request.redirect;
   try {
     return { ok: true, response: await doFetch(request.url, init) };
   } catch (error) {
@@ -66,6 +69,28 @@ export async function readJson(response: Response): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Reads a text body of at most `max` bytes. It cancels the body and returns null as soon
+ * as the body grows past `max`. A read error throws.
+ */
+export async function readCapped(response: Response, max: number): Promise<string | null> {
+  const reader = response.body?.getReader();
+  const text = new TextDecoder();
+  let out = "";
+  let size = 0;
+  for (;;) {
+    const chunk = await reader?.read();
+    if (!chunk || chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > max) {
+      reader?.cancel().catch(() => undefined);
+      return null;
+    }
+    out += text.decode(chunk.value, { stream: true });
+  }
+  return out + text.decode();
 }
 
 /** Releases a response body that the caller does not read. */

@@ -10,7 +10,7 @@
 
 import type { WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import { base64ToBytes, utf8 } from "../../internal/encoding";
-import type { FetchLike } from "../../internal/http";
+import { type FetchLike, readCapped } from "../../internal/http";
 import { certificateSpki, pemToDer } from "./der";
 import { isSnsMessageType, type SnsMessage, snsStringToSign } from "./sns-fields";
 
@@ -142,25 +142,6 @@ interface CacheEntry {
 }
 
 const MAX_CACHED_CERTS = 32;
-
-/** Reads a text body of at most `max` bytes. Returns null for a larger body. */
-async function readCapped(response: Response, max: number): Promise<string | null> {
-  const reader = response.body?.getReader();
-  const text = new TextDecoder();
-  let out = "";
-  let size = 0;
-  for (;;) {
-    const chunk = await reader?.read();
-    if (!chunk || chunk.done) break;
-    size += chunk.value.byteLength;
-    if (size > max) {
-      reader?.cancel().catch(() => undefined);
-      return null;
-    }
-    out += text.decode(chunk.value, { stream: true });
-  }
-  return out + text.decode();
-}
 
 /**
  * Creates an SNS webhook verifier with its own certificate cache. `input.secret` is the
