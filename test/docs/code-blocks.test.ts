@@ -24,6 +24,7 @@ const DOCUMENTS = [
   "docs/providers/brevo.md",
   "docs/providers/mailersend.md",
   "docs/providers/mailjet.md",
+  "docs/providers/smtp2go.md",
   "docs/providers/sendgrid.md",
   "docs/providers/ses.md",
   "docs/providers/mailgun.md",

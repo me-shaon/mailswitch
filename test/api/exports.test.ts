@@ -218,6 +218,22 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "parseMailjetEvents",
     ],
   },
+  "./smtp2go": {
+    load: () => import("../../src/providers/smtp2go/index"),
+    names: [
+      "SMTP2GO_MAX_FIELD_RECIPIENTS",
+      "SMTP2GO_RATE_LIMIT_WAIT_MS",
+      "SMTP2GO_REGIONS",
+      "SMTP2GO_WEBHOOK_USERNAME",
+      "checkSmtp2goWebhookSecret",
+      "generateSmtp2goWebhookSecret",
+      "parseSmtp2goEvents",
+      "smtp2go",
+      "smtp2goMeta",
+      "smtp2goWebhookAuth",
+      "smtp2goWebhooks",
+    ],
+  },
   "./sendgrid": {
     load: () => import("../../src/providers/sendgrid/index"),
     names: [

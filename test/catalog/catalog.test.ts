@@ -44,6 +44,7 @@ describe("catalog", () => {
       ["brevo", 1],
       ["mailersend", 1],
       ["mailjet", 1],
+      ["smtp2go", 1],
       ["sendgrid", 1],
       ["ses", 1],
       ["smtp", 1],
@@ -63,6 +64,8 @@ describe("catalog", () => {
       "apiKey",
       "secretKey",
     ]);
+    expect(getProviderMeta("smtp2go")?.name).toBe("SMTP2GO");
+    expect(getProviderMeta("smtp2go")?.capabilities.maxMessageBytes).toBe(50_000_000);
     expect(getProviderMeta("nope")).toBeUndefined();
   });
 
@@ -109,6 +112,7 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/brevo/meta.ts");
     expect(files).toContain("../../src/providers/mailersend/meta.ts");
     expect(files).toContain("../../src/providers/mailjet/meta.ts");
+    expect(files).toContain("../../src/providers/smtp2go/meta.ts");
     expect(files).toContain("../../src/providers/sendgrid/meta.ts");
     expect(files).toContain("../../src/providers/ses/meta.ts");
     expect(files).toContain("../../src/providers/smtp/meta.ts");

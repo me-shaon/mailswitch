@@ -12,6 +12,7 @@ import { resendMeta } from "../providers/resend/meta";
 import { sendgridMeta } from "../providers/sendgrid/meta";
 import { sesMeta } from "../providers/ses/meta";
 import { smtpMeta } from "../providers/smtp/meta";
+import { smtp2goMeta } from "../providers/smtp2go/meta";
 import { toSendMeta } from "../providers/tosend/meta";
 
 export type { CredentialField, ProviderMeta, ProviderPreset, ProviderTier } from "../core/meta";
@@ -27,6 +28,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   brevoMeta,
   mailersendMeta,
   mailjetMeta,
+  smtp2goMeta,
   sendgridMeta,
   sesMeta,
   smtpMeta,

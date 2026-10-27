@@ -8,7 +8,7 @@
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
-    "limit": "4.33 KB",
+    "limit": "4.43 KB",
     "gzip": true
   },
   {
@@ -63,6 +63,12 @@
     "name": "mailswitch/mailjet",
     "path": "dist/providers/mailjet/index.js",
     "limit": "8.47 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/smtp2go",
+    "path": "dist/providers/smtp2go/index.js",
+    "limit": "8.39 KB",
     "gzip": true
   },
   {

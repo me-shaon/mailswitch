@@ -4,6 +4,7 @@ import { mailersend } from "../../src/providers/mailersend/index";
 import { mailjet } from "../../src/providers/mailjet/index";
 import { resend } from "../../src/providers/resend/index";
 import { sendgrid } from "../../src/providers/sendgrid/index";
+import { smtp2go } from "../../src/providers/smtp2go/index";
 import { tosend } from "../../src/providers/tosend/index";
 
 // Live smoke tests call real provider APIs. They run only when their env vars are set,
@@ -21,6 +22,9 @@ import { tosend } from "../../src/providers/tosend/index";
 // - Mailjet: MAILSWITCH_LIVE_MAILJET_KEY, MAILSWITCH_LIVE_MAILJET_SECRET,
 //   MAILSWITCH_LIVE_MAILJET_FROM, MAILSWITCH_LIVE_TO. It uses SandboxMode, so Mailjet checks
 //   the request and delivers no email.
+// - SMTP2GO: MAILSWITCH_LIVE_SMTP2GO_KEY, MAILSWITCH_LIVE_SMTP2GO_FROM, MAILSWITCH_LIVE_TO.
+//   SMTP2GO has no sandbox flag in the request, so it sends one real email. Set
+//   MAILSWITCH_LIVE_TO to an address of the account owner.
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -52,6 +56,11 @@ const MAILJET = [
   "MAILSWITCH_LIVE_MAILJET_KEY",
   "MAILSWITCH_LIVE_MAILJET_SECRET",
   "MAILSWITCH_LIVE_MAILJET_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const SMTP2GO = [
+  "MAILSWITCH_LIVE_SMTP2GO_KEY",
+  "MAILSWITCH_LIVE_SMTP2GO_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
 
@@ -226,5 +235,32 @@ describe.skipIf(!hasLiveEnv(MAILJET[0] as string))("live smoke: Mailjet", () => 
       ctx,
     );
     expect(result).toMatchObject({ status: "sent", provider: "mailjet" });
+  });
+});
+
+describe.skipIf(!hasLiveEnv(SMTP2GO[0] as string))("live smoke: SMTP2GO", () => {
+  it("has the env vars of the SMTP2GO smoke test", () => {
+    expect(hasLiveEnv(...SMTP2GO)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...SMTP2GO))("verifies the key and sends one email", async () => {
+    const adapter = smtp2go();
+    const ctx = {
+      fetch: (input: string, init: RequestInit) => fetch(input, init),
+      timeoutMs: 15_000,
+      credentials: { apiKey: env.MAILSWITCH_LIVE_SMTP2GO_KEY ?? "" },
+      now: Date.now(),
+    };
+    expect(await adapter.verify(ctx)).toEqual({ ok: true });
+    const result = await adapter.send(
+      {
+        from: env.MAILSWITCH_LIVE_SMTP2GO_FROM ?? "",
+        to: [env.MAILSWITCH_LIVE_TO ?? ""],
+        subject: "mailswitch live smoke test (SMTP2GO)",
+        text: "This email comes from the mailswitch live smoke test.",
+      },
+      ctx,
+    );
+    expect(result).toMatchObject({ status: "sent", provider: "smtp2go" });
   });
 });

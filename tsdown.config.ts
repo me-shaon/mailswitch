@@ -20,6 +20,7 @@ const config: UserConfig = defineConfig({
     "providers/brevo/index": "src/providers/brevo/index.ts",
     "providers/mailersend/index": "src/providers/mailersend/index.ts",
     "providers/mailjet/index": "src/providers/mailjet/index.ts",
+    "providers/smtp2go/index": "src/providers/smtp2go/index.ts",
     "providers/sendgrid/index": "src/providers/sendgrid/index.ts",
     "providers/ses/index": "src/providers/ses/index.ts",
     "providers/smtp/index": "src/providers/smtp/index.ts",

@@ -96,6 +96,10 @@
       "types": "./dist/providers/mailjet/index.d.ts",
       "import": "./dist/providers/mailjet/index.js"
     },
+    "./smtp2go": {
+      "types": "./dist/providers/smtp2go/index.d.ts",
+      "import": "./dist/providers/smtp2go/index.js"
+    },
     "./sendgrid": {
       "types": "./dist/providers/sendgrid/index.d.ts",
       "import": "./dist/providers/sendgrid/index.js"
