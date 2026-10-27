@@ -22,6 +22,8 @@ export interface ProviderRequest {
   timeoutMs?: number;
   /** Defaults to the global `fetch`. */
   fetch?: FetchLike;
+  /** How fetch handles a redirect. Unset leaves the fetch default, which is `follow`. */
+  redirect?: RequestInit["redirect"];
 }
 
 /** The outcome of `callProvider`: a response with any status, or an `unknown` result. */
@@ -42,6 +44,7 @@ export async function callProvider(request: ProviderRequest): Promise<ProviderCa
   const init: RequestInit = { method: request.method ?? "POST", signal };
   if (request.headers !== undefined) init.headers = request.headers;
   if (request.body !== undefined) init.body = request.body;
+  if (request.redirect !== undefined) init.redirect = request.redirect;
   try {
     return { ok: true, response: await doFetch(request.url, init) };
   } catch (error) {
