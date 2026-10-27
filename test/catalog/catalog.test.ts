@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { catalog, getProviderMeta } from "../../src/catalog";
+import {
+  catalog,
+  getProviderMeta,
+  isProviderId,
+  PROVIDER_IDS,
+  type ProviderId,
+} from "../../src/catalog";
 import { classifyResponse, defineStatusMap } from "../../src/core/classify";
 import { defineProviderMeta, type ProviderMeta } from "../../src/core/meta";
 
@@ -95,6 +101,18 @@ describe("catalog", () => {
     const resend = getProviderMeta("resend");
     expect(Object.isFrozen(resend)).toBe(true);
     expect(Object.isFrozen(resend?.credentialFields[0])).toBe(true);
+  });
+
+  it("types the ids, and PROVIDER_IDS matches the catalog", () => {
+    expect([...PROVIDER_IDS]).toEqual(catalog.map((meta) => meta.id));
+    expect(isProviderId("postmark")).toBe(true);
+    expect(isProviderId("nope")).toBe(false);
+    const id: ProviderId = "resend";
+    // A ProviderId always has meta, so no undefined check is needed.
+    expect(getProviderMeta(id).name).toBe("Resend");
+    // @ts-expect-error A wrong id is not a ProviderId.
+    const wrong: ProviderId = "resnd";
+    expect(isProviderId(wrong)).toBe(false);
   });
 
   it("maps the Resend 409 to unknown", () => {

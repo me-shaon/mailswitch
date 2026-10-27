@@ -31,7 +31,7 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
   },
   "./catalog": {
     load: () => import("../../src/catalog/index"),
-    names: ["catalog", "getProviderMeta"],
+    names: ["catalog", "getProviderMeta", "isProviderId", "PROVIDER_IDS"],
   },
   "./provider-kit": {
     load: () => import("../../src/provider-kit/index"),
