@@ -1,5 +1,11 @@
 # mailswitch
 
+## 0.1.1
+
+### Patch Changes
+
+- 7993a02: Adapter options such as `smtp({ preset })` now apply under `createMailer` when the credentials do not set the same field.
+
 ## 0.1.0
 
 ### Minor Changes

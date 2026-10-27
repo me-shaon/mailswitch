@@ -1,6 +1,6 @@
 {
   "name": "mailswitch",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Transactional email for Cloudflare Workers, with provider fallback and delivery safety.",
   "license": "MIT",
   "author": "Ahmed Shamim",
