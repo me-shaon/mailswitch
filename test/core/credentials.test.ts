@@ -108,7 +108,10 @@ describe("parseCredentials", () => {
     });
   });
 
-  it("throws for an unknown preset id", () => {
-    expect(() => parseCredentials(smtp, {}, "nope")).toThrow(RangeError);
+  it("refuses an unknown preset id without a throw", () => {
+    expect(parseCredentials(smtp, {}, "nope")).toEqual({
+      ok: false,
+      errors: [{ field: "preset", code: "preset" }],
+    });
   });
 });

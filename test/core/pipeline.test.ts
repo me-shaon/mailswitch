@@ -557,6 +557,9 @@ describe("createMailer: options", () => {
       }),
     ).toThrow(TypeError);
     expect(() => createMailer({ providers: [{ ...a(), dailyCap: 5 }] })).toThrow(/dailyCaps/);
+    expect(() => createMailer({ providers: [{ ...a(), preset: "nope" }] })).toThrow(
+      /invalid credentials: preset \(preset\)/,
+    );
     expect(() =>
       createMailer({
         providers: [{ ...a(), dailyCap: 0 }],
