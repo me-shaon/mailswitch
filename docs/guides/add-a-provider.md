@@ -90,6 +90,7 @@ In the repository, `meta.ts` can import only `../../core/meta`, `../../core/clas
 | `statusMap` | Sourced overrides of the default status table. Build it with `defineStatusMap`. |
 | `webhooks` | `true` only when the adapter has `webhooks.verify` and `webhooks.parse`. |
 | `nativeIdempotency` | `true` only when the provider accepts an idempotency key and drops a repeat. It must equal `capabilities.idempotency`. |
+| `nativeIdempotencyWindowMs` | Optional. How long the provider keeps a key, in milliseconds. It must be a positive integer, and it needs `nativeIdempotency: true`. Set it when the window is shorter than 7 days. `createMailer` then warns when no idempotency store is set. |
 
 `defineProviderMeta` checks these rules and freezes the object. It throws a `TypeError` for a programmer error.
 
@@ -320,6 +321,10 @@ Set `idempotency: true` and `nativeIdempotency: true` only when the provider acc
 - Send `message.idempotencyKey` in the provider header. Do not send the header for a message without a key.
 - Build the same bytes for the same message, so a retry matches the first request.
 - Map the key-conflict response to `unknown`, never to `not_sent`. Add `send.keyConflict` to the fixture.
+- If the provider shares the HTTP status of a key conflict with other errors, read the body. Change `not_sent` to `unknown` for a key conflict. Never change `unknown` to `not_sent` from the body.
+- If the provider needs a derived key, such as a UUID, derive it from `message.idempotencyKey`. The same key must give the same derived key. Add `expectedIdempotencyKey` to the fixture.
+- If the provider takes the key in the body, add `readIdempotencyKey` to the fixture.
+- If the provider keeps a key for less than 7 days, set `nativeIdempotencyWindowMs`.
 
 ### sendBatch
 
@@ -470,6 +475,8 @@ The format is `ConformanceFixture` in `src/conformance/types.ts`. Export a funct
 | `send.batch` | With `sendBatch` | The request and the accepted response of a batch. |
 | `readHeaders(request)` | With `customHeaders` | Reads the custom headers of the email from a captured request. |
 | `readAttachments(request)` | With `attachments` | Reads the attachments (file name and base64 content) from a captured request. |
+| `readIdempotencyKey(request)` | No | Reads the idempotency key from a captured request. It returns `undefined` when the request has no key. Give it when the key is in the body. Without it, the kit looks for the key in the request headers. |
+| `expectedIdempotencyKey(key)` | No | Returns the key that the adapter must send for a mailswitch key. It can return a promise. Give it when the provider needs a derived key. Without it, the adapter must send the key unchanged. |
 | `verify.ok` | Yes | The exchanges of a good key. |
 | `verify.badKey` | Yes | The exchanges of a wrong key. `verify.badKeyReason` defaults to `auth`. |
 | `webhook` | With `meta.webhooks` | The secret, a `sign` function, `staleAt`, and the samples. |
@@ -572,8 +579,8 @@ A check is `n/a` only when the meta shows that it does not apply. A missing fixt
 | `send.rate-limited` | A throttle gives `not_sent/rate_limited` with `retryAfterMs`. | Never |
 | `send.uncertain` | A 5xx, a timeout, and a network error give `unknown`. | Never |
 | `send.headers` | Custom headers reach the request unchanged. | `customHeaders` is false |
-| `send.idempotency` | The key reaches a request header, and a retry sends the same bytes. | No native idempotency |
-| `idempotency.conflict` | The key-conflict response gives `unknown`. | No native idempotency |
+| `send.idempotency` | The key reaches the request, and a retry sends the same bytes. The kit looks in the headers, or uses `readIdempotencyKey` and `expectedIdempotencyKey`. | No native idempotency |
+| `idempotency.conflict` | The key-conflict response gives `unknown`. The status map entry of that HTTP status can be `not_sent` when the adapter reads the body. | No native idempotency |
 | `attachments` | The attachment bytes in the request match the input. | `attachments` is false |
 | `capability.refuse` | A message that needs a missing capability gives `not_sent/unsupported` with no request. | Every capability is true, with no limits |
 | `send.batch` | `sendBatch` returns one result per message, in order. | No `sendBatch` |

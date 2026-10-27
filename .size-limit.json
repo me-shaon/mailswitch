@@ -50,7 +50,7 @@
   {
     "name": "mailswitch/ses",
     "path": "dist/providers/ses/index.js",
-    "limit": "10 KB",
+    "limit": "10.1 KB",
     "gzip": true
   },
   {

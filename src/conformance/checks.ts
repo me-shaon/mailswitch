@@ -458,8 +458,19 @@ function httpChecks(
         expectResult(second.result, "retry", problems, "sent");
         const calls = [...first.mock.calls, ...second.mock.calls];
         if (calls.length === 0) problems.push("send made no request.");
+        const expected = fixture.expectedIdempotencyKey
+          ? await fixture.expectedIdempotencyKey(key)
+          : key;
+        const readKey = fixture.readIdempotencyKey;
         for (const call of calls) {
-          if (![...call.headers.values()].includes(key)) {
+          if (readKey) {
+            const got = readKey(call);
+            if (got !== expected) {
+              problems.push(
+                `The request to ${call.url} carries the key ${got ?? "(missing)"}, not ${expected}.`,
+              );
+            }
+          } else if (![...call.headers.values()].includes(expected)) {
             problems.push(`The request to ${call.url} does not carry the key in a header.`);
           }
         }
@@ -471,9 +482,10 @@ function httpChecks(
         }
         const plain = await send(fixture.send.success);
         for (const call of plain.mock.calls) {
-          if ([...call.headers.values()].includes(key)) {
-            problems.push("A message without a key still carries the earlier key.");
-          }
+          const carried = readKey
+            ? readKey(call) !== undefined
+            : [...call.headers.values()].includes(expected);
+          if (carried) problems.push("A message without a key still carries a key.");
         }
       },
       native ? undefined : "meta.nativeIdempotency is false.",
@@ -488,17 +500,16 @@ function httpChecks(
           problems.push("Add fixture.send.keyConflict. The provider has native idempotency.");
           return;
         }
-        if (statusMap[conflict.status]?.status === "not_sent") {
-          problems.push(
-            `The status map gives not_sent for HTTP ${conflict.status}, the key-conflict response. The earlier request may have sent.`,
-          );
-        }
+        // The status map entry can be not_sent when the adapter reads the body to tell a
+        // key conflict from another error of the same status. Only the result counts.
         const message = sampleMessage({ idempotencyKey: "conformance-conflict-key-1" });
         const { result, mock } = await send(conflict, message);
         noStrays(mock, problems, "send");
         if (!validResult(result, "key conflict", problems)) return;
         if (result.status !== "unknown") {
-          problems.push(`A key conflict gave ${result.status}. It must be unknown.`);
+          problems.push(
+            `A key conflict (HTTP ${conflict.status}) gave ${result.status}. It must be unknown. The earlier request may have sent.`,
+          );
         }
       },
       native ? undefined : "meta.nativeIdempotency is false.",

@@ -149,6 +149,29 @@ describe("defineProviderMeta", () => {
     expect(() => defineProviderMeta({ ...base, tier: 3 as 1 })).toThrow(/tier/);
   });
 
+  it("checks nativeIdempotencyWindowMs", () => {
+    const native: ProviderMeta = {
+      ...base,
+      capabilities: { ...base.capabilities, idempotency: true },
+      nativeIdempotency: true,
+    };
+    const window = 30 * 60 * 1000;
+    expect(defineProviderMeta({ ...native, nativeIdempotencyWindowMs: window })).toMatchObject({
+      nativeIdempotencyWindowMs: window,
+    });
+    expect(() => defineProviderMeta({ ...base, nativeIdempotencyWindowMs: window })).toThrow(
+      TypeError,
+    );
+    expect(() => defineProviderMeta({ ...base, nativeIdempotencyWindowMs: window })).toThrow(
+      /nativeIdempotency must be true/,
+    );
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => defineProviderMeta({ ...native, nativeIdempotencyWindowMs: bad })).toThrow(
+        /a positive integer/,
+      );
+    }
+  });
+
   it("throws for a preset that names an unknown field", () => {
     expect(() =>
       defineProviderMeta({ ...base, presets: [{ id: "p", name: "P", fixed: { host: "x" } }] }),

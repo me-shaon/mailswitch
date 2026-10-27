@@ -90,7 +90,8 @@ export interface SendFixture {
   rateLimited?: RecordedHttpResponse;
   /**
    * The response when an idempotency key is in use or reused with a different payload.
-   * Required when the provider has native idempotency.
+   * Required when the provider has native idempotency. The result must be `unknown`. An
+   * adapter can read the body to change a `not_sent` status map entry to `unknown`.
    */
   keyConflict?: RecordedHttpResponse;
   /** The request and the accepted response of `sendBatch`. Required when it exists. */
@@ -154,6 +155,17 @@ export interface ConformanceFixture {
   readHeaders?(request: CapturedRequest): Record<string, string>;
   /** Reads the attachments of one captured send request. Required with attachments. */
   readAttachments?(request: CapturedRequest): CapturedAttachment[];
+  /**
+   * Reads the idempotency key that one captured send request carries, or undefined when it
+   * carries none. Give it when the provider takes the key in the body. Without it,
+   * `send.idempotency` looks for the key in the request headers.
+   */
+  readIdempotencyKey?(request: CapturedRequest): string | undefined;
+  /**
+   * Returns the form of a mailswitch key that the adapter must send, for a provider that
+   * needs a derived key, such as a UUID. Without it, the adapter must send the key as is.
+   */
+  expectedIdempotencyKey?(key: string): string | Promise<string>;
   verify: {
     /** Good credentials. `verify` must return `ok: true`. */
     ok: RecordedExchange[];
