@@ -134,8 +134,8 @@ export interface MessageRun {
   /** True when a store failure or a lost claim stopped the run. No further provider call. */
   done?: boolean;
   /**
-   * True when the claim was just written and no store call comes before the first
-   * provider call. `fence` then skips the first heartbeat. Only `send` sets it.
+   * True when the claim was just written. The first `fence` runs right after the claim,
+   * so `fence` skips that heartbeat. Only `send` sets it.
    */
   freshClaim?: boolean;
 }

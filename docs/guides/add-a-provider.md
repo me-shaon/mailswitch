@@ -435,7 +435,7 @@ The router dedupes on `provider:endpointId:eventKey`. The adapter gives the `eve
 - When the provider has no event id, use the SHA-256 of the raw body. Add the item index when one body holds many events.
 - When the provider signs no timestamp, a replay passes the signature check. Then the dedupe store is the only replay guard. Say so in the provider comments, and set `staleAt: null` in the fixture.
 
-A custom dedupe store can add `claimMany`, `commitMany`, and `releaseMany`. When a store has all three, `handleWebhook` claims and commits the keys of a body in chunks of 500, with one store call for each chunk. The bulk methods must give the same outcome for each key as `claim`, `commit`, and `release`. `claimMany` must claim all keys of a call or none. Test each bulk method against its single method with the same key states.
+A custom dedupe store can add `claimMany`, `commitMany`, and `releaseMany`. When a store has all three, `handleWebhook` claims and commits the keys of a body in chunks of 500, with one store call for each chunk. The bulk methods must give the same outcome for each key as `claim`, `commit`, and `release`. `claimMany` must claim all keys of a call or none. Test each bulk method against its single method with the same key states. When you subclass `MemoryDedupeStore` or `D1DedupeStore` and override `claim`, `commit`, or `release`, override the matching bulk method too. Otherwise `handleWebhook` calls the bulk method and skips your override.
 
 ## Redaction
 

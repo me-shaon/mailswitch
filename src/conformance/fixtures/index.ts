@@ -6,6 +6,7 @@
 // The export names and the helper signatures follow semver. The sample bodies follow the
 // provider docs and can change in a minor release.
 
+export type { WebhookSample } from "../types";
 export { AHASEND_FIXTURE_SECRET, ahasendEvent, signAhasendWebhook } from "./ahasend";
 export { AUTOSEND_FIXTURE_SECRET, autosendEvent, signAutosendWebhook } from "./autosend";
 export {

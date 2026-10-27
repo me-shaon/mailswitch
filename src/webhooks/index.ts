@@ -243,15 +243,18 @@ async function bulkDedupe(
   options: { leaseMs: number; ttlMs: number; now: () => number },
 ): Promise<WebhookOutcome> {
   // Both keys of one event go in the same chunk.
-  const chunks: string[][] = [];
-  let current: string[] = [];
+  const chunks: DedupeEntry[][] = [];
+  let current: DedupeEntry[] = [];
+  let size = 0;
   for (const entry of entries) {
-    const keys = entry.boundKey === undefined ? [entry.key] : [entry.key, entry.boundKey];
-    if (current.length + keys.length > BULK_CHUNK_KEYS) {
+    const weight = entry.boundKey === undefined ? 1 : 2;
+    if (size + weight > BULK_CHUNK_KEYS) {
       chunks.push(current);
       current = [];
+      size = 0;
     }
-    current.push(...keys);
+    current.push(entry);
+    size += weight;
   }
   if (current.length > 0) chunks.push(current);
 
@@ -262,33 +265,37 @@ async function bulkDedupe(
     const leases = claimed.splice(0);
     await Promise.all(chunked(leases, BULK_CHUNK_KEYS).map((chunk) => store.releaseMany(chunk)));
   };
-  const outcomes = new Map<string, ClaimStatus>();
+  const events: NormalizedEvent[] = [];
+  let refusal: WebhookRejection | undefined;
   try {
-    for (const keys of chunks) {
+    for (const chunk of chunks) {
+      const keys = chunk.flatMap((entry) =>
+        entry.boundKey === undefined ? [entry.key] : [entry.key, entry.boundKey],
+      );
       const results = await store.claimMany({ keys, leaseMs: options.leaseMs, now: options.now() });
+      const outcomes = new Map<string, ClaimStatus>();
       keys.forEach((key, i) => {
         const outcome = results[i];
         if (!outcome) throw new Error("claimMany returned fewer outcomes than keys.");
         outcomes.set(key, outcome.status);
         if (outcome.status === "new") claimed.push({ key, leaseId: outcome.leaseId });
       });
+      // Decide after each chunk, in body order, and claim no later chunk after a refusal.
+      for (const entry of chunk) {
+        const bound = entry.boundKey === undefined ? undefined : outcomes.get(entry.boundKey);
+        const decision = decide(outcomes.get(entry.key), bound);
+        if (decision === "emit") events.push(entry.event);
+        else if (decision !== "skip") {
+          refusal = decision;
+          break;
+        }
+      }
+      if (refusal !== undefined) break;
     }
   } catch (error) {
     // A failed claimMany claimed no key. Free the leases of the earlier chunks.
     await releaseAll().catch(() => undefined);
     throw error;
-  }
-
-  const events: NormalizedEvent[] = [];
-  let refusal: WebhookRejection | undefined;
-  for (const entry of entries) {
-    const bound = entry.boundKey === undefined ? undefined : outcomes.get(entry.boundKey);
-    const decision = decide(outcomes.get(entry.key), bound);
-    if (decision === "emit") events.push(entry.event);
-    else if (decision !== "skip") {
-      refusal = decision;
-      break;
-    }
   }
   if (refusal !== undefined) {
     await releaseAll();

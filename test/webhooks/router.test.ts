@@ -724,6 +724,18 @@ describe("handleWebhook with a bulk dedupe store", () => {
     expect(again.every((outcome) => outcome.status === "new")).toBe(true);
   });
 
+  it("claims no later chunk after a refusal in the first chunk", async () => {
+    const { store, calls } = bulkSpyStore();
+    accepted(await handleWebhook(await toSendRequest(toSendBody(1)), options(store)));
+    const outcome = await handleWebhook(await toSendRequest(toSendBody(600)), options(store));
+    expect(outcome).toEqual({ ok: false, rejection: "in_flight", status: 409 });
+    expect(calls.map((call) => [call.method, call.keys.length])).toEqual([
+      ["claimMany", 1],
+      ["claimMany", 500],
+      ["releaseMany", 499],
+    ]);
+  });
+
   it("uses the loop for a store with only claimMany", async () => {
     const { store, calls } = bulkSpyStore();
     const partial: DedupeStore = {
