@@ -275,6 +275,18 @@ A Worker can stop after it takes a job and before it writes the result. The job 
 
 Do not use a Queues retry for `unknown`. In a queue consumer, call `message.ack()` for every result, and write the job state yourself. Use `message.retry()` only for the retryable `not_sent` reasons.
 
+### D1 queries per invocation
+
+D1 allows 50 queries in one Worker invocation on the Workers Free plan, and 1,000 on the Paid plan. One `batch` call counts as one query. So count the store calls of the worker loop, not the SQL statements.
+
+| Work | D1 queries |
+|---|---|
+| A keyed `send` with a daily cap, sent on the first try | 3 |
+| Each fallback attempt with a daily cap | 2 more, plus 1 for a refund after `not_sent` |
+| A webhook request, with the D1 dedupe store | 2 for each 500 event keys |
+
+On the Free plan, run at most about 12 invoice sends in one invocation. Leave room for the job table queries of the loop. See [Batch store calls and D1 limits](delivery-safety.md#batch-store-calls-and-d1-limits) for the per-step counts.
+
 ## Bounces and suppression
 
 mailswitch turns provider webhooks into normalized events. It does not keep a suppression list. The app owns that list.
@@ -305,6 +317,7 @@ Notes:
 - Resend sets `recipient` only when the email had one `to` address. Send each invoice to one address in `to`, and put other people in `cc`.
 - toSend does not retry webhooks. After an outage, check the toSend logs for missed bounces.
 - A soft bounce is temporary. Do not suppress the address for one soft bounce.
+- `event.bounceDetail` holds the provider's reason when it sends one: `text`, and sometimes `smtpCode` and `enhancedCode`. Show the text to the owner next to the suppressed address. It comes from a remote mail server and can hold the recipient address, so escape it for HTML and do not log it.
 - Call `ack()` only after the suppression rows are written. If the write fails, answer non-2xx without `ack()`.
 
 ## The settings screen

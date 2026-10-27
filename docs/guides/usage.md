@@ -107,6 +107,8 @@ export async function onWebhook(request: Request, env: Env): Promise<Response> {
 - A request that arrives while another request handles the same event gets `in_flight`, which maps to HTTP 409.
 - A secret that is too short or has the wrong form gets `invalid_secret`, which maps to HTTP 500. The provider retries, so fix the secret and the events arrive.
 - A replay of an acknowledged event is left out of `events`. The handler answers 200.
+- A `bounced` event can carry `bounceDetail`: the provider's reason `text`, and the `smtpCode` and `enhancedCode` when the provider sends them as fields. The text comes from a remote mail server. It can hold the recipient address and other personal data. mailswitch does not escape markup, so escape the text for HTML, Markdown, or email before you show it. Do not log it.
+- The D1 dedupe store has bulk methods. With them, one request makes one claim query and one commit query for each 500 event keys. On the Workers Free plan, D1 allows 50 queries in one invocation, and one `batch` call counts as one query.
 - toSend signs no timestamp, so its adapter requires a dedupe store. The types refuse a call without one.
 - toSend sends each event once and does not retry. A non-2xx answer to toSend loses that event. Check the toSend logs after an outage. Resend retries a non-2xx answer for about a day.
 - Each provider guide gives the webhook secret and the replay rules of that provider. Postmark, Mailgun, toSend, SendGrid, Brevo, MailerSend, Mailjet, and SMTP2GO need a dedupe store. Amazon SES takes its topic allowlist as the `secret`.

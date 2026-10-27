@@ -420,6 +420,7 @@ async function verifyWebhook(input: WebhookVerifyInput): Promise<WebhookVerifyRe
 - Return one `NormalizedEvent` per provider event. A body can hold more than one event.
 - Map each provider type to `bounced`, `complained`, or `delivered`. Map every other type to `unknown`. Do not drop it, and do not fail.
 - Set `bounce` to `hard` or `soft` only on a `bounced` event.
+- Set `bounceDetail` only on a `bounced` event, and only from fields that the provider sends. Put the reason text in `text`. Set `smtpCode` and `enhancedCode` only when the provider sends them as their own fields. Do not read codes out of the text. Remove control and invisible characters from the text, and cut it at 1,000 characters. The conformance suite fails an event that breaks these rules.
 - Set `rawType` to the provider type, exactly.
 - Set `provider` to `meta.id`.
 - Set `occurredAt` from the provider time, in Unix milliseconds, when the body has one.
@@ -433,6 +434,8 @@ The router dedupes on `provider:endpointId:eventKey`. The adapter gives the `eve
 - Use the provider event id when it has one. Lettermill uses `id`.
 - When the provider has no event id, use the SHA-256 of the raw body. Add the item index when one body holds many events.
 - When the provider signs no timestamp, a replay passes the signature check. Then the dedupe store is the only replay guard. Say so in the provider comments, and set `staleAt: null` in the fixture.
+
+A custom dedupe store can add `claimMany`, `commitMany`, and `releaseMany`. When a store has all three, `handleWebhook` claims and commits the keys of a body in chunks of 500, with one store call for each chunk. The bulk methods must give the same outcome for each key as `claim`, `commit`, and `release`. `claimMany` must claim all keys of a call or none. Test each bulk method against its single method with the same key states.
 
 ## Redaction
 
