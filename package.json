@@ -108,6 +108,10 @@
       "types": "./dist/providers/mailchannels/index.d.ts",
       "import": "./dist/providers/mailchannels/index.js"
     },
+    "./ahasend": {
+      "types": "./dist/providers/ahasend/index.d.ts",
+      "import": "./dist/providers/ahasend/index.js"
+    },
     "./sendgrid": {
       "types": "./dist/providers/sendgrid/index.d.ts",
       "import": "./dist/providers/sendgrid/index.js"

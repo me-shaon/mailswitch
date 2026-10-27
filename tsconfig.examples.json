@@ -32,6 +32,7 @@
       "mailswitch/zeptomail": ["./src/providers/zeptomail/index.ts"],
       "mailswitch/sendgrid": ["./src/providers/sendgrid/index.ts"],
       "mailswitch/mailchannels": ["./src/providers/mailchannels/index.ts"],
+      "mailswitch/ahasend": ["./src/providers/ahasend/index.ts"],
       "mailswitch/ses": ["./src/providers/ses/index.ts"],
       "mailswitch/mailgun": ["./src/providers/mailgun/index.ts"],
       "mailswitch/cloudflare": ["./src/providers/cloudflare/index.ts"],

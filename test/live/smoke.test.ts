@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ahasend } from "../../src/providers/ahasend/index";
 import { brevo } from "../../src/providers/brevo/index";
 import { mailchannels } from "../../src/providers/mailchannels/index";
 import { mailersend } from "../../src/providers/mailersend/index";
@@ -35,6 +36,9 @@ import { zeptomail } from "../../src/providers/zeptomail/index";
 // - MailChannels: MAILSWITCH_LIVE_MAILCHANNELS_KEY, MAILSWITCH_LIVE_MAILCHANNELS_FROM,
 //   MAILSWITCH_LIVE_TO. It uses dry-run mode, so MailChannels renders the message and sends
 //   no email. The FROM domain needs a Domain Lockdown TXT record.
+// - AhaSend: MAILSWITCH_LIVE_AHASEND_KEY, MAILSWITCH_LIVE_AHASEND_ACCOUNT_ID,
+//   MAILSWITCH_LIVE_AHASEND_FROM, MAILSWITCH_LIVE_TO. It sends with sandbox: true, so
+//   AhaSend checks the request and delivers no email. The key must have no IP allowlist.
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -76,6 +80,12 @@ const SMTP2GO = [
 const MAILCHANNELS = [
   "MAILSWITCH_LIVE_MAILCHANNELS_KEY",
   "MAILSWITCH_LIVE_MAILCHANNELS_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const AHASEND = [
+  "MAILSWITCH_LIVE_AHASEND_KEY",
+  "MAILSWITCH_LIVE_AHASEND_ACCOUNT_ID",
+  "MAILSWITCH_LIVE_AHASEND_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
 const ZEPTOMAIL = [
@@ -355,6 +365,40 @@ describe.skipIf(!hasLiveEnv(MAILCHANNELS[0] as string))("live smoke: MailChannel
         ctx,
       );
       expect(result).toMatchObject({ status: "sent", provider: "mailchannels" });
+    },
+  );
+});
+
+describe.skipIf(!hasLiveEnv(AHASEND[0] as string))("live smoke: AhaSend", () => {
+  it("has the env vars of the AhaSend smoke test", () => {
+    expect(hasLiveEnv(...AHASEND)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...AHASEND))(
+    "verifies the key and sends in sandbox mode with an idempotency key",
+    async () => {
+      const adapter = ahasend({ sandbox: true });
+      const ctx = {
+        fetch: (input: string, init: RequestInit) => fetch(input, init),
+        timeoutMs: 15_000,
+        credentials: {
+          apiKey: env.MAILSWITCH_LIVE_AHASEND_KEY ?? "",
+          accountId: env.MAILSWITCH_LIVE_AHASEND_ACCOUNT_ID ?? "",
+        },
+        now: Date.now(),
+      };
+      expect(await adapter.verify(ctx)).toEqual({ ok: true });
+      const result = await adapter.send(
+        {
+          from: env.MAILSWITCH_LIVE_AHASEND_FROM ?? "",
+          to: [env.MAILSWITCH_LIVE_TO ?? ""],
+          subject: "mailswitch live smoke test (AhaSend sandbox)",
+          text: "This request comes from the mailswitch live smoke test. Sandbox mode delivers no email.",
+          idempotencyKey: `mailswitch-smoke-${Date.now()}`,
+        },
+        ctx,
+      );
+      expect(result).toMatchObject({ status: "sent", provider: "ahasend" });
     },
   );
 });

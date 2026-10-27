@@ -2,6 +2,7 @@
 // It imports only meta files, so no adapter code is in this bundle.
 
 import type { ProviderMeta } from "../core/meta";
+import { ahasendMeta } from "../providers/ahasend/meta";
 import { brevoMeta } from "../providers/brevo/meta";
 import { cloudflareBindingMeta, cloudflareRestMeta } from "../providers/cloudflare/meta";
 import { mailchannelsMeta } from "../providers/mailchannels/meta";
@@ -36,6 +37,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   sesMeta,
   smtpMeta,
   mailchannelsMeta,
+  ahasendMeta,
 ]);
 
 /** Returns the meta of a built-in provider, or undefined for an unknown id. */

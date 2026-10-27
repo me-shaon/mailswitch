@@ -24,6 +24,7 @@ const config: UserConfig = defineConfig({
     "providers/zeptomail/index": "src/providers/zeptomail/index.ts",
     "providers/sendgrid/index": "src/providers/sendgrid/index.ts",
     "providers/mailchannels/index": "src/providers/mailchannels/index.ts",
+    "providers/ahasend/index": "src/providers/ahasend/index.ts",
     "providers/ses/index": "src/providers/ses/index.ts",
     "providers/smtp/index": "src/providers/smtp/index.ts",
     "providers/smtp/brevo": "src/providers/smtp/brevo-webhooks.ts",

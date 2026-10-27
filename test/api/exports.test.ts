@@ -274,6 +274,25 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "verifyMailchannelsWebhook",
     ],
   },
+  "./ahasend": {
+    load: () => import("../../src/providers/ahasend/index"),
+    names: [
+      "AHASEND_API_BASE",
+      "AHASEND_ID_HEADER",
+      "AHASEND_MAX_KEY_LENGTH",
+      "AHASEND_MAX_LIST_RECIPIENTS",
+      "AHASEND_SIGNATURE_HEADER",
+      "AHASEND_TIMESTAMP_HEADER",
+      "AHASEND_WEBHOOK_TOLERANCE_MS",
+      "ahasend",
+      "ahasendIdempotencyKey",
+      "ahasendMeta",
+      "ahasendSignedPayload",
+      "ahasendWebhooks",
+      "parseAhasendEvents",
+      "verifyAhasendWebhook",
+    ],
+  },
   "./ses": {
     load: () => import("../../src/providers/ses/index"),
     names: [
