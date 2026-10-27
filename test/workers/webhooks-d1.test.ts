@@ -6,7 +6,7 @@ import { tosend } from "../../src/providers/tosend/index";
 import { toSendSignature } from "../../src/providers/tosend/webhooks";
 import { applyD1Schema, D1DedupeStore } from "../../src/stores/d1";
 import { handleWebhook } from "../../src/webhooks/index";
-import { dedupeStoreSuite } from "../stores/dedupe-suite";
+import { dedupeBulkSuite, dedupeStoreSuite } from "../stores/dedupe-suite";
 
 const db = (env as unknown as { DB: D1Database }).DB;
 const SECRET = "tosend-webhook-secret-0123456789";
@@ -19,6 +19,31 @@ async function freshStore(): Promise<D1DedupeStore> {
 }
 
 dedupeStoreSuite("D1", freshStore);
+dedupeBulkSuite("D1", freshStore);
+
+it("rolls back every claim of a claimMany call when one statement fails", async () => {
+  const store = await freshStore();
+  // No claim value can break the CHECK constraint, so a test-only trigger fails one insert.
+  await db
+    .prepare(
+      `CREATE TRIGGER fail_boom BEFORE INSERT ON mailswitch_webhook_dedupe
+       WHEN NEW.key = 'boom' BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+    )
+    .run();
+  try {
+    await expect(
+      store.claimMany({ keys: ["a", "boom", "c"], leaseMs: 60_000, now: NOW }),
+    ).rejects.toThrow(/boom/);
+  } finally {
+    await db.prepare("DROP TRIGGER fail_boom").run();
+  }
+  const rows = await db
+    .prepare("SELECT COUNT(*) AS n FROM mailswitch_webhook_dedupe")
+    .first<{ n: number }>();
+  expect(rows?.n).toBe(0);
+  const after = await store.claimMany({ keys: ["a", "c"], leaseMs: 60_000, now: NOW });
+  expect(after.map((outcome) => outcome.status)).toEqual(["new", "new"]);
+});
 
 async function delivery(body: string): Promise<Request> {
   const bytes = utf8(body);

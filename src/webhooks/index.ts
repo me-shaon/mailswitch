@@ -19,8 +19,10 @@ export type {
 export type { NormalizedEvent, NormalizedEventType, WebhookRejection } from "../core/events";
 export type {
   DedupeClaimInput,
+  DedupeClaimManyInput,
   DedupeClaimOutcome,
   DedupeCommitInput,
+  DedupeCommitManyInput,
   DedupeReleaseInput,
   DedupeStore,
 } from "../stores/types";

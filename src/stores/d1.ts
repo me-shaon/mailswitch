@@ -2,6 +2,7 @@
 // write is atomic. This file uses a structural D1 type, so it imports no Workers module.
 
 import { bucketExpiry, bucketStartOf, windowFloor } from "../core/daily-cap";
+import { assertDistinctKeys } from "../internal/distinct-keys";
 import type {
   DailyCapFillInput,
   DailyCapReleaseInput,
@@ -9,8 +10,10 @@ import type {
   DailyCapReserveInput,
   DailyCapStore,
   DedupeClaimInput,
+  DedupeClaimManyInput,
   DedupeClaimOutcome,
   DedupeCommitInput,
+  DedupeCommitManyInput,
   DedupeReleaseInput,
   DedupeStore,
   IdempotencyAttempt,
@@ -30,8 +33,10 @@ export type {
   DailyCapReserveInput,
   DailyCapStore,
   DedupeClaimInput,
+  DedupeClaimManyInput,
   DedupeClaimOutcome,
   DedupeCommitInput,
+  DedupeCommitManyInput,
   DedupeReleaseInput,
   DedupeStore,
   IdempotencyAttempt,
@@ -363,9 +368,60 @@ export class D1DedupeStore implements DedupeStore {
   }
 
   async claim(input: DedupeClaimInput): Promise<DedupeClaimOutcome> {
+    const [outcome] = await this.#claimAll([input.key], input.leaseMs, input.now);
+    if (!outcome) throw new Error("D1DedupeStore could not read the claimed row.");
+    return outcome;
+  }
+
+  async commit(input: DedupeCommitInput): Promise<boolean> {
+    const result = await this.#commitStatement(
+      input.key,
+      input.leaseId,
+      input.now + input.ttlMs,
+    ).run();
+    return changes(result) > 0;
+  }
+
+  async release(input: DedupeReleaseInput): Promise<void> {
+    await this.#releaseStatement(input.key, input.leaseId).run();
+  }
+
+  /**
+   * Claims every key in one batch. D1 runs a batch as one transaction, so a failed
+   * statement rolls back the claims of every key in the call.
+   */
+  async claimMany(input: DedupeClaimManyInput): Promise<DedupeClaimOutcome[]> {
+    assertDistinctKeys(input.keys);
+    if (input.keys.length === 0) return [];
+    return this.#claimAll(input.keys, input.leaseMs, input.now);
+  }
+
+  /** Commits every lease in one batch. A failed statement rolls back every commit. */
+  async commitMany(input: DedupeCommitManyInput): Promise<boolean[]> {
+    if (input.leases.length === 0) return [];
+    const expiresAt = input.now + input.ttlMs;
+    const results = await this.#db.batch(
+      input.leases.map((lease) => this.#commitStatement(lease.key, lease.leaseId, expiresAt)),
+    );
+    return input.leases.map((_, i) => changes(results[i]) > 0);
+  }
+
+  /** Releases every lease in one batch. */
+  async releaseMany(leases: readonly DedupeReleaseInput[]): Promise<void> {
+    if (leases.length === 0) return;
+    await this.#db.batch(leases.map((lease) => this.#releaseStatement(lease.key, lease.leaseId)));
+  }
+
+  // Each key has two statements: an upsert that takes the row only when it is missing or
+  // expired, then a read of the row. `RETURNING` tells whether the upsert won.
+  async #claimAll(
+    keys: readonly string[],
+    leaseMs: number,
+    now: number,
+  ): Promise<DedupeClaimOutcome[]> {
     const db = this.#db;
-    const leaseId = crypto.randomUUID();
-    const results = await db.batch<{ committed?: number }>([
+    const leaseIds = keys.map(() => crypto.randomUUID());
+    const statements = keys.flatMap((key, i) => [
       db
         .prepare(
           `INSERT INTO ${DEDUPE_TABLE} (key, committed, expires_at, lease_id) VALUES (?1, 0, ?2 + ?3, ?4)
@@ -374,30 +430,32 @@ export class D1DedupeStore implements DedupeStore {
            WHERE ${DEDUPE_TABLE}.expires_at <= ?2
            RETURNING key`,
         )
-        .bind(input.key, input.now, input.leaseMs, leaseId),
-      db.prepare(`SELECT committed FROM ${DEDUPE_TABLE} WHERE key = ?1`).bind(input.key),
+        .bind(key, now, leaseMs, leaseIds[i]),
+      db.prepare(`SELECT committed FROM ${DEDUPE_TABLE} WHERE key = ?1`).bind(key),
     ]);
-    if ((results[0]?.results?.length ?? 0) > 0) return { status: "new", leaseId };
-    return { status: results[1]?.results?.[0]?.committed === 1 ? "duplicate" : "in_flight" };
+    const results = await db.batch<{ committed?: number }>(statements);
+    return keys.map((_, i): DedupeClaimOutcome => {
+      const leaseId = leaseIds[i] as string;
+      if ((results[i * 2]?.results?.length ?? 0) > 0) return { status: "new", leaseId };
+      const committed = results[i * 2 + 1]?.results?.[0]?.committed;
+      return { status: committed === 1 ? "duplicate" : "in_flight" };
+    });
   }
 
-  async commit(input: DedupeCommitInput): Promise<boolean> {
-    const result = await this.#db
+  #commitStatement(key: string, leaseId: string, expiresAt: number): D1StatementLike {
+    return this.#db
       .prepare(
         `INSERT INTO ${DEDUPE_TABLE} (key, committed, expires_at, lease_id) VALUES (?1, 1, ?2, ?3)
          ON CONFLICT(key) DO UPDATE SET committed = 1, expires_at = excluded.expires_at
          WHERE ${DEDUPE_TABLE}.lease_id = excluded.lease_id`,
       )
-      .bind(input.key, input.now + input.ttlMs, input.leaseId)
-      .run();
-    return changes(result) > 0;
+      .bind(key, expiresAt, leaseId);
   }
 
-  async release(input: DedupeReleaseInput): Promise<void> {
-    await this.#db
+  #releaseStatement(key: string, leaseId: string): D1StatementLike {
+    return this.#db
       .prepare(`DELETE FROM ${DEDUPE_TABLE} WHERE key = ?1 AND committed = 0 AND lease_id = ?2`)
-      .bind(input.key, input.leaseId)
-      .run();
+      .bind(key, leaseId);
   }
 
   async purgeExpired(now: number): Promise<number> {

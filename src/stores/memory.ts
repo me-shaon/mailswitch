@@ -3,6 +3,7 @@
 
 import { bucketExpiry, bucketStartOf, windowFloor } from "../core/daily-cap";
 import { type TokenBucket, takeToken } from "../core/rate-limit";
+import { assertDistinctKeys } from "../internal/distinct-keys";
 import type {
   DailyCapFillInput,
   DailyCapReleaseInput,
@@ -10,8 +11,10 @@ import type {
   DailyCapReserveInput,
   DailyCapStore,
   DedupeClaimInput,
+  DedupeClaimManyInput,
   DedupeClaimOutcome,
   DedupeCommitInput,
+  DedupeCommitManyInput,
   DedupeReleaseInput,
   DedupeStore,
   IdempotencyClaimInput,
@@ -32,8 +35,10 @@ export type {
   DailyCapReserveInput,
   DailyCapStore,
   DedupeClaimInput,
+  DedupeClaimManyInput,
   DedupeClaimOutcome,
   DedupeCommitInput,
+  DedupeCommitManyInput,
   DedupeReleaseInput,
   DedupeStore,
   IdempotencyAttempt,
@@ -217,31 +222,53 @@ export class MemoryDedupeStore implements DedupeStore {
   readonly #keys = new Map<string, { committed: boolean; expiresAt: number; leaseId: string }>();
 
   async claim(input: DedupeClaimInput): Promise<DedupeClaimOutcome> {
-    const current = this.#keys.get(input.key);
-    if (current && current.expiresAt > input.now) {
-      return { status: current.committed ? "duplicate" : "in_flight" };
-    }
-    const leaseId = crypto.randomUUID();
-    this.#keys.set(input.key, { committed: false, expiresAt: input.now + input.leaseMs, leaseId });
-    return { status: "new", leaseId };
+    return this.#claim(input.key, input.leaseMs, input.now);
   }
 
   async commit(input: DedupeCommitInput): Promise<boolean> {
-    const current = this.#keys.get(input.key);
-    if (current && current.leaseId !== input.leaseId) return false;
-    this.#keys.set(input.key, {
-      committed: true,
-      expiresAt: input.now + input.ttlMs,
-      leaseId: input.leaseId,
-    });
-    return true;
+    return this.#commit(input.key, input.leaseId, input.ttlMs, input.now);
   }
 
   async release(input: DedupeReleaseInput): Promise<void> {
-    const current = this.#keys.get(input.key);
-    if (current?.committed === false && current.leaseId === input.leaseId) {
-      this.#keys.delete(input.key);
+    this.#release(input.key, input.leaseId);
+  }
+
+  #claim(key: string, leaseMs: number, now: number): DedupeClaimOutcome {
+    const current = this.#keys.get(key);
+    if (current && current.expiresAt > now) {
+      return { status: current.committed ? "duplicate" : "in_flight" };
     }
+    const leaseId = crypto.randomUUID();
+    this.#keys.set(key, { committed: false, expiresAt: now + leaseMs, leaseId });
+    return { status: "new", leaseId };
+  }
+
+  #commit(key: string, leaseId: string, ttlMs: number, now: number): boolean {
+    const current = this.#keys.get(key);
+    if (current && current.leaseId !== leaseId) return false;
+    this.#keys.set(key, { committed: true, expiresAt: now + ttlMs, leaseId });
+    return true;
+  }
+
+  #release(key: string, leaseId: string): void {
+    const current = this.#keys.get(key);
+    if (current?.committed === false && current.leaseId === leaseId) this.#keys.delete(key);
+  }
+
+  /** Claims each key in one synchronous pass, so the call is atomic inside one isolate. */
+  async claimMany(input: DedupeClaimManyInput): Promise<DedupeClaimOutcome[]> {
+    assertDistinctKeys(input.keys);
+    return input.keys.map((key) => this.#claim(key, input.leaseMs, input.now));
+  }
+
+  async commitMany(input: DedupeCommitManyInput): Promise<boolean[]> {
+    return input.leases.map((lease) =>
+      this.#commit(lease.key, lease.leaseId, input.ttlMs, input.now),
+    );
+  }
+
+  async releaseMany(leases: readonly DedupeReleaseInput[]): Promise<void> {
+    for (const lease of leases) this.#release(lease.key, lease.leaseId);
   }
 
   async purgeExpired(now: number): Promise<number> {
