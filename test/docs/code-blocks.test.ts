@@ -29,6 +29,7 @@ const DOCUMENTS = [
   "docs/providers/sendgrid.md",
   "docs/providers/mailchannels.md",
   "docs/providers/ahasend.md",
+  "docs/providers/mailtrap.md",
   "docs/providers/ses.md",
   "docs/providers/mailgun.md",
   "docs/providers/cloudflare.md",

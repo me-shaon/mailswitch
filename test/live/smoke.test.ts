@@ -4,6 +4,7 @@ import { brevo } from "../../src/providers/brevo/index";
 import { mailchannels } from "../../src/providers/mailchannels/index";
 import { mailersend } from "../../src/providers/mailersend/index";
 import { mailjet } from "../../src/providers/mailjet/index";
+import { mailtrap } from "../../src/providers/mailtrap/index";
 import { resend } from "../../src/providers/resend/index";
 import { sendgrid } from "../../src/providers/sendgrid/index";
 import { smtp2go } from "../../src/providers/smtp2go/index";
@@ -39,6 +40,10 @@ import { zeptomail } from "../../src/providers/zeptomail/index";
 // - AhaSend: MAILSWITCH_LIVE_AHASEND_KEY, MAILSWITCH_LIVE_AHASEND_ACCOUNT_ID,
 //   MAILSWITCH_LIVE_AHASEND_FROM, MAILSWITCH_LIVE_TO. It sends with sandbox: true, so
 //   AhaSend checks the request and delivers no email. The key must have no IP allowlist.
+// - Mailtrap: MAILSWITCH_LIVE_MAILTRAP_TOKEN, MAILSWITCH_LIVE_MAILTRAP_FROM, MAILSWITCH_LIVE_TO,
+//   and the optional MAILSWITCH_LIVE_MAILTRAP_SANDBOX_ID. With the sandbox id, the send goes
+//   to that sandbox inbox and delivers no email. Without it, it sends one real email. Set
+//   MAILSWITCH_LIVE_TO to an address of the account owner.
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -86,6 +91,11 @@ const AHASEND = [
   "MAILSWITCH_LIVE_AHASEND_KEY",
   "MAILSWITCH_LIVE_AHASEND_ACCOUNT_ID",
   "MAILSWITCH_LIVE_AHASEND_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const MAILTRAP = [
+  "MAILSWITCH_LIVE_MAILTRAP_TOKEN",
+  "MAILSWITCH_LIVE_MAILTRAP_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
 const ZEPTOMAIL = [
@@ -399,6 +409,37 @@ describe.skipIf(!hasLiveEnv(AHASEND[0] as string))("live smoke: AhaSend", () => 
         ctx,
       );
       expect(result).toMatchObject({ status: "sent", provider: "ahasend" });
+    },
+  );
+});
+
+describe.skipIf(!hasLiveEnv(MAILTRAP[0] as string))("live smoke: Mailtrap", () => {
+  it("has the env vars of the Mailtrap smoke test", () => {
+    expect(hasLiveEnv(...MAILTRAP)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...MAILTRAP))(
+    "verifies the token and sends to the sandbox inbox when its id is set",
+    async () => {
+      const inbox = env.MAILSWITCH_LIVE_MAILTRAP_SANDBOX_ID ?? "";
+      const adapter = mailtrap(inbox === "" ? {} : { sandboxInboxId: inbox });
+      const ctx = {
+        fetch: (input: string, init: RequestInit) => fetch(input, init),
+        timeoutMs: 15_000,
+        credentials: { apiKey: env.MAILSWITCH_LIVE_MAILTRAP_TOKEN ?? "" },
+        now: Date.now(),
+      };
+      expect(await adapter.verify(ctx)).toEqual({ ok: true });
+      const result = await adapter.send(
+        {
+          from: env.MAILSWITCH_LIVE_MAILTRAP_FROM ?? "",
+          to: [env.MAILSWITCH_LIVE_TO ?? ""],
+          subject: "mailswitch live smoke test (Mailtrap)",
+          text: "This email comes from the mailswitch live smoke test.",
+        },
+        ctx,
+      );
+      expect(result).toMatchObject({ status: "sent", provider: "mailtrap" });
     },
   );
 });

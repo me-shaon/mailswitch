@@ -112,6 +112,10 @@
       "types": "./dist/providers/ahasend/index.d.ts",
       "import": "./dist/providers/ahasend/index.js"
     },
+    "./mailtrap": {
+      "types": "./dist/providers/mailtrap/index.d.ts",
+      "import": "./dist/providers/mailtrap/index.js"
+    },
     "./sendgrid": {
       "types": "./dist/providers/sendgrid/index.d.ts",
       "import": "./dist/providers/sendgrid/index.js"

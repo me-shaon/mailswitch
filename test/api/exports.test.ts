@@ -293,6 +293,21 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "verifyAhasendWebhook",
     ],
   },
+  "./mailtrap": {
+    load: () => import("../../src/providers/mailtrap/index"),
+    names: [
+      "MAILTRAP_ACCOUNTS_BASE",
+      "MAILTRAP_HOSTS",
+      "MAILTRAP_SIGNATURE_HEADER",
+      "MAILTRAP_USER_AGENT",
+      "mailtrap",
+      "mailtrapMeta",
+      "mailtrapSignature",
+      "mailtrapWebhooks",
+      "parseMailtrapEvents",
+      "verifyMailtrapWebhook",
+    ],
+  },
   "./ses": {
     load: () => import("../../src/providers/ses/index"),
     names: [

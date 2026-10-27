@@ -9,6 +9,7 @@ import { mailchannelsMeta } from "../providers/mailchannels/meta";
 import { mailersendMeta } from "../providers/mailersend/meta";
 import { mailgunMeta } from "../providers/mailgun/meta";
 import { mailjetMeta } from "../providers/mailjet/meta";
+import { mailtrapMeta } from "../providers/mailtrap/meta";
 import { postmarkMeta } from "../providers/postmark/meta";
 import { resendMeta } from "../providers/resend/meta";
 import { sendgridMeta } from "../providers/sendgrid/meta";
@@ -38,6 +39,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   smtpMeta,
   mailchannelsMeta,
   ahasendMeta,
+  mailtrapMeta,
 ]);
 
 /** Returns the meta of a built-in provider, or undefined for an unknown id. */

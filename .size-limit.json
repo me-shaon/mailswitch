@@ -8,7 +8,7 @@
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
-    "limit": "4.81 KB",
+    "limit": "5.15 KB",
     "gzip": true
   },
   {
@@ -92,6 +92,12 @@
   {
     "name": "mailswitch/ahasend",
     "path": "dist/providers/ahasend/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/mailtrap",
+    "path": "dist/providers/mailtrap/index.js",
     "limit": "8 KB",
     "gzip": true
   },
