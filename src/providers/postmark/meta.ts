@@ -54,7 +54,7 @@ export const postmarkMeta: ProviderMeta = defineProviderMeta({
   webhookSecret: {
     label: "Webhook secret",
     source: "generated",
-    hint: "Make it with generatePostmarkWebhookSecret(). Enter it as the Basic auth password of the Postmark webhook.",
+    hint: 'Make it with generatePostmarkWebhookSecret(). Enter it as the Basic auth password of the Postmark webhook. The username must be "mailswitch", unless you set webhookUsername.',
   },
   nativeIdempotency: false,
 });

@@ -55,7 +55,7 @@ export const smtp2goMeta: ProviderMeta = defineProviderMeta({
   webhookSecret: {
     label: "Webhook secret",
     source: "generated",
-    hint: "Make it with generateSmtp2goWebhookSecret(), and give SMTP2GO the value of smtp2goWebhookAuth().",
+    hint: 'Make it with generateSmtp2goWebhookSecret(), and give SMTP2GO the value of smtp2goWebhookAuth(). For Basic auth, the username must be "mailswitch", unless you set webhookUsername.',
   },
   nativeIdempotency: false,
 });

@@ -152,6 +152,7 @@ describe("catalog", () => {
     }
     for (const id of ["postmark", "mailjet", "smtp2go"]) {
       expect(getProviderMeta(id)?.webhookSecret).toMatchObject({ source: "generated" });
+      expect(getProviderMeta(id)?.webhookSecret?.hint, id).toMatch(/"mailswitch"/);
     }
     const resend = new RegExp(getProviderMeta("resend")?.webhookSecret?.pattern ?? "");
     expect(resend.test(RESEND_FIXTURE_SECRET)).toBe(true);
