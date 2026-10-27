@@ -4,7 +4,7 @@
 
 import type { AddressInput, OutgoingMessage } from "../../core/types";
 import { parseAddress } from "../../internal/address";
-import { bytesToBase64 } from "../../internal/encoding";
+import { attachmentBase64 } from "../../internal/encoding";
 
 interface ZeptomailAddress {
   address: string;
@@ -44,7 +44,7 @@ export function zeptomailPayload(message: OutgoingMessage): Record<string, unkno
   const files: Record<string, string>[] = [];
   const inlines: Record<string, string>[] = [];
   for (const item of message.attachments ?? []) {
-    const content = typeof item.content === "string" ? item.content : bytesToBase64(item.content);
+    const content = attachmentBase64(item);
     const entry = { content, mime_type: item.contentType, name: item.filename };
     if (item.contentId === undefined) files.push(entry);
     else inlines.push({ ...entry, cid: item.contentId });

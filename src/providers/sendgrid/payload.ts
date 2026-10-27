@@ -2,16 +2,9 @@
 // export.
 // https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send
 
-import type { Address, AddressInput, OutgoingMessage } from "../../core/types";
-import { parseAddress } from "../../internal/address";
-import { bytesToBase64 } from "../../internal/encoding";
-
-/** An address in the SendGrid shape, `{ email, name? }`. */
-function address(input: AddressInput): Address {
-  // validateMessage has checked every address, so parseAddress cannot return null here.
-  const parsed = parseAddress(input) ?? { email: "" };
-  return parsed.name ? { email: parsed.email, name: parsed.name } : { email: parsed.email };
-}
+import type { OutgoingMessage } from "../../core/types";
+import { addressObject, parseAddress } from "../../internal/address";
+import { attachmentBase64 } from "../../internal/encoding";
 
 /** True when the display name of `from` has a character outside ASCII. */
 export function hasNonAsciiFromName(message: OutgoingMessage): boolean {
@@ -27,23 +20,23 @@ export function sendgridPayload(
   message: OutgoingMessage,
   sandbox: boolean,
 ): Record<string, unknown> {
-  const recipients: Record<string, unknown> = { to: message.to.map(address) };
-  if (message.cc?.length) recipients.cc = message.cc.map(address);
-  if (message.bcc?.length) recipients.bcc = message.bcc.map(address);
+  const recipients: Record<string, unknown> = { to: message.to.map(addressObject) };
+  if (message.cc?.length) recipients.cc = message.cc.map(addressObject);
+  if (message.bcc?.length) recipients.bcc = message.bcc.map(addressObject);
   const content: { type: string; value: string }[] = [];
   if (message.text) content.push({ type: "text/plain", value: message.text });
   if (message.html) content.push({ type: "text/html", value: message.html });
   const body: Record<string, unknown> = {
     personalizations: [recipients],
-    from: address(message.from),
+    from: addressObject(message.from),
     subject: message.subject,
     content,
   };
-  if (message.replyTo !== undefined) body.reply_to = address(message.replyTo);
+  if (message.replyTo !== undefined) body.reply_to = addressObject(message.replyTo);
   if (message.headers && Object.keys(message.headers).length > 0) body.headers = message.headers;
   if (message.attachments?.length) {
     body.attachments = message.attachments.map((item) => ({
-      content: typeof item.content === "string" ? item.content : bytesToBase64(item.content),
+      content: attachmentBase64(item),
       filename: item.filename,
       type: item.contentType,
       ...(item.contentId === undefined

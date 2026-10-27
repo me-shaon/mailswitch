@@ -2,7 +2,7 @@
 // private key. Web Crypto takes the raw `r||s` form of a signature, and providers send
 // DER, so this module also converts DER to raw. The exported functions never throw.
 
-import { base64ToBytes, bytesToHex } from "./encoding";
+import { base64ToBytes } from "./encoding";
 
 const SEQUENCE = 0x30;
 const INTEGER = 0x02;
@@ -10,7 +10,8 @@ const INTEGER = 0x02;
 const SIZE = 32;
 const MAX_CACHED_KEYS = 32;
 
-// The cache key is a SHA-256 digest of the key bytes, so keys are not kept as map keys.
+// The cache key is the trimmed base64 key text. A public key is not a secret, so it can be a
+// map key, and a cache hit needs no decode and no digest.
 const keyCache: Map<string, Promise<CryptoKey>> = new Map();
 
 /**
@@ -45,11 +46,11 @@ export function derToRawSignature(der: Uint8Array): Uint8Array<ArrayBuffer> | nu
 }
 
 async function importKey(spki: string): Promise<CryptoKey | null> {
-  const bytes = base64ToBytes(spki.trim());
-  if (bytes === null) return null;
-  const cacheKey = bytesToHex(await crypto.subtle.digest("SHA-256", bytes));
+  const cacheKey = spki.trim();
   let imported = keyCache.get(cacheKey);
   if (!imported) {
+    const bytes = base64ToBytes(cacheKey);
+    if (bytes === null) return null;
     imported = crypto.subtle.importKey(
       "spki",
       bytes,

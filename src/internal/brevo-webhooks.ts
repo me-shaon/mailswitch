@@ -22,7 +22,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../core/adapter";
 import type { NormalizedEvent } from "../core/events";
-import { bytesToBase64 } from "./encoding";
+import { checkSharedTokenSecret, generateSharedTokenSecret } from "./shared-token";
 import { decodeJsonBytes, timingSafeEqualText } from "./webhook-bytes";
 
 /** The shortest token, in characters, when it is not hex only. 22 base64url characters hold 128 bits. */
@@ -47,17 +47,11 @@ const BEARER = /^([A-Za-z]+)[ \t]+(\S+)[ \t]*$/;
  * @throws TypeError for a token that is too short. The message never holds the token.
  */
 export function checkBrevoWebhookToken(token: string): void {
-  const min = /^[0-9a-fA-F]+$/.test(token) ? BREVO_MIN_HEX_TOKEN_LENGTH : BREVO_MIN_TOKEN_LENGTH;
-  if (typeof token !== "string" || token.length < min) {
-    throw new TypeError("The Brevo webhook token is too short: it needs 128 bits.");
-  }
+  checkSharedTokenSecret(token, "Brevo");
 }
 
 /** Makes a webhook token of 32 random bytes, as 43 base64url characters. */
-export function generateBrevoWebhookToken(): string {
-  const text = bytesToBase64(crypto.getRandomValues(new Uint8Array(32)));
-  return text.replace(/[+/=]/g, (c) => (c === "+" ? "-" : c === "/" ? "_" : ""));
-}
+export const generateBrevoWebhookToken: () => string = generateSharedTokenSecret;
 
 /** Checks the bearer token and the body shape. It never throws for a bad request. */
 export async function verifyBrevoWebhook(input: WebhookVerifyInput): Promise<WebhookVerifyResult> {

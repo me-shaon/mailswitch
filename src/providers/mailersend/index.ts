@@ -20,7 +20,6 @@ import {
   type SendContext,
   type VerifyResult,
 } from "../../core/adapter";
-import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type {
   FailureReason,
@@ -29,7 +28,14 @@ import type {
   SendResult,
   UnknownResult,
 } from "../../core/types";
-import { callProvider, discardBody, parseBaseUrl, withProvider } from "../../internal/http";
+import {
+  callProvider,
+  classifyFailure,
+  discardBody,
+  parseBaseUrl,
+  readJson,
+  withProvider,
+} from "../../internal/http";
 import { mailersendMeta } from "./meta";
 import { FIELD_LIMITS, mailersendPayload, overLimitField } from "./payload";
 import { mailersendWebhooks } from "./webhooks";
@@ -85,13 +91,8 @@ async function readText(response: Response): Promise<string | null> {
 }
 
 /** Finds the first `#MSxxxxx` code in the strings of the `errors` object. */
-function bodyCode(text: string | null): string | undefined {
-  let errors: unknown;
-  try {
-    errors = (JSON.parse(text ?? "") as { errors?: unknown } | null)?.errors;
-  } catch {
-    return undefined;
-  }
+function bodyCode(json: unknown): string | undefined {
+  const errors = (json as { errors?: unknown } | null)?.errors;
   if (typeof errors !== "object" || errors === null) return undefined;
   for (const list of Object.values(errors)) {
     for (const item of Array.isArray(list) ? list : [list]) {
@@ -107,20 +108,15 @@ function bodyCode(text: string | null): string | undefined {
  * `#MS` code in the body. The message never copies the body.
  */
 async function failure(response: Response, now: number): Promise<NotSentResult | UnknownResult> {
-  const outcome = classifyResponse(response.status, response.headers, mailersendMeta.statusMap, {
-    now,
-  }) as NotSentResult | UnknownResult;
+  const outcome = classifyFailure(response, mailersendMeta.statusMap, now, PROVIDER);
   if (outcome.status === "unknown" || response.status !== 422) {
     await discardBody(response);
-    return withProvider(outcome, PROVIDER);
+    return outcome;
   }
-  const code = bodyCode(await readText(response));
+  const code = bodyCode(await readJson(response));
   const reason = code === undefined ? undefined : CODE_REASONS[code];
-  if (reason === undefined) return withProvider(outcome, PROVIDER);
-  return withProvider(
-    { ...outcome, reason, message: `MailerSend answered with HTTP 422 ${code} (${reason}).` },
-    PROVIDER,
-  );
+  if (reason === undefined) return outcome;
+  return { ...outcome, reason, message: `MailerSend answered with HTTP 422 ${code} (${reason}).` };
 }
 
 /** The `type` values of the `warnings` array of a 202 body. Null for a body it cannot read. */

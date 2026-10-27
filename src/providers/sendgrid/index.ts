@@ -13,11 +13,11 @@ import {
   type SendContext,
   type VerifyResult,
 } from "../../core/adapter";
-import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "../../core/types";
 import {
   callProvider,
+  classifyFailure,
   discardBody,
   parseBaseUrl,
   readJson,
@@ -74,9 +74,7 @@ const PROVIDER = sendgridMeta.id;
  */
 async function failure(response: Response, now: number): Promise<NotSentResult | UnknownResult> {
   await discardBody(response);
-  const outcome = classifyResponse(response.status, response.headers, sendgridMeta.statusMap, {
-    now,
-  }) as NotSentResult | UnknownResult;
+  const outcome = classifyFailure(response, sendgridMeta.statusMap, now, PROVIDER);
   const reset = response.headers.get("x-ratelimit-reset");
   if (
     outcome.reason === "rate_limited" &&
@@ -86,12 +84,15 @@ async function failure(response: Response, now: number): Promise<NotSentResult |
   ) {
     outcome.retryAfterMs = Math.max(0, Number(reset.trim()) * 1000 - now);
   }
-  return withProvider(outcome, PROVIDER);
+  return outcome;
 }
 
 function checkOptions(options: SendgridOptions): string {
   if (typeof options !== "object" || options === null) {
     throw new TypeError("sendgrid expects an options object.");
+  }
+  if (options.apiKey !== undefined && typeof options.apiKey !== "string") {
+    throw new TypeError("sendgrid: apiKey must be a string.");
   }
   if (options.sandbox !== undefined && typeof options.sandbox !== "boolean") {
     throw new TypeError("sendgrid: sandbox must be a boolean.");

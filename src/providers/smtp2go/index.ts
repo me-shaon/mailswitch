@@ -22,16 +22,17 @@ import {
   type SendContext,
   type VerifyResult,
 } from "../../core/adapter";
-import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "../../core/types";
 import {
   callProvider,
+  classifyFailure,
   discardBody,
   parseBaseUrl,
   readJson,
   withProvider,
 } from "../../internal/http";
+import { asRecord } from "../../internal/json";
 import { smtp2goMeta } from "./meta";
 import { smtp2goPayload } from "./payload";
 import { type Smtp2goWebhookOptions, smtp2goWebhooks } from "./webhooks";
@@ -98,14 +99,6 @@ const KEY_CODE = /\.(API_EXCEPTION|INVALID_IN_PAYLOAD)$/;
 const DENIED = /\.ENDPOINT_PERMISSION_DENIED$/;
 const KEY_TEXT = /'api_key'/;
 
-type Fields = Record<string, unknown>;
-
-function record(value: unknown): Fields | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Fields)
-    : undefined;
-}
-
 function count(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
@@ -120,9 +113,9 @@ function unclear(httpStatus: number): UnknownResult {
   };
 }
 
-/** Reads a 2xx send answer (KTD5). The result never copies `failures`. */
+/** Reads a 2xx send answer. The result never copies `failures`. */
 function sentResult(json: unknown, httpStatus: number): SendResult {
-  const data = record(record(json)?.data);
+  const data = asRecord(asRecord(json)?.data);
   const succeeded = count(data?.succeeded);
   const failed = count(data?.failed);
   if (succeeded !== undefined && succeeded > 0) {
@@ -150,31 +143,22 @@ function sentResult(json: unknown, httpStatus: number): SendResult {
  * result holds the `error_code` and never the `error` text.
  */
 async function failure(response: Response, now: number): Promise<NotSentResult | UnknownResult> {
-  const outcome = classifyResponse(response.status, response.headers, smtp2goMeta.statusMap, {
-    now,
-  }) as NotSentResult | UnknownResult;
+  const outcome = classifyFailure(response, smtp2goMeta.statusMap, now, PROVIDER);
   if (response.status !== 400) {
     await discardBody(response);
     if (outcome.status === "not_sent" && outcome.reason === "rate_limited") {
       outcome.retryAfterMs ??= SMTP2GO_RATE_LIMIT_WAIT_MS;
     }
-    return withProvider(outcome, PROVIDER);
+    return outcome;
   }
-  const data = record(record(await readJson(response))?.data);
+  const data = asRecord(asRecord(await readJson(response))?.data);
   const code = data?.error_code;
-  if (typeof code !== "string" || !ERROR_CODE.test(code)) return withProvider(outcome, PROVIDER);
+  if (typeof code !== "string" || !ERROR_CODE.test(code)) return outcome;
   const keyError =
     DENIED.test(code) ||
     (KEY_CODE.test(code) && typeof data?.error === "string" && KEY_TEXT.test(data.error));
   const reason = keyError ? "auth" : outcome.reason;
-  return withProvider(
-    {
-      ...outcome,
-      reason,
-      message: `SMTP2GO answered with HTTP 400 ${code} (${reason}).`,
-    },
-    PROVIDER,
-  );
+  return { ...outcome, reason, message: `SMTP2GO answered with HTTP 400 ${code} (${reason}).` };
 }
 
 function checkOptions(options: Smtp2goOptions): string {
@@ -256,7 +240,7 @@ export function smtp2go(options: Smtp2goOptions = {}): Smtp2goAdapter {
     if (!call.ok) return { ...withProvider(call.result, PROVIDER), ok: false };
     const { response } = call;
     if (!response.ok) return { ...(await failure(response, ctx.now)), ok: false };
-    const list = record(await readJson(response))?.data;
+    const list = asRecord(await readJson(response))?.data;
     if (!Array.isArray(list)) return { ...unclear(response.status), ok: false };
     if (list.includes("/email/send")) return { ok: true };
     return {

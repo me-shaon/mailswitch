@@ -25,11 +25,13 @@
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent } from "../../core/events";
 import { bytesToBase64, utf8 } from "../../internal/encoding";
+import { asRecord } from "../../internal/json";
 import {
   checkSharedTokenSecret,
   generateSharedTokenSecret,
   sharedTokenVerifier,
 } from "../../internal/shared-token";
+import { decodeJsonBytes } from "../../internal/webhook-bytes";
 
 /** The default Basic auth username of an SMTP2GO webhook. */
 export const SMTP2GO_WEBHOOK_USERNAME = "mailswitch";
@@ -83,21 +85,6 @@ export function smtp2goWebhookAuth(
 
 type Fields = Record<string, unknown>;
 
-const fatal = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
-
-/** The JSON value of a body, or undefined when it is not UTF-8 JSON. */
-function decode(body: Uint8Array): unknown {
-  try {
-    return JSON.parse(fatal.decode(body)) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-function isObject(value: unknown): value is Fields {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * Makes the `verify` method. It checks the Bearer or Basic header with the shared token
  * helper, then checks that the body is one JSON event object or a list of them.
@@ -118,8 +105,10 @@ function verifier(
   return async (input) => {
     const auth = await check(input.headers, input.secret);
     if (!auth.ok) return auth;
-    const value = decode(input.body);
-    const ok = Array.isArray(value) ? value.length > 0 && value.every(isObject) : isObject(value);
+    const value = decodeJsonBytes(input.body);
+    const ok = Array.isArray(value)
+      ? value.length > 0 && value.every((item) => asRecord(item) !== undefined)
+      : asRecord(value) !== undefined;
     return ok ? { ok: true } : { ok: false, reason: "malformed" };
   };
 }
@@ -149,12 +138,13 @@ function millis(value: unknown): number | undefined {
  * - `providerMessageId` is `email_id`, the id of the send answer. `recipient` is `rcpt`.
  */
 export function parseSmtp2goEvents(provider: string, body: Uint8Array): NormalizedEvent[] {
-  const value = decode(body);
+  const value = decodeJsonBytes(body);
   const list = Array.isArray(value) ? value : [value];
   const events: NormalizedEvent[] = [];
   const keys = new Set<string>();
-  for (const item of list) {
-    if (!isObject(item)) continue;
+  for (const entry of list) {
+    const item = asRecord(entry);
+    if (item === undefined) continue;
     const rawType = text(item, "event");
     if (rawType === undefined) continue;
     const emailId = text(item, "email_id");

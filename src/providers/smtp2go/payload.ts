@@ -4,7 +4,7 @@
 
 import type { AddressInput, OutgoingMessage } from "../../core/types";
 import { formatAddress, parseAddress } from "../../internal/address";
-import { bytesToBase64 } from "../../internal/encoding";
+import { attachmentBase64 } from "../../internal/encoding";
 
 /** An address as `Name <addr>` text. */
 function address(input: AddressInput): string {
@@ -41,7 +41,7 @@ export function smtp2goPayload(message: OutgoingMessage): Record<string, unknown
   const files: Record<string, string>[] = [];
   const inlines: Record<string, string>[] = [];
   for (const item of message.attachments ?? []) {
-    const fileblob = typeof item.content === "string" ? item.content : bytesToBase64(item.content);
+    const fileblob = attachmentBase64(item);
     if (item.contentId === undefined) {
       files.push({ filename: item.filename, fileblob, mimetype: item.contentType });
     } else {

@@ -11,7 +11,7 @@
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
 import { ecdsaP256Verify } from "../../internal/ecdsa";
-import { base64ToBytes, utf8 } from "../../internal/encoding";
+import { base64ToBytes, isBase64, utf8 } from "../../internal/encoding";
 import { decodeJsonBytes } from "../../internal/webhook-bytes";
 
 /** The signature header of a SendGrid Event Webhook request. */
@@ -38,7 +38,7 @@ export function sendgridSignedPayload(timestamp: string, body: Uint8Array): Uint
  */
 function keyText(secret: string): string {
   const text = secret.replace(/-----[A-Z ]+-----/g, "").replace(/\s+/g, "");
-  if (base64ToBytes(text) === null) {
+  if (!isBase64(text)) {
     throw new TypeError("The SendGrid webhook secret is not a base64 public key.");
   }
   return text;

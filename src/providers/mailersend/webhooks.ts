@@ -10,6 +10,7 @@ import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
 import { bytesToHex } from "../../internal/encoding";
 import { hmacSign, hmacVerify } from "../../internal/hmac";
+import { asRecord } from "../../internal/json";
 import { sha256Hex } from "../../internal/sha256";
 import { decodeJsonBytes, hexToBytes } from "../../internal/webhook-bytes";
 
@@ -47,20 +48,13 @@ export async function verifyMailersendWebhook(
   const valid = await hmacVerify(input.secret, hexToBytes(hex) ?? new Uint8Array(0), input.body);
   if (!valid) return { ok: false, reason: "bad_signature" };
   // The signature covers the raw bytes. Only a verified body is decoded.
-  const value = decodeJsonBytes(input.body);
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (asRecord(decodeJsonBytes(input.body)) === undefined) {
     return { ok: false, reason: "malformed" };
   }
   return { ok: true };
 }
 
 type Fields = Record<string, unknown>;
-
-function record(value: unknown): Fields | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Fields)
-    : undefined;
-}
 
 function text(fields: Fields | undefined, name: string): string | undefined {
   const value = fields?.[name];
@@ -79,18 +73,18 @@ function text(fields: Fields | undefined, name: string): string | undefined {
  *   payload shape. It is the `x-message-id` value of the send.
  */
 export function parseMailersendEvents(provider: string, body: Uint8Array): NormalizedEvent[] {
-  const value = record(decodeJsonBytes(body));
+  const value = asRecord(decodeJsonBytes(body));
   if (value === undefined) return [];
-  const data = record(value.data);
-  const email = record(data?.email);
+  const data = asRecord(value.data);
+  const email = asRecord(data?.email);
   const rawType = text(value, "type") ?? "unknown";
   const type = TYPES[rawType] ?? "unknown";
   const eventKey = text(data, "id") ?? sha256Hex(body);
   const event: NormalizedEvent = { type, provider, eventKey, rawType };
   if (type === "bounced") event.bounce = rawType === "activity.hard_bounced" ? "hard" : "soft";
-  const recipient = text(data, "recipient") ?? text(record(email?.recipient), "email");
+  const recipient = text(data, "recipient") ?? text(asRecord(email?.recipient), "email");
   if (recipient !== undefined) event.recipient = recipient;
-  const messageId = text(data, "message_id") ?? text(record(email?.message), "id");
+  const messageId = text(data, "message_id") ?? text(asRecord(email?.message), "id");
   if (messageId !== undefined) event.providerMessageId = messageId;
   const at = Date.parse(text(value, "created_at") ?? text(data, "created_at") ?? "");
   if (Number.isFinite(at)) event.occurredAt = at;

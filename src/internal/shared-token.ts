@@ -43,8 +43,10 @@ const USERNAME = /^[\x21-\x39\x3b-\x7e]{1,128}$/;
  * @throws TypeError for a secret that is too short. The message never holds the secret.
  */
 export function checkSharedTokenSecret(secret: string, name: string): void {
-  const min = HEX_ONLY.test(secret) ? SHARED_TOKEN_MIN_HEX_LENGTH : SHARED_TOKEN_MIN_LENGTH;
-  if (typeof secret !== "string" || secret.length < min) {
+  if (
+    typeof secret !== "string" ||
+    secret.length < (HEX_ONLY.test(secret) ? SHARED_TOKEN_MIN_HEX_LENGTH : SHARED_TOKEN_MIN_LENGTH)
+  ) {
     throw new TypeError(`The ${name} webhook secret is too short: it needs 128 bits.`);
   }
 }
@@ -52,7 +54,7 @@ export function checkSharedTokenSecret(secret: string, name: string): void {
 /** Makes a webhook secret of 32 random bytes, as 43 base64url characters (256 bits). */
 export function generateSharedTokenSecret(): string {
   const text = bytesToBase64(crypto.getRandomValues(new Uint8Array(32)));
-  return text.replace(/[+/=]/g, (c) => (c === "+" ? "-" : c === "/" ? "_" : ""));
+  return text.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
 const fatal = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
@@ -115,6 +117,8 @@ export function sharedTokenVerifier(
     const [userOk, tokenOk, previousOk] = await Promise.all([
       scheme.type === "basic" ? timingSafeEqualText(user as string, scheme.username) : true,
       timingSafeEqualText(token, secret),
+      // With no previous secret, compare against the secret again, so the number of
+      // comparisons does not show whether a previous secret is set.
       timingSafeEqualText(token, previous ?? secret),
     ]);
     return userOk && (tokenOk || previousOk)

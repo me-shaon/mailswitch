@@ -2,9 +2,9 @@
 // export.
 // https://developers.mailersend.com/api/v1/email
 
-import type { Address, AddressInput, OutgoingMessage } from "../../core/types";
-import { parseAddress } from "../../internal/address";
-import { bytesToBase64 } from "../../internal/encoding";
+import type { OutgoingMessage } from "../../core/types";
+import { addressObject } from "../../internal/address";
+import { attachmentBase64 } from "../../internal/encoding";
 
 /** The recipient limits of one MailerSend email, by field. */
 export const FIELD_LIMITS: Readonly<Record<"to" | "cc" | "bcc", number>> = {
@@ -12,13 +12,6 @@ export const FIELD_LIMITS: Readonly<Record<"to" | "cc" | "bcc", number>> = {
   cc: 10,
   bcc: 10,
 };
-
-/** An address in the MailerSend shape, `{ email, name? }`. */
-function address(input: AddressInput): Address {
-  // validateMessage has checked every address, so parseAddress cannot return null here.
-  const parsed = parseAddress(input) ?? { email: "" };
-  return parsed.name ? { email: parsed.email, name: parsed.name } : { email: parsed.email };
-}
 
 /** Returns the first field that has more recipients than MailerSend accepts, or null. */
 export function overLimitField(message: OutgoingMessage): "to" | "cc" | "bcc" | null {
@@ -31,13 +24,13 @@ export function overLimitField(message: OutgoingMessage): "to" | "cc" | "bcc" | 
 /** Maps a message to the MailerSend request shape. */
 export function mailersendPayload(message: OutgoingMessage): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    from: address(message.from),
-    to: message.to.map(address),
+    from: addressObject(message.from),
+    to: message.to.map(addressObject),
     subject: message.subject,
   };
-  if (message.cc?.length) body.cc = message.cc.map(address);
-  if (message.bcc?.length) body.bcc = message.bcc.map(address);
-  if (message.replyTo !== undefined) body.reply_to = address(message.replyTo);
+  if (message.cc?.length) body.cc = message.cc.map(addressObject);
+  if (message.bcc?.length) body.bcc = message.bcc.map(addressObject);
+  if (message.replyTo !== undefined) body.reply_to = addressObject(message.replyTo);
   if (message.text !== undefined) body.text = message.text;
   if (message.html !== undefined) body.html = message.html;
   if (message.headers && Object.keys(message.headers).length > 0) {
@@ -46,7 +39,7 @@ export function mailersendPayload(message: OutgoingMessage): Record<string, unkn
   if (message.attachments?.length) {
     // MailerSend has no content type field. It reads the type from the file name.
     body.attachments = message.attachments.map((item) => ({
-      content: typeof item.content === "string" ? item.content : bytesToBase64(item.content),
+      content: attachmentBase64(item),
       filename: item.filename,
       ...(item.contentId === undefined
         ? { disposition: "attachment" }

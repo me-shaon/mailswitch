@@ -1,6 +1,8 @@
 // Byte helpers on Web APIs only. No Node.js APIs, so the same code runs on Workers,
 // Node, Bun, and Deno.
 
+import type { Attachment } from "../core/types";
+
 type NativeToBase64 = (this: Uint8Array) => string;
 type NativeFromBase64 = (text: string, options?: { lastChunkHandling?: "strict" }) => Uint8Array;
 
@@ -123,6 +125,16 @@ export function base64ToBytes(text: string): Uint8Array<ArrayBuffer> | null {
   } catch {
     return null;
   }
+}
+
+/** The content of an attachment as base64 text. Text content is already base64. */
+export function attachmentBase64(item: Pick<Attachment, "content">): string {
+  return typeof item.content === "string" ? item.content : bytesToBase64(item.content);
+}
+
+/** The value of an `Authorization` header for HTTP Basic auth. */
+export function basicAuthorization(user: string, password: string): string {
+  return `Basic ${bytesToBase64(utf8(`${user}:${password}`))}`;
 }
 
 const HEX: readonly string[] = Array.from({ length: 256 }, (_, i) =>

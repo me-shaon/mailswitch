@@ -4,7 +4,7 @@
 
 import type { AddressInput, OutgoingMessage } from "../../core/types";
 import { parseAddress } from "../../internal/address";
-import { bytesToBase64 } from "../../internal/encoding";
+import { attachmentBase64 } from "../../internal/encoding";
 
 /** An address in the Mailjet shape, `{ Email, Name? }`. */
 function address(input: AddressInput): { Email: string; Name?: string } {
@@ -38,7 +38,7 @@ export function mailjetMessage(message: OutgoingMessage): Record<string, unknown
     const file: Record<string, string> = {
       ContentType: item.contentType,
       Filename: item.filename,
-      Base64Content: typeof item.content === "string" ? item.content : bytesToBase64(item.content),
+      Base64Content: attachmentBase64(item),
     };
     if (item.contentId === undefined) files.push(file);
     else inline.push({ ...file, ContentID: item.contentId });

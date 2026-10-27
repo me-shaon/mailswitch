@@ -28,14 +28,16 @@ import {
 import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "../../core/types";
-import { bytesToBase64, utf8 } from "../../internal/encoding";
+import { basicAuthorization, utf8ByteLength } from "../../internal/encoding";
 import {
   callProvider,
+  classifyFailure,
   discardBody,
   parseBaseUrl,
   readJson,
   withProvider,
 } from "../../internal/http";
+import { asRecord } from "../../internal/json";
 import { mailjetMeta } from "./meta";
 import { mailjetMessage } from "./payload";
 import { type MailjetWebhookOptions, mailjetWebhooks } from "./webhooks";
@@ -86,17 +88,9 @@ export interface MailjetAdapter extends ProviderAdapter {
 }
 
 const PROVIDER = mailjetMeta.id;
-const HEAD = utf8('{"Messages":[]}').length;
-const SANDBOX = utf8(',"SandboxMode":true').length;
+const HEAD = '{"Messages":[]}'.length;
+const SANDBOX = ',"SandboxMode":true'.length;
 const ERROR_CODE = /^[a-z]{2,8}-\d{4}$/;
-
-type Fields = Record<string, unknown>;
-
-function record(value: unknown): Fields | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Fields)
-    : undefined;
-}
 
 /** The result of an entry that is missing, unclear, or not final, or of a body with no entries. */
 function unknownEntry(httpStatus: number): UnknownResult {
@@ -114,9 +108,9 @@ function unknownEntry(httpStatus: number): UnknownResult {
  * `StatusCode`, through the status map. The result never copies `ErrorMessage`.
  */
 function entryResult(item: unknown, httpStatus: number, now: number): SendResult {
-  const entry = record(item);
+  const entry = asRecord(item);
   if (entry?.Status === "success") {
-    const id = record((entry.To as unknown[] | undefined)?.[0])?.MessageUUID;
+    const id = asRecord((entry.To as unknown[] | undefined)?.[0])?.MessageUUID;
     return {
       status: "sent",
       provider: PROVIDER,
@@ -124,7 +118,7 @@ function entryResult(item: unknown, httpStatus: number, now: number): SendResult
     };
   }
   if (entry?.Status !== "error") return unknownEntry(httpStatus);
-  const errors = Array.isArray(entry.Errors) ? entry.Errors.map(record) : [];
+  const errors = Array.isArray(entry.Errors) ? entry.Errors.map(asRecord) : [];
   const codes = errors.map((error) => error?.StatusCode);
   const clientOnly =
     codes.length > 0 &&
@@ -185,7 +179,7 @@ export function mailjet(options: MailjetOptions = {}): MailjetAdapter {
     return {
       accept: "application/json",
       "content-type": "application/json",
-      authorization: `Basic ${bytesToBase64(utf8(`${key}:${secret}`))}`,
+      authorization: basicAuthorization(key, secret),
     };
   }
 
@@ -201,19 +195,14 @@ export function mailjet(options: MailjetOptions = {}): MailjetAdapter {
     });
     if (!call.ok) return parts.map(() => withProvider(call.result, PROVIDER));
     const { response } = call;
-    const json = record(await readJson(response));
+    const json = asRecord(await readJson(response));
     const items = json?.Messages;
     if (Array.isArray(items)) {
       return parts.map((_, index) => entryResult(items[index], response.status, ctx.now));
     }
     const outcome: SendResult = response.ok
       ? unknownEntry(response.status)
-      : withProvider(
-          classifyResponse(response.status, response.headers, mailjetMeta.statusMap, {
-            now: ctx.now,
-          }) as NotSentResult | UnknownResult,
-          PROVIDER,
-        );
+      : classifyFailure(response, mailjetMeta.statusMap, ctx.now, PROVIDER);
     return parts.map(() => outcome);
   }
 
@@ -235,7 +224,7 @@ export function mailjet(options: MailjetOptions = {}): MailjetAdapter {
         return;
       }
       const part = JSON.stringify(mailjetMessage(message));
-      const bytes = utf8(part).length;
+      const bytes = utf8ByteLength(part);
       if (bytes > limit) {
         results[index] = withProvider(
           {
@@ -293,10 +282,7 @@ export function mailjet(options: MailjetOptions = {}): MailjetAdapter {
     const { response } = call;
     await discardBody(response);
     if (response.ok) return { ok: true };
-    const outcome = classifyResponse(response.status, response.headers, mailjetMeta.statusMap, {
-      now: ctx.now,
-    }) as NotSentResult | UnknownResult;
-    return { ...withProvider(outcome, PROVIDER), ok: false };
+    return { ...classifyFailure(response, mailjetMeta.statusMap, ctx.now, PROVIDER), ok: false };
   }
 
   const adapter = defineProvider({ meta: mailjetMeta, send, sendBatch, verify, webhooks });

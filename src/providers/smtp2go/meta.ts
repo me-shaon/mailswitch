@@ -27,7 +27,7 @@ export const smtp2goMeta: ProviderMeta = defineProviderMeta({
     customHeaders: true,
     // SMTP2GO accepts no idempotency key.
     idempotency: false,
-    // The batch endpoint does not document how it reports a failed item (KTD2).
+    // The batch endpoint does not document how it reports a failed item.
     batchSize: 1,
     // To, Cc, and Bcc each take "up to 100" addresses. The adapter checks each field.
     maxRecipients: 300,

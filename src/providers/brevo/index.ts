@@ -23,12 +23,18 @@ import {
   type SendContext,
   type VerifyResult,
 } from "../../core/adapter";
-import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
-import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "../../core/types";
+import type {
+  FailureReason,
+  NotSentResult,
+  OutgoingMessage,
+  SendResult,
+  UnknownResult,
+} from "../../core/types";
 import { brevoWebhooks } from "../../internal/brevo-webhooks";
 import {
   callProvider,
+  classifyFailure,
   discardBody,
   parseBaseUrl,
   readJson,
@@ -77,8 +83,14 @@ interface BrevoError {
 }
 
 const PROVIDER = brevoMeta.id;
-const AUTH_CODES = new Set(["unauthorized", "permission_denied", "account_under_validation"]);
-const CREDIT_CODES = new Set(["not_enough_credits", "Insufficient credits"]);
+/** The reason of each Brevo body code that is more exact than the HTTP status. */
+const CODE_REASONS: Readonly<Record<string, FailureReason>> = {
+  unauthorized: "auth",
+  permission_denied: "auth",
+  account_under_validation: "auth",
+  not_enough_credits: "credits",
+  "Insufficient credits": "credits",
+};
 const DUPLICATE_CODES = new Set(["duplicate_parameter", "duplicate_request"]);
 const SECONDS = /^\d{1,9}(\.\d{1,3})?$/;
 
@@ -100,13 +112,21 @@ function refine(
       ...(result.httpStatus === undefined ? {} : { httpStatus: result.httpStatus }),
     };
   }
-  const reason = AUTH_CODES.has(code) ? "auth" : CREDIT_CODES.has(code) ? "credits" : null;
-  if (reason === null || reason === result.reason) return result;
+  const reason = Object.hasOwn(CODE_REASONS, code) ? CODE_REASONS[code] : undefined;
+  if (reason === undefined || reason === result.reason) return result;
   return {
     ...result,
     reason,
     message: `The provider answered with HTTP ${result.httpStatus} (${reason}).`,
   };
+}
+
+/** The message id of a 2xx body: `messageId`, else the first of `messageIds`. */
+function messageIdOf(json: unknown): string | undefined {
+  const body = json as { messageId?: unknown; messageIds?: unknown } | null;
+  if (typeof body?.messageId === "string") return body.messageId;
+  const first = Array.isArray(body?.messageIds) ? body.messageIds[0] : undefined;
+  return typeof first === "string" ? first : undefined;
 }
 
 /**
@@ -118,12 +138,10 @@ async function failure(
   now: number,
   keyed: boolean,
 ): Promise<NotSentResult | UnknownResult> {
-  const outcome = classifyResponse(response.status, response.headers, brevoMeta.statusMap, {
-    now,
-  }) as NotSentResult | UnknownResult;
+  const outcome = classifyFailure(response, brevoMeta.statusMap, now, PROVIDER);
   if (outcome.status === "unknown") {
     await discardBody(response);
-    return withProvider(outcome, PROVIDER);
+    return outcome;
   }
   const reset = response.headers.get("x-sib-ratelimit-reset")?.trim();
   if (
@@ -195,13 +213,7 @@ export function brevo(options: BrevoOptions = {}): BrevoAdapter {
     const { response } = call;
     if (!response.ok) return failure(response, ctx.now, keyed);
     // 201 carries `messageId`. A 2xx with no id that mailswitch can read is unknown.
-    const json = (await readJson(response)) as { messageId?: unknown; messageIds?: unknown } | null;
-    const id =
-      typeof json?.messageId === "string"
-        ? json.messageId
-        : Array.isArray(json?.messageIds) && typeof json.messageIds[0] === "string"
-          ? json.messageIds[0]
-          : undefined;
+    const id = messageIdOf(await readJson(response));
     if (id === undefined || id === "") {
       return {
         status: "unknown",

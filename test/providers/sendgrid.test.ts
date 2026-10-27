@@ -280,6 +280,12 @@ describe("sendgrid send", () => {
     expect(() => sendgrid(null as unknown as object)).toThrow(TypeError);
     expect(() => sendgrid({ baseUrl: "http://localhost:8787" })).not.toThrow();
   });
+
+  it("throws a TypeError for an apiKey that is not a string", () => {
+    expect(() => sendgrid({ apiKey: 42 as unknown as string })).toThrow(
+      new TypeError("sendgrid: apiKey must be a string."),
+    );
+  });
 });
 
 describe("sendgrid verify", () => {

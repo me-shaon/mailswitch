@@ -22,7 +22,8 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent } from "../../core/events";
-import { bytesToBase64, utf8 } from "../../internal/encoding";
+import { basicAuthorization } from "../../internal/encoding";
+import { asRecord } from "../../internal/json";
 import {
   checkSharedTokenSecret,
   generateSharedTokenSecret,
@@ -60,7 +61,7 @@ export function mailjetWebhookAuthorization(
   secret: string,
   username: string = MAILJET_WEBHOOK_USERNAME,
 ): string {
-  return `Basic ${bytesToBase64(utf8(`${username}:${secret}`))}`;
+  return basicAuthorization(username, secret);
 }
 
 /**
@@ -95,10 +96,6 @@ function decode(body: Uint8Array): { text: string; value: unknown } | undefined 
   }
 }
 
-function isObject(value: unknown): value is Fields {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * Makes the `verify` method. It checks the Basic header with the shared token helper,
  * then checks that the body is one event object (`Version` 1) or a list of them
@@ -118,7 +115,9 @@ function verifier(
     const auth = await check(input.headers, input.secret);
     if (!auth.ok) return auth;
     const value = decode(input.body)?.value;
-    const ok = Array.isArray(value) ? value.length > 0 && value.every(isObject) : isObject(value);
+    const ok = Array.isArray(value)
+      ? value.length > 0 && value.every((item) => asRecord(item) !== undefined)
+      : asRecord(value) !== undefined;
     return ok ? { ok: true } : { ok: false, reason: "malformed" };
   };
 }
@@ -149,13 +148,20 @@ export function parseMailjetEvents(provider: string, body: Uint8Array): Normaliz
   let cursor = 0;
   const events: NormalizedEvent[] = [];
   const keys = new Set<string>();
-  for (const item of list) {
-    if (!isObject(item)) continue;
+  for (const entry of list) {
+    const item = asRecord(entry);
+    if (item === undefined) continue;
     let messageId = text(item, "MessageID");
     const id = item.MessageID;
     if (typeof id === "number" && Number.isFinite(id)) {
       // The next raw number with the same value is the one of this entry.
-      const at = digits.findIndex((raw, index) => index >= cursor && Number(raw) === id);
+      let at = -1;
+      for (let index = cursor; index < digits.length; index++) {
+        if (Number(digits[index]) === id) {
+          at = index;
+          break;
+        }
+      }
       if (at >= 0) cursor = at + 1;
       messageId = at >= 0 ? (digits[at] as string) : String(id);
     }

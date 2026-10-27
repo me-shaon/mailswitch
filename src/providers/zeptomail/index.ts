@@ -14,7 +14,7 @@
 // - Every 5xx is `unknown`.
 //
 // ZeptoMail has no read call for a token. So `verify` sends a request that cannot deliver
-// email: a `from` and a `subject`, with no recipient field (KTD9). A 400 `TM_3201`
+// email: a `from` and a `subject`, with no recipient field. A 400 `TM_3201`
 // (mandatory field missing) means that the token passed. A 401 `TM_4001` means a bad token.
 
 import {
@@ -23,7 +23,6 @@ import {
   type SendContext,
   type VerifyResult,
 } from "../../core/adapter";
-import { classifyResponse } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type {
   FailureReason,
@@ -33,7 +32,14 @@ import type {
   UnknownResult,
 } from "../../core/types";
 import { credentialOrOption } from "../../internal/credential";
-import { callProvider, discardBody, readJson, withProvider } from "../../internal/http";
+import {
+  callProvider,
+  classifyFailure,
+  discardBody,
+  readJson,
+  withProvider,
+} from "../../internal/http";
+import { asRecord } from "../../internal/json";
 import { zeptomailMeta } from "./meta";
 import { zeptomailPayload } from "./payload";
 
@@ -87,23 +93,15 @@ const REASONS: Readonly<Record<string, FailureReason>> = {
   TM_3201: "invalid_message",
 };
 
-type Fields = Record<string, unknown>;
-
-function record(value: unknown): Fields | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Fields)
-    : undefined;
-}
-
 /** The error codes of an answer, top code first. Only well-formed codes are kept. */
 function errorCodes(json: unknown): string[] {
-  const body = record(json);
-  const error = record(body?.error);
+  const body = asRecord(json);
+  const error = asRecord(body?.error);
   const details = Array.isArray(error?.details) ? (error.details as unknown[]) : [];
   return [
     error?.code,
-    ...details.map((item) => record(item)?.code),
-    record(body?.data)?.error_code,
+    ...details.map((item) => asRecord(item)?.code),
+    asRecord(body?.data)?.error_code,
   ].filter((code): code is string => typeof code === "string" && CODE.test(code));
 }
 
@@ -128,15 +126,13 @@ async function failure(
   response: Response,
   now: number,
 ): Promise<{ result: NotSentResult | UnknownResult; codes: string[] }> {
-  const outcome = classifyResponse(response.status, response.headers, zeptomailMeta.statusMap, {
-    now,
-  }) as NotSentResult | UnknownResult;
+  const outcome = classifyFailure(response, zeptomailMeta.statusMap, now, PROVIDER);
   if (outcome.status === "unknown") {
     await discardBody(response);
-    return { result: withProvider(outcome, PROVIDER), codes: [] };
+    return { result: outcome, codes: [] };
   }
   const codes = errorCodes(await readJson(response));
-  return { result: withProvider(refine(outcome, codes), PROVIDER), codes };
+  return { result: refine(outcome, codes), codes };
 }
 
 function unclear(httpStatus: number, message: string): UnknownResult {
@@ -145,8 +141,8 @@ function unclear(httpStatus: number, message: string): UnknownResult {
 
 /** Reads a 2xx send answer. Only `EM_104` is `sent`. */
 function sentResult(json: unknown, httpStatus: number): SendResult {
-  const body = record(json);
-  const first = Array.isArray(body?.data) ? record(body.data[0]) : undefined;
+  const body = asRecord(json);
+  const first = Array.isArray(body?.data) ? asRecord(body.data[0]) : undefined;
   if (first?.code !== "EM_104") {
     return unclear(httpStatus, "ZeptoMail gave no clear result for this email.");
   }
