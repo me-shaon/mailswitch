@@ -479,6 +479,73 @@ describe("Brevo webhooks", () => {
     }
   });
 
+  const check = (
+    authorization: string | null,
+    payload: Uint8Array = body,
+    secret = BREVO_FIXTURE_TOKEN,
+  ) =>
+    hooks.verify({
+      headers: new Headers(authorization === null ? {} : { authorization }),
+      body: payload,
+      secret,
+      now: NOW,
+    });
+
+  it("accepts tabs, several spaces, and trailing whitespace around the bearer token", async () => {
+    const token = BREVO_FIXTURE_TOKEN;
+    for (const header of [
+      `Bearer\t${token}`,
+      `Bearer  ${token}`,
+      `Bearer ${token} `,
+      `Bearer \t ${token}\t`,
+      ` bearer ${token}`,
+      `Bearer ${token} `,
+    ]) {
+      expect(await check(header)).toEqual({ ok: true });
+    }
+  });
+
+  it("pins the reason for each header that it refuses", async () => {
+    const token = BREVO_FIXTURE_TOKEN;
+    const cases: [string | null, string][] = [
+      [null, "bad_signature"],
+      ["", "malformed"],
+      ["Bearer", "malformed"],
+      ["Bearer ", "malformed"],
+      [token, "malformed"],
+      [`Bearer ${token} extra`, "malformed"],
+      [`Bearer:${token}`, "malformed"],
+      [`Token ${token}`, "bad_signature"],
+      [`Basic ${token}`, "bad_signature"],
+      [`Bearer ${token}x`, "bad_signature"],
+      [`Bearer ${token.slice(1)}`, "bad_signature"],
+    ];
+    for (const [header, reason] of cases) {
+      expect({ header, result: await check(header) }).toEqual({
+        header,
+        result: { ok: false, reason },
+      });
+    }
+    expect(await check(`Bearer ${token}`, body, "")).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
+  });
+
+  it("accepts a JSON object or array body and refuses any other body after the token", async () => {
+    const header = `Bearer ${BREVO_FIXTURE_TOKEN}`;
+    for (const text of ["{}", "[]", JSON.stringify([brevoEvent("delivered", "ana@example.org")])]) {
+      expect(await check(header, utf8(text))).toEqual({ ok: true });
+    }
+    for (const text of ["null", "42", '"text"', "true", "not json", ""]) {
+      expect(await check(header, utf8(text))).toEqual({ ok: false, reason: "malformed" });
+    }
+    expect(await check(`Bearer ${BREVO_FIXTURE_TOKEN}x`, utf8("not json"))).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
+  });
+
   it("refuses a Basic header and a weak secret", async () => {
     const headers = new Headers({ authorization: `Basic ${BREVO_FIXTURE_TOKEN}` });
     expect(await hooks.verify({ headers, body, secret: BREVO_FIXTURE_TOKEN, now: NOW })).toEqual({
