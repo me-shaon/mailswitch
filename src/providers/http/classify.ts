@@ -16,7 +16,7 @@
 // code becomes unknown, and so does a hook answer of `sent` for a code that is not 2xx.
 
 import { parseRetryAfter } from "../../core/classify";
-import type { FailureReason, NotSentResult, SentResult, UnknownResult } from "../../core/types";
+import type { FailureReason, NotSentResult, UnknownResult } from "../../core/types";
 
 /** The base `not_sent` codes of the generic provider, with their reasons. */
 export const HTTP_BASE_NOT_SENT: Readonly<Record<number, FailureReason>> = Object.freeze({
@@ -208,11 +208,4 @@ export function transportOutcome(reason: FailureReason): Omit<UnknownResult, "pr
         reason: "network",
         message: "The request to the provider failed at the network level.",
       };
-}
-
-/** A sent result with the id, when there is one. The adapter never invents an id. */
-export function sentResult(provider: string, id: string | undefined): SentResult {
-  return id === undefined
-    ? { status: "sent", provider }
-    : { status: "sent", provider, providerMessageId: id };
 }

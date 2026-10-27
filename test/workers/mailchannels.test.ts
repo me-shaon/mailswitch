@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runChecks } from "../../src/conformance/checks";
 import {
+  MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE,
   MAILCHANNELS_FIXTURE_PUBLIC_KEY,
   mailchannelsEvent,
   mailchannelsFixture,
@@ -15,7 +16,7 @@ const KEY = MAILCHANNELS_FIXTURE_PUBLIC_KEY;
 
 describe("MailChannels webhooks (workerd)", () => {
   it("checks an Ed25519 signature and the content digest with Web Crypto", async () => {
-    const hooks = mailchannels().webhooks;
+    const hooks = mailchannels({ customerHandle: MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE }).webhooks;
     const now = Date.now();
     const body = utf8(JSON.stringify([mailchannelsEvent("delivered")]));
     const sample = await signMailchannelsWebhook({ body, secret: KEY, at: now });
@@ -28,7 +29,7 @@ describe("MailChannels webhooks (workerd)", () => {
 
   it("drops a replay through handleWebhook", async () => {
     const dedupe = new MemoryDedupeStore();
-    const adapter = mailchannels();
+    const adapter = mailchannels({ customerHandle: MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE });
     const body = utf8(JSON.stringify([mailchannelsEvent("soft-bounced")]));
     const sample = await signMailchannelsWebhook({ body, secret: KEY, at: Date.now() });
     const send = () =>
@@ -49,7 +50,7 @@ describe("MailChannels webhooks (workerd)", () => {
 
   it("passes the conformance suite in the Workers runtime", async () => {
     const report = await runChecks({
-      adapter: mailchannels(),
+      adapter: mailchannels({ customerHandle: MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE }),
       fixture: mailchannelsFixture(),
       tier: 1,
     });

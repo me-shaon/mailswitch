@@ -3,6 +3,7 @@ import { catalog, getProviderMeta } from "../../src/catalog/index";
 import type { SendContext } from "../../src/core/adapter";
 import type { OutgoingMessage } from "../../src/core/types";
 import type { FetchLike } from "../../src/internal/http";
+import { HTTP_MAX_BODY_BYTES } from "../../src/providers/http/adapter";
 import { classifyHttp, parseStatusRules } from "../../src/providers/http/classify";
 import { checkRequestUrl, isIpv4Like, parseAllowHosts } from "../../src/providers/http/hosts";
 import {
@@ -111,15 +112,92 @@ describe("httpProvider: send", () => {
     });
   });
 
-  it("gives sent with no id for a 202 with an empty body", async () => {
-    const { result } = await sendWith(new Response(null, { status: 202 }));
+  it("gives sent with no id for a 202 with an empty body when idFrom is not set", async () => {
+    const { result } = await sendWith(new Response(null, { status: 202 }), {
+      idFrom: undefined,
+    });
     expect(result).toEqual({ status: "sent", provider: "acme-mail" });
     expect(result).not.toHaveProperty("providerMessageId");
   });
 
-  it("gives sent with no id for a 2xx body that is not JSON, because the provider accepted", async () => {
-    const { result } = await sendWith(new Response("<html>ok</html>", { status: 200 }));
+  it("gives sent with no id for a 2xx body that is not JSON when idFrom is not set", async () => {
+    const { result } = await sendWith(new Response("<html>ok</html>", { status: 200 }), {
+      idFrom: undefined,
+    });
     expect(result).toEqual({ status: "sent", provider: "acme-mail" });
+  });
+
+  it.each([
+    ["an empty body", () => new Response(null, { status: 202 })],
+    ["a body that is not JSON", () => new Response("<html>ok</html>", { status: 200 })],
+    ["no field at the path", () => json(200, { other: "m1" })],
+    ["a blank id", () => json(200, { id: "  " })],
+  ])("gives unknown for a 2xx with idFrom set and %s", async (_label, answer) => {
+    const { result } = await sendWith(answer());
+    expect(result).toMatchObject({
+      status: "unknown",
+      reason: "provider_error",
+      provider: "acme-mail",
+    });
+    expect([200, 202]).toContain((result as { httpStatus?: number }).httpStatus);
+  });
+
+  it("gives unknown for a 2xx body over the size cap with idFrom set", async () => {
+    const big = JSON.stringify({ id: "m1", pad: "x".repeat(HTTP_MAX_BODY_BYTES) });
+    // A stream has no content-length, so the cap applies as the body streams.
+    const stream = new Blob([big]).stream();
+    const { result } = await sendWith(new Response(stream, { status: 200 }));
+    expect(result).toMatchObject({ status: "unknown", reason: "provider_error", httpStatus: 200 });
+  });
+
+  it("does not read a body whose content-length is over the size cap", async () => {
+    let pulled = false;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulled = true;
+          controller.enqueue(new TextEncoder().encode('{"id":"m1"}'));
+          controller.close();
+        },
+        cancel() {
+          cancelled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const response = new Response(body, {
+      status: 200,
+      headers: { "content-length": String(HTTP_MAX_BODY_BYTES + 1) },
+    });
+    const { result } = await sendWith(response);
+    expect(result).toMatchObject({ status: "unknown", reason: "provider_error", httpStatus: 200 });
+    expect(pulled).toBe(false);
+    expect(cancelled).toBe(true);
+  });
+
+  it("reads a body at the size cap", async () => {
+    const head = '{"id":"m1","pad":"';
+    const pad = "x".repeat(HTTP_MAX_BODY_BYTES - head.length - 2);
+    const { result } = await sendWith(new Response(`${head}${pad}"}`, { status: 200 }));
+    expect(result).toMatchObject({ status: "sent", providerMessageId: "m1" });
+  });
+
+  it("falls back to the status table for a 4xx body over the size cap", async () => {
+    const stream = new Blob(["x".repeat(HTTP_MAX_BODY_BYTES + 1)]).stream();
+    const seen: unknown[] = [];
+    const { result } = await sendWith(new Response(stream, { status: 400 }), {
+      classify: (input) => {
+        seen.push(input.body);
+        return undefined;
+      },
+    });
+    expect(seen).toEqual([null]);
+    expect(result).toMatchObject({
+      status: "not_sent",
+      reason: "invalid_message",
+      httpStatus: 400,
+    });
   });
 
   it("reads a nested dot path and an array index", async () => {
@@ -131,10 +209,10 @@ describe("httpProvider: send", () => {
 
   it("does not read an inherited field with a dot path", async () => {
     const { result } = await sendWith(json(200, {}), { idFrom: "constructor" });
-    expect(result).toEqual({ status: "sent", provider: "acme-mail" });
+    expect(result).toMatchObject({ status: "unknown", reason: "provider_error", httpStatus: 200 });
   });
 
-  it("reads the id with a function, and gives no id when the function throws", async () => {
+  it("reads the id with a function, and gives unknown when the function throws", async () => {
     const good = await sendWith(json(200, {}, { "x-message-id": "h1" }), {
       idFrom: (_body, headers) => headers.get("x-message-id") ?? undefined,
     });
@@ -144,7 +222,11 @@ describe("httpProvider: send", () => {
         throw new Error("boom");
       },
     });
-    expect(bad.result).toEqual({ status: "sent", provider: "acme-mail" });
+    expect(bad.result).toMatchObject({
+      status: "unknown",
+      reason: "provider_error",
+      httpStatus: 200,
+    });
   });
 
   it("sends a string body unchanged, with the method that buildRequest gives", async () => {
@@ -501,6 +583,26 @@ describe("httpProvider: verify", () => {
     });
     expect(result).toMatchObject({ ok: false, status: "not_sent", reason: "unsupported" });
     expect(rec.calls).toHaveLength(0);
+  });
+
+  it.each([
+    ["an http URL", "http://api.acme.test/v1/me"],
+    ["127.0.0.1", "https://127.0.0.1/v1/me"],
+    ["a hex IPv4", "https://0x7f000001/v1/me"],
+    ["an IPv6 literal", "https://[::1]/v1/me"],
+    ["localhost", "https://localhost/v1/me"],
+    ["userinfo", `https://user:${KEY}@api.acme.test/v1/me`],
+  ])("is not ok with no fetch for a verify URL with %s", async (_label, url) => {
+    for (const allowHosts of [["api.acme.test"], undefined]) {
+      const { result, rec } = await verifyWith(json(200, {}), {
+        allowHosts,
+        verifyRequest: () => ({ url }),
+      });
+      expect(result).toMatchObject({ ok: false, status: "not_sent", reason: "unsupported" });
+      expect(rec.calls).toHaveLength(0);
+      expect(JSON.stringify(result)).not.toContain(url);
+      expect(JSON.stringify(result)).not.toContain(KEY);
+    }
   });
 
   it("keeps a 503, a timeout, and a thrown fetch unknown", async () => {

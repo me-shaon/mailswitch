@@ -24,6 +24,7 @@ import {
   type SendContext,
   type VerifyResult,
 } from "../../core/adapter";
+import { MAX_RETRY_AFTER_MS } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type {
   FailureReason,
@@ -71,7 +72,6 @@ export interface AutosendAdapter extends ProviderAdapter {
 const PROVIDER = autosendMeta.id;
 const CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const ACCOUNT_KEY = /^asa_/i;
-const MAX_RETRY_AFTER_MS = 3_600_000;
 
 // The 4xx reason of each AutoSend error code.
 // https://docs.autosend.com/api-reference/errors.md

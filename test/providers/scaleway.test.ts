@@ -261,14 +261,28 @@ describe("scaleway send", () => {
     expect(result).toEqual({ status: "sent", provider: "scaleway", providerMessageId: "first-id" });
   });
 
-  it("is sent when only some entries failed", async () => {
+  it("is sent when only some entries failed, with the id of the accepted entry", async () => {
     const result = await answer(200, {
       emails: [
         scalewayEmail("first-id", "ana@example.org", "to", "failed"),
         scalewayEmail("second-id", "cc@example.org", "cc", "new"),
       ],
     });
-    expect(result).toMatchObject({ status: "sent", providerMessageId: "first-id" });
+    expect(result).toEqual({
+      status: "sent",
+      provider: "scaleway",
+      providerMessageId: "second-id",
+    });
+  });
+
+  it.each(["sending", "sent"])("accepts an entry with the status %s", async (status) => {
+    const result = await answer(200, {
+      emails: [
+        { id: " ", status: "new" },
+        scalewayEmail("second-id", "cc@example.org", "cc", status),
+      ],
+    });
+    expect(result).toMatchObject({ status: "sent", providerMessageId: "second-id" });
   });
 
   it.each([
@@ -286,6 +300,10 @@ describe("scaleway send", () => {
           scalewayEmail("b", "cc@example.org", "cc", "canceled"),
         ],
       },
+    ],
+    [
+      "entries with a missing or an unknown status",
+      { emails: [{ id: "a" }, scalewayEmail("b", "cc@example.org", "cc", "unknown")] },
     ],
   ])("gives unknown for a 2xx with %s", async (_label, body) => {
     const result = await answer(200, body);

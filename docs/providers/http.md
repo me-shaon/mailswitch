@@ -80,7 +80,7 @@ The schema is closed. The adapter refuses a key that the schema does not name, a
 | `fields` | Yes | The field map. See [Field map](#field-map). |
 | `attachmentFields` | No | The keys of one attachment object. |
 | `addressFormat` | No | `object` or `string`. The default is `object`. |
-| `idFrom` | No | A dot path to the message id in the JSON answer, for example `data.messageId` or `ids.0`. |
+| `idFrom` | No | A dot path to the message id in the JSON answer, for example `data.messageId` or `ids.0`. When it is set, a 2xx with no id is `unknown`. |
 | `verify` | Yes | `{ endpoint, method }`. A request that checks the token and sends no email. `method` is `GET` or `POST`. The default is `GET`. The verify request has no body. |
 | `requestHeaders` | No | Static request headers. A header that carries auth is refused. |
 | `notSentStatuses` | No | More 4xx codes that mean "not sent". See [Delivery status](#delivery-status). |
@@ -100,7 +100,7 @@ The token comes from the credential field `token`. It never goes in the config.
 
 The `auth` block takes no other key. A `token`, a `password`, or a `value` key is refused.
 
-`requestHeaders` cannot set `Authorization`, `Proxy-Authorization`, `X-Api-Key`, `Api-Key`, `X-Auth-Token`, or `Cookie`. It also refuses a header name with the words `auth`, `token`, `key`, `secret`, `password`, `session`, or `cookie`, and the auth header of the config. Put the secret in the `token` credential.
+`requestHeaders` refuses a header name that looks like auth. It cannot set `Authorization`, `Proxy-Authorization`, `X-Api-Key`, `Api-Key`, `X-Auth-Token`, or `Cookie`. It also refuses a header name with the words `auth`, `token`, `key`, `secret`, `pass`, `session`, `cookie`, `signature`, `credential`, or `bearer`, and the auth header of the config. A header value must not hold a secret, because the config is not secret. Put the secret in the `token` credential.
 
 ### Field map
 
@@ -175,7 +175,7 @@ const adapter = httpProvider({
 | `capabilities` | Yes | What the API can send. `attachments` must be `true`. The adapter sets `idempotency: false` and `batchSize: 1`. |
 | `buildRequest(message, ctx)` | Yes | Returns `{ url, method, headers, body }`. `ctx.credentials` holds the parsed credentials. |
 | `verifyRequest(ctx)` | Yes | Returns the request of a check that sends no email. |
-| `idFrom` | No | A dot path into the JSON answer, or a function of the body and the headers. |
+| `idFrom` | No | A dot path into the JSON answer, or a function of the body and the headers. When it is set, a 2xx with no id is `unknown`. |
 | `classify` | No | A hook that changes the table result. See [The classify hook](#the-classify-hook). |
 | `notSentStatuses`, `unknownStatuses` | No | As in the config. |
 | `allowHosts` | No | The hosts that a request can reach. Set it when you can. |
@@ -209,8 +209,9 @@ The provider has its own base table, because its endpoint has no researched docs
 
 | Answer | Status and reason |
 |---|---|
-| 2xx, with an id at `idFrom` | `sent`, with the id |
-| 2xx, with no id | `sent`, with no message id |
+| 2xx, with `idFrom` set and an id at `idFrom` | `sent`, with the id |
+| 2xx, with `idFrom` set and no id, or a body that cannot be read | `unknown/provider_error`, with `httpStatus` |
+| 2xx, with no `idFrom` | `sent`, with no message id |
 | 400, 413, 415, 422 | `not_sent/invalid_message` |
 | 401, 403 | `not_sent/auth` |
 | 402 | `not_sent/credits` |
@@ -222,7 +223,9 @@ The provider has its own base table, because its endpoint has no researched docs
 | Every 5xx, and any code outside 200 to 599 | `unknown/provider_error` |
 | Timeout or network error | `unknown` |
 
-A 2xx is `sent` even when the body is empty or is not JSON, because the provider accepted the message. The adapter never invents a message id. This differs from most built-in adapters, which give `unknown` for a 2xx body that they cannot read.
+When you set `idFrom`, a 2xx must carry a message id. A 2xx with an empty body, a body that is not JSON, or a blank id at `idFrom` is `unknown`, because the answer may hide a failure. A function `idFrom` that throws or returns no id gives `unknown` too. When you do not set `idFrom`, a 2xx is `sent` with no message id, whatever the body holds. The adapter never invents a message id.
+
+The adapter reads at most 64 KiB of a response body. When the `content-length` header is larger, the adapter cancels the body and does not read it. When a body grows past 64 KiB as it streams, the adapter cancels it. The adapter cannot read such a body. On a 2xx with `idFrom`, the result is `unknown`. On any other status, the `classify` hook gets `null` as the body, and the status table gives the result.
 
 Note that 404 is `unknown` here, and `not_sent/rejected` in the default table of other adapters. An unknown API can answer 404 for a missing route after a proxy sent the request on.
 
@@ -236,7 +239,7 @@ Unknown statuses take precedence over the base table. A result message holds the
 
 ### The classify hook
 
-The code API takes an optional `classify` hook. It gets `{ operation, status, headers, body }`, where `body` is the parsed JSON or `null`. It returns `{ status: "sent" }`, `{ status: "not_sent", reason }`, `{ status: "unknown" }`, or `undefined` to keep the table result.
+The code API takes an optional `classify` hook. It gets `{ operation, status, headers, body }`, where `body` is the parsed JSON, or `null` for an empty body, a body that is not JSON, or a body that the adapter cannot read. It returns `{ status: "sent" }`, `{ status: "not_sent", reason }`, `{ status: "unknown" }`, or `undefined` to keep the table result.
 
 The hook answers within the same rules:
 

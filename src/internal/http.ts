@@ -71,6 +71,28 @@ export async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+/**
+ * Reads a text body of at most `max` bytes. It cancels the body and returns null as soon
+ * as the body grows past `max`. A read error throws.
+ */
+export async function readCapped(response: Response, max: number): Promise<string | null> {
+  const reader = response.body?.getReader();
+  const text = new TextDecoder();
+  let out = "";
+  let size = 0;
+  for (;;) {
+    const chunk = await reader?.read();
+    if (!chunk || chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > max) {
+      reader?.cancel().catch(() => undefined);
+      return null;
+    }
+    out += text.decode(chunk.value, { stream: true });
+  }
+  return out + text.decode();
+}
+
 /** Releases a response body that the caller does not read. */
 export async function discardBody(response: Response): Promise<void> {
   try {

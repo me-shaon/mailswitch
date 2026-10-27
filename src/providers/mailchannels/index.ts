@@ -59,6 +59,11 @@ export interface MailchannelsOptions {
    * answers 200, and sends no email. For tests only.
    */
   dryRun?: boolean;
+  /**
+   * The customer handle of your MailChannels account. The webhooks need it: they refuse
+   * an event for any other account. Sending does not need it.
+   */
+  customerHandle?: string;
 }
 
 /** The MailChannels adapter. Its webhooks need a dedupe store, as `requiresDedupe` marks. */
@@ -108,6 +113,10 @@ function checkOptions(options: MailchannelsOptions): string {
   if (options.dryRun !== undefined && typeof options.dryRun !== "boolean") {
     throw new TypeError("mailchannels: dryRun must be a boolean.");
   }
+  const handle = options.customerHandle;
+  if (handle !== undefined && (typeof handle !== "string" || handle.trim() === "")) {
+    throw new TypeError("mailchannels: customerHandle must be a non-blank string.");
+  }
   return parseBaseUrl(options.baseUrl, MAILCHANNELS_API_BASE, "mailchannels: baseUrl");
 }
 
@@ -119,7 +128,7 @@ function checkOptions(options: MailchannelsOptions): string {
 export function mailchannels(options: MailchannelsOptions = {}): MailchannelsAdapter {
   const base = checkOptions(options);
   const dryRun = options.dryRun === true;
-  const webhooks = mailchannelsWebhooks(PROVIDER);
+  const webhooks = mailchannelsWebhooks(PROVIDER, options.customerHandle);
 
   function headers(ctx: SendContext): Record<string, string> {
     return {

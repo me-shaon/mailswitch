@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { runChecks } from "../../src/conformance/checks";
-import { mailchannelsFixture } from "../../src/conformance/fixtures/mailchannels";
+import {
+  MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE,
+  mailchannelsFixture,
+} from "../../src/conformance/fixtures/mailchannels";
 import { runConformance } from "../../src/conformance/vitest";
 import { mailchannels } from "../../src/providers/mailchannels/index";
 
-runConformance(mailchannels(), mailchannelsFixture(), { tier: 1 });
+runConformance(
+  mailchannels({ customerHandle: MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE }),
+  mailchannelsFixture(),
+  { tier: 1 },
+);
 
 describe("conformance report of the MailChannels adapter", () => {
   it("passes at tier 1 and marks only the idempotency and batch checks n/a", async () => {
     const report = await runChecks({
-      adapter: mailchannels(),
+      adapter: mailchannels({ customerHandle: MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE }),
       fixture: mailchannelsFixture(),
       tier: 1,
     });

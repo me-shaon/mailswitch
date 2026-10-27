@@ -75,9 +75,13 @@ export function defineStatusMap(map: Record<number, StatusOverride>): StatusMap 
   return Object.freeze(out);
 }
 
+/** The longest wait that a result can hold, in milliseconds: one hour. */
+export const MAX_RETRY_AFTER_MS = 3_600_000;
+
 /**
  * Parses a `Retry-After` value, in delta seconds or as an HTTP date, into milliseconds.
- * Returns undefined for a missing or invalid value. A date in the past gives 0.
+ * Returns undefined for a missing, invalid, or non-finite value. A date in the past gives
+ * 0. A longer wait than `MAX_RETRY_AFTER_MS` gives `MAX_RETRY_AFTER_MS`.
  */
 export function parseRetryAfter(
   value: string | null | undefined,
@@ -86,12 +90,12 @@ export function parseRetryAfter(
   if (value == null) return undefined;
   const text = value.trim();
   if (text === "") return undefined;
-  if (/^\d+$/.test(text)) return Number(text) * 1000;
+  let ms: number;
+  if (/^\d+$/.test(text)) ms = Number(text) * 1000;
   // An HTTP date always names a day or a month. This stops Date.parse from reading "-1" as a year.
-  if (!/[a-z]/i.test(text)) return undefined;
-  const date = Date.parse(text);
-  if (Number.isNaN(date)) return undefined;
-  return Math.max(0, date - now);
+  else if (!/[a-z]/i.test(text)) return undefined;
+  else ms = Math.max(0, Date.parse(text) - now);
+  return Number.isFinite(ms) ? Math.min(ms, MAX_RETRY_AFTER_MS) : undefined;
 }
 
 function defaultFor(status: number): Pick<StatusOverride, "status" | "reason"> {

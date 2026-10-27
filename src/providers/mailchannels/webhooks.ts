@@ -20,6 +20,11 @@
 // base64 SubjectPublicKeyInfo or a PEM block. The signature covers `created`, so an old
 // request is refused as stale. A retry gets a new signature, so the webhook router must
 // dedupe the events.
+//
+// The docs do not say that the signing key is unique to one account. So a valid
+// signature does not prove that the request is for your account, and every event must
+// carry your `customer_handle`. A body with any other handle, or with no handle, is
+// refused.
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
@@ -151,19 +156,35 @@ function sha256Entry(header: string): string | null {
   return value;
 }
 
+/** Throws unless the customer handle is a non-blank string. */
+function checkHandle(customerHandle: unknown): string {
+  if (typeof customerHandle !== "string" || customerHandle.trim() === "") {
+    throw new TypeError("The MailChannels webhooks need the customerHandle option.");
+  }
+  return customerHandle.trim();
+}
+
+/** True when every entry is an event that carries this customer handle. */
+function ownEvents(events: unknown[], customerHandle: string): boolean {
+  return events.every((item) => asRecord(item)?.customer_handle === customerHandle);
+}
+
 /**
  * The `webhooks.verify` method of the MailChannels adapter. An empty secret and a missing
- * header are refused as `bad_signature`. A header that cannot be parsed, a label that
+ * header are refused as `bad_signature`. So is a signed body with an event whose
+ * `customer_handle` is missing or is not `customerHandle`. A header that cannot be parsed, a label that
  * differs between the two signature headers, a covered component other than
  * `content-digest`, and a missing or other `alg` are `malformed`. A `created` time more
  * than 5 minutes old, or more than 1 minute in the future, is `stale`.
  *
- * @throws TypeError when the secret is set but is not base64. That is a setup error, not
- * a bad request.
+ * @throws TypeError when the secret is set but is not base64, or when `customerHandle` is
+ * blank. That is a setup error, not a bad request.
  */
 export async function verifyMailchannelsWebhook(
   input: WebhookVerifyInput,
+  customerHandle: string,
 ): Promise<WebhookVerifyResult> {
+  const handle = checkHandle(customerHandle);
   if (input.secret === "") return { ok: false, reason: "bad_signature" };
   const key = keyText(input.secret);
   const digestHeader = input.headers.get(MAILCHANNELS_DIGEST_HEADER);
@@ -199,9 +220,11 @@ export async function verifyMailchannelsWebhook(
     return { ok: false, reason: "stale" };
   }
   const value = decodeJsonBytes(input.body);
-  return Array.isArray(value) && value.length <= MAILCHANNELS_MAX_WEBHOOK_EVENTS
-    ? { ok: true }
-    : { ok: false, reason: "malformed" };
+  if (!Array.isArray(value) || value.length > MAILCHANNELS_MAX_WEBHOOK_EVENTS) {
+    return { ok: false, reason: "malformed" };
+  }
+  // A valid signature from another account is still not a request for this account.
+  return ownEvents(value, handle) ? { ok: true } : { ok: false, reason: "bad_signature" };
 }
 
 const TYPES: Readonly<Record<string, NormalizedEventType>> = {
@@ -235,10 +258,19 @@ function recipientsOf(record: Record<string, unknown>): string[] {
  * - An event carries `request_id` and no message id, so `providerMessageId` is not set.
  * - MailChannels gives no event id. The event key joins `request_id`, the event name, the
  *   sorted recipients, `timestamp`, and the `url` of a click.
+ * - A body with any entry whose `customer_handle` is missing or is not `customerHandle`
+ *   gives no events.
+ *
+ * @throws TypeError when `customerHandle` is blank.
  */
-export function parseMailchannelsEvents(provider: string, body: Uint8Array): NormalizedEvent[] {
+export function parseMailchannelsEvents(
+  provider: string,
+  body: Uint8Array,
+  customerHandle: string,
+): NormalizedEvent[] {
+  const handle = checkHandle(customerHandle);
   const value = decodeJsonBytes(body);
-  if (!Array.isArray(value)) return [];
+  if (!Array.isArray(value) || !ownEvents(value, handle)) return [];
   const out: NormalizedEvent[] = [];
   for (const item of value) {
     const record = asRecord(item);
@@ -266,11 +298,14 @@ export function parseMailchannelsEvents(provider: string, body: Uint8Array): Nor
   return out;
 }
 
-/** The webhook methods of the MailChannels adapter. */
-export function mailchannelsWebhooks(provider: string): ProviderWebhooks {
+/**
+ * The webhook methods of the MailChannels adapter. With no `customerHandle`, the methods
+ * throw a `TypeError` when they are called. Sending does not need the handle.
+ */
+export function mailchannelsWebhooks(provider: string, customerHandle?: string): ProviderWebhooks {
   return {
-    verify: verifyMailchannelsWebhook,
-    parse: (body) => parseMailchannelsEvents(provider, body),
+    verify: (input) => verifyMailchannelsWebhook(input, customerHandle as string),
+    parse: (body) => parseMailchannelsEvents(provider, body, customerHandle as string),
     signedTimestamp: true,
   };
 }

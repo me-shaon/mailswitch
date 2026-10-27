@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE,
   MAILCHANNELS_FIXTURE_OTHER_PUBLIC_KEY,
   MAILCHANNELS_FIXTURE_PUBLIC_KEY,
   type MailchannelsSignOptions,
@@ -27,6 +28,7 @@ const USAGE_URL = `${MAILCHANNELS_API_BASE}/tx/v1/usage`;
 const KEY = "test-mailchannels-key-not-real";
 const PUBLIC_KEY = MAILCHANNELS_FIXTURE_PUBLIC_KEY;
 const NOW = Date.parse("2026-10-27T12:00:30.000Z");
+const HANDLE = MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE;
 
 function context(exchanges: RecordedExchange[], credentials: Record<string, string> = {}) {
   const mock = mockFetch(exchanges);
@@ -353,7 +355,7 @@ async function signed(body: string, at = NOW, options?: MailchannelsSignOptions)
 }
 
 describe("mailchannels webhooks", () => {
-  const hooks = mailchannels().webhooks;
+  const hooks = mailchannels({ customerHandle: HANDLE }).webhooks;
 
   function input(sample: { headers: Headers; body: Uint8Array }, secret = PUBLIC_KEY) {
     return { headers: sample.headers, body: sample.body, secret, now: NOW };
@@ -536,8 +538,7 @@ describe("mailchannels webhooks", () => {
         mailchannelsEvent("processed"),
         mailchannelsEvent("dropped", { recipients: ["a@example.org", "B@example.org"] }),
         mailchannelsEvent("test", { recipients: [{ email: "c@example.org" }] }),
-        { event: "open", customer_handle: "acct-test", timestamp: 5 },
-        "not an event",
+        { event: "open", customer_handle: HANDLE, timestamp: 5 },
       ]),
     );
     const events = hooks.parse(body, new Headers());
@@ -554,6 +555,64 @@ describe("mailchannels webhooks", () => {
     expect(hooks.parse(utf8("{}"), new Headers())).toEqual([]);
   });
 
+  it("accepts a signed body whose events all carry the configured handle", async () => {
+    const sample = await signed(JSON.stringify([mailchannelsEvent("delivered")]));
+    expect(await hooks.verify(input(sample))).toEqual({ ok: true });
+    expect(hooks.parse(sample.body, sample.headers)).toHaveLength(1);
+  });
+
+  it.each([
+    ["another handle", [mailchannelsEvent("delivered", { customer_handle: "other-handle" })]],
+    [
+      "one event with another handle",
+      [mailchannelsEvent("delivered"), mailchannelsEvent("complained", { customer_handle: "x" })],
+    ],
+    ["a missing handle", [mailchannelsEvent("delivered", { customer_handle: undefined })]],
+    ["a handle that is not a string", [mailchannelsEvent("delivered", { customer_handle: 7 })]],
+    ["an entry that is not an event", [mailchannelsEvent("delivered"), "not an event"]],
+  ])("refuses a signed body with %s as bad_signature, and parses no events", async (_l, events) => {
+    const sample = await signed(JSON.stringify(events));
+    expect(await hooks.verify(input(sample))).toEqual({ ok: false, reason: "bad_signature" });
+    expect(hooks.parse(sample.body, sample.headers)).toEqual([]);
+  });
+
+  it("refuses a signed body for another account through handleWebhook", async () => {
+    const sample = await signed(
+      JSON.stringify([mailchannelsEvent("delivered", { customer_handle: "other-handle" })]),
+    );
+    const outcome = await handleWebhook(
+      new Request("https://app.example.com/webhooks/mailchannels", {
+        method: "POST",
+        headers: sample.headers,
+        body: sample.body,
+      }),
+      {
+        adapter: mailchannels({ customerHandle: HANDLE }),
+        secret: PUBLIC_KEY,
+        dedupe: new MemoryDedupeStore(),
+        now: () => NOW,
+      },
+    );
+    expect(outcome).toMatchObject({ ok: false, rejection: "bad_signature" });
+  });
+
+  it("sends with no customerHandle, but its webhooks throw a TypeError", async () => {
+    const adapter = mailchannels();
+    const { ctx } = context([accepted()]);
+    expect(await adapter.send(message(), ctx)).toMatchObject({ status: "sent" });
+    const sample = await signed(THREE_EVENTS);
+    const error = await adapter.webhooks.verify(input(sample)).catch((caught: unknown) => caught);
+    expect(error).toEqual(
+      new TypeError("The MailChannels webhooks need the customerHandle option."),
+    );
+    expect(() => adapter.webhooks.parse(sample.body, sample.headers)).toThrow(TypeError);
+  });
+
+  it("throws at setup for a blank or a non-string customerHandle", () => {
+    expect(() => mailchannels({ customerHandle: " " })).toThrow(TypeError);
+    expect(() => mailchannels({ customerHandle: 7 as unknown as string })).toThrow(TypeError);
+  });
+
   it("is marked as needing a dedupe store and signs a timestamp", () => {
     expect(mailchannels().requiresDedupe).toBe(true);
     expect(mailchannels().webhooks.signedTimestamp).toBe(true);
@@ -561,7 +620,7 @@ describe("mailchannels webhooks", () => {
 
   it("drops a replayed signed request inside the window through handleWebhook", async () => {
     const dedupe = new MemoryDedupeStore();
-    const adapter = mailchannels();
+    const adapter = mailchannels({ customerHandle: HANDLE });
     const sample = await signed(THREE_EVENTS);
     const deliver = () =>
       handleWebhook(

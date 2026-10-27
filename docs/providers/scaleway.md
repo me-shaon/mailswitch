@@ -69,8 +69,8 @@ Limits:
 
 | Scaleway answer | Status and reason |
 |---|---|
-| 2xx with a non-empty `emails[]` whose first entry has an `id` | `sent`. The message id is `emails[0].id`. |
-| 2xx where every entry of `emails[]` is `failed` or `canceled` | `unknown/provider_error` |
+| 2xx with an `emails[]` entry whose status is `new`, `sending`, or `sent` and whose `id` is not blank | `sent`. The message id is the `id` of the first such entry. |
+| 2xx with no such entry, for example when every entry is `failed` or `canceled` | `unknown/provider_error` |
 | Any other 2xx, or a 2xx body that is not JSON | `unknown/provider_error` |
 | 4xx with a known error `type` | `not_sent`, with the reason of the next table |
 | 400, 413, 415, 422 with no known `type` | `not_sent/invalid_message` |

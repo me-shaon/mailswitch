@@ -21,6 +21,7 @@ const adapter = mailchannels({ apiKey: env.MAILCHANNELS_API_KEY });
 | `apiKey` | The API key. The `apiKey` credential takes precedence. |
 | `baseUrl` | The API origin. The default is `https://api.mailchannels.net`. It must be an https URL. Plain http works only for a loopback host, for tests. |
 | `dryRun` | Set `true` to add `dry-run=true` to the send call. MailChannels checks and renders the message, answers 200, and sends no email. Use it only for tests. |
+| `customerHandle` | The customer handle of your MailChannels account. The webhooks need it. Sending does not need it. See [Check the account of each event](#check-the-account-of-each-event). |
 
 ## Credentials
 
@@ -91,6 +92,14 @@ mailswitch accepts the key as base64 SubjectPublicKeyInfo text or as a PEM block
 
 mailswitch does not fetch the key, and it does not read the `keyid`. If MailChannels rotates its key, requests signed with the new key fail as `bad_signature`. Then get the key for the new `keyid` and update the secret.
 
+### Check the account of each event
+
+The MailChannels docs do not say that the signing key is unique to one account. If the key is shared, a valid signature does not prove that a request is for your account. Another MailChannels customer can then point a webhook at your URL, and the events of that account reach your app with a valid signature.
+
+So set the `customerHandle` option to the customer handle of your account. Every event in a MailChannels body has a `customer_handle` field. mailswitch accepts a signed body only when every event in it carries your handle. When an event has another handle or no handle, the check gives `bad_signature`, and mailswitch parses no events from the body.
+
+`mailchannels()` without `customerHandle` still sends email. But its `webhooks.verify` and `webhooks.parse` throw a `TypeError` when you call them. That is a setup error, not a bad request.
+
 ### Handle a webhook
 
 The MailChannels adapter needs a dedupe store. MailChannels can send a batch again, and each new request has a new signature. The dedupe store drops the second copy of an event. `handleWebhook` requires the store in its types, and it throws when the store is missing.
@@ -105,10 +114,10 @@ declare const dedupe: DedupeStore;
 export default {
   async fetch(
     request: Request,
-    env: { MAILCHANNELS_WEBHOOK_PUBLIC_KEY: string },
+    env: { MAILCHANNELS_WEBHOOK_PUBLIC_KEY: string; MAILCHANNELS_CUSTOMER_HANDLE: string },
   ): Promise<Response> {
     const outcome = await handleWebhook(request, {
-      adapter: mailchannels(),
+      adapter: mailchannels({ customerHandle: env.MAILCHANNELS_CUSTOMER_HANDLE }),
       secret: env.MAILCHANNELS_WEBHOOK_PUBLIC_KEY,
       dedupe,
     });
@@ -133,6 +142,7 @@ mailswitch reads the `Content-Digest`, `Signature-Input`, and `Signature` header
 - A `created` time more than 5 minutes in the past, or more than 1 minute in the future, gives `stale`.
 - A missing header, an empty secret, or a wrong signature or digest gives `bad_signature`.
 - A body that is not a JSON array, or that holds more than 1000 events, gives `malformed`.
+- A signed body with an event whose `customer_handle` is missing or is not `customerHandle` gives `bad_signature`.
 
 ### Events
 

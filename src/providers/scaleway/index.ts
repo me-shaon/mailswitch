@@ -8,9 +8,8 @@
 // https://www.scaleway.com/en/docs/transactional-email/reference-content/tem-capabilities-and-limits/
 // https://www.scaleway.com/en/developers/api/
 //
-// - A 2xx with a non-empty `emails[]` whose first entry has an `id` is `sent`, with that
-//   id. When every entry has the status `failed` or `canceled`, the result is `unknown`.
-//   Any other 2xx body is `unknown`.
+// - A 2xx is `sent` with the id of the first `emails[]` entry whose status is `new`,
+//   `sending`, or `sent` and whose `id` is not blank. Any other 2xx body is `unknown`.
 // - A 4xx reason is refined from the error `type` in the body. The type names come from
 //   the error types of the official Scaleway SDKs.
 // - Every 5xx is `unknown`.
@@ -90,21 +89,23 @@ function unclear(httpStatus: number, message: string): UnknownResult {
   return { status: "unknown", reason: "provider_error", message, httpStatus, provider: PROVIDER };
 }
 
-/** Reads a 2xx send answer. */
+// The entry statuses that show Scaleway took the email for a recipient.
+const ACCEPTED: ReadonlySet<unknown> = new Set(["new", "sending", "sent"]);
+
+/**
+ * Reads a 2xx send answer. The id comes from the first entry with an accepted status and
+ * a non-blank id. With no such entry, the result is `unknown`.
+ */
 function accepted(json: unknown, httpStatus: number): SendResult {
   const raw = asRecord(json)?.emails;
   const emails = Array.isArray(raw) ? raw.map(asRecord) : [];
-  const id = emails[0]?.id;
-  if (typeof id !== "string" || id.trim() === "") {
-    return unclear(
-      httpStatus,
-      "Scaleway accepted the request with an answer that mailswitch cannot read.",
-    );
+  for (const item of emails) {
+    const id = item?.id;
+    if (ACCEPTED.has(item?.status) && typeof id === "string" && id.trim() !== "") {
+      return { status: "sent", provider: PROVIDER, providerMessageId: id.trim() };
+    }
   }
-  if (emails.every((item) => item?.status === "failed" || item?.status === "canceled")) {
-    return unclear(httpStatus, "Scaleway marked every recipient of this email failed or canceled.");
-  }
-  return { status: "sent", provider: PROVIDER, providerMessageId: id.trim() };
+  return unclear(httpStatus, "Scaleway answered 2xx with no accepted recipient entry and id.");
 }
 
 function checkOptions(options: ScalewayOptions): string {

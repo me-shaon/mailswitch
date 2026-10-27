@@ -13,13 +13,12 @@ import { validateMessage } from "../../core/message";
 import type { ProviderMeta } from "../../core/meta";
 import type { FailureReason, NotSentResult, OutgoingMessage, SendResult } from "../../core/types";
 import { hasForbiddenChars } from "../../internal/address";
-import { callProvider, discardBody, readJson } from "../../internal/http";
+import { callProvider, discardBody, readCapped } from "../../internal/http";
 import {
   classifyHttp,
   type HttpClassifyAnswer,
   type HttpStatusRules,
   isSuccess,
-  sentResult,
   transportOutcome,
 } from "./classify";
 import { checkRequestUrl, describeBreak, type UrlRuleOptions } from "./hosts";
@@ -207,6 +206,37 @@ function readId(
   }
 }
 
+/** The largest response body that the adapter reads, in bytes. */
+export const HTTP_MAX_BODY_BYTES = 65_536;
+
+/** Marks a body that the adapter could not read: too large, or a read error. */
+const UNREADABLE: unique symbol = Symbol("unreadable");
+
+/**
+ * Reads a JSON body of at most `HTTP_MAX_BODY_BYTES`. Returns null for an empty or a
+ * non-JSON body. A larger body, by its content-length or as it streams, is cancelled and
+ * gives `UNREADABLE`. So does a read error.
+ */
+async function readBody(response: Response): Promise<unknown> {
+  const length = Number(response.headers.get("content-length") ?? 0);
+  if (!(length <= HTTP_MAX_BODY_BYTES)) {
+    await discardBody(response);
+    return UNREADABLE;
+  }
+  let text: string | null;
+  try {
+    text = await readCapped(response, HTTP_MAX_BODY_BYTES);
+  } catch {
+    return UNREADABLE;
+  }
+  if (text === null) return UNREADABLE;
+  try {
+    return text === "" ? null : (JSON.parse(text) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 type Prepared = { ok: true; init: PreparedRequest } | { ok: false; result: NotSentResult };
 
 interface PreparedRequest {
@@ -302,13 +332,15 @@ export function createHttpAdapter(spec: HttpEngineSpec): ProviderAdapter {
     const wantsBody =
       hook !== undefined ||
       (isSuccess(response.status) && operation === "send" && spec.idFrom !== undefined);
-    let body: unknown = null;
-    if (wantsBody) body = await readJson(response);
+    let read: unknown = null;
+    if (wantsBody) read = await readBody(response);
     else await discardBody(response);
+    const body = read === UNREADABLE ? null : read;
     let answer: unknown;
     if (hook !== undefined) {
       try {
-        // A hook that answers undefined keeps the table result.
+        // A hook that answers undefined keeps the table result. It gets null for a body
+        // that the adapter could not read.
         answer = hook({
           operation,
           status: response.status,
@@ -322,8 +354,20 @@ export function createHttpAdapter(spec: HttpEngineSpec): ProviderAdapter {
     }
     const outcome = classifyHttp(response.status, response.headers, rules, ctx.now, answer);
     if (outcome.status !== "sent") return { ...outcome, provider };
-    if (operation === "verify") return { status: "sent", provider };
-    return sentResult(provider, readId(spec.idFrom, body, response.headers));
+    if (operation === "verify" || spec.idFrom === undefined) return { status: "sent", provider };
+    // With idFrom set, a 2xx must carry an id. A body that cannot be read, or that has no
+    // id, may hide a failure, so the result is unknown.
+    const id = read === UNREADABLE ? undefined : readId(spec.idFrom, body, response.headers);
+    if (id === undefined) {
+      return {
+        status: "unknown",
+        reason: "provider_error",
+        message: `The provider answered with HTTP ${response.status} and no message id.`,
+        httpStatus: response.status,
+        provider,
+      };
+    }
+    return { status: "sent", provider, providerMessageId: id };
   }
 
   function requestContext(ctx: SendContext): HttpRequestContext {

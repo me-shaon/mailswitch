@@ -78,7 +78,10 @@ export interface HttpProviderOptions {
   buildRequest(message: OutgoingMessage, ctx: HttpRequestContext): HttpRequest;
   /** Builds a request that checks the credentials and sends no email. */
   verifyRequest(ctx: HttpRequestContext): HttpRequest;
-  /** Reads the message id of a 2xx answer. A dot path into the JSON body, or a function. */
+  /**
+   * Reads the message id of a 2xx answer. A dot path into the JSON body, or a function.
+   * When it is set, a 2xx with no id is `unknown`.
+   */
   idFrom?: HttpIdFrom;
   /** Changes the table result within the same rules. See `HttpClassifyAnswer`. */
   classify?: HttpClassifyHook;

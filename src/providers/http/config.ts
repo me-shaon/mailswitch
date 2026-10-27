@@ -111,7 +111,7 @@ export const HTTP_AUTH_HEADERS: readonly string[] = Object.freeze([
 ]);
 
 // A static header name with one of these words probably carries a secret too.
-const SECRET_WORDS = /auth|token|key|secret|password|session|cookie/i;
+const SECRET_WORDS = /auth|token|key|secret|pass|session|cookie|signature|credential|bearer/i;
 // Headers that the transport sets. A config cannot set them.
 const TRANSPORT_HEADERS: readonly string[] = ["host", "content-length", "transfer-encoding"];
 

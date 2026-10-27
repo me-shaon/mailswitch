@@ -85,6 +85,24 @@ function refused(run: () => unknown, ...hidden: string[]): string {
   return text;
 }
 
+/** Endpoint values that break a host rule or the URL rules. */
+const BAD_ENDPOINTS: [string, unknown][] = [
+  ["an http URL", "http://mail.example.test/v1/send"],
+  ["127.0.0.1", "https://127.0.0.1/v1/send"],
+  ["a decimal IPv4", "https://2130706433/v1/send"],
+  ["a hex IPv4", "https://0x7f000001/v1/send"],
+  ["an IPv6 literal", "https://[::1]/v1/send"],
+  ["localhost", "https://localhost/v1/send"],
+  ["localhost with a dot", "https://localhost./v1/send"],
+  ["an internal name", "https://api.internal/v1/send"],
+  ["userinfo", `https://user:${SECRET}@mail.example.test/v1/send`],
+  ["a query string", `https://mail.example.test/v1/send?key=${SECRET}`],
+  ["a fragment", "https://mail.example.test/v1/send#x"],
+  ["a host outside allowHosts", "https://other.example.test/v1/send"],
+  ["a port that allowHosts does not name", "https://mail.example.test:8443/v1/send"],
+  ["a value that is not a string", 42],
+];
+
 describe("httpProviderFromConfig: send", () => {
   it("sends the mapped body with bearer auth and reads the id with idFrom", async () => {
     const rec = recorder(json(200, { data: { messageId: "msg-9" } }));
@@ -209,14 +227,35 @@ describe("httpProviderFromConfig: send", () => {
     expect(new Headers(rec.calls[0]?.init.headers).get("x-api-version")).toBe("2");
   });
 
-  it("gives sent with no id for a 2xx with no id, an empty body, or a body that is not JSON", async () => {
+  it("gives unknown for a 2xx with no id at idFrom, an empty body, or a body that is not JSON", async () => {
     for (const answer of [
       json(200, { data: {} }),
+      json(200, { data: { messageId: "  " } }),
       () => new Response(null, { status: 202 }),
       () => new Response("accepted", { status: 200 }),
     ]) {
       const rec = recorder(answer);
       const result = await build().send(full(), context(rec));
+      expect(result).toMatchObject({
+        status: "unknown",
+        reason: "provider_error",
+        provider: "examplemail",
+      });
+      expect([200, 202]).toContain((result as { httpStatus?: number }).httpStatus);
+    }
+  });
+
+  it("gives sent with no id for any 2xx when idFrom is not set", async () => {
+    const { idFrom: _idFrom, ...rest } = httpFixtureConfig() as unknown as Record<string, unknown>;
+    const adapter = httpProviderFromConfig(rest as unknown as HttpProviderConfig, {
+      allowHosts: ALLOW,
+    });
+    for (const answer of [
+      json(200, { data: { messageId: "msg-9" } }),
+      () => new Response(null, { status: 202 }),
+      () => new Response("accepted", { status: 200 }),
+    ]) {
+      const result = await adapter.send(full(), context(recorder(answer)));
       expect(result).toEqual({ status: "sent", provider: "examplemail" });
     }
   });
@@ -357,25 +396,21 @@ describe("httpProviderFromConfig: setup checks", () => {
     refused(() => httpProviderFromConfig(config(), { allowHosts: ["*"] }));
   });
 
-  it.each([
-    ["an http URL", "http://mail.example.test/v1/send"],
-    ["127.0.0.1", "https://127.0.0.1/v1/send"],
-    ["a decimal IPv4", "https://2130706433/v1/send"],
-    ["a hex IPv4", "https://0x7f000001/v1/send"],
-    ["an IPv6 literal", "https://[::1]/v1/send"],
-    ["localhost", "https://localhost/v1/send"],
-    ["localhost with a dot", "https://localhost./v1/send"],
-    ["an internal name", "https://api.internal/v1/send"],
-    ["userinfo", `https://user:${SECRET}@mail.example.test/v1/send`],
-    ["a query string", `https://mail.example.test/v1/send?key=${SECRET}`],
-    ["a fragment", "https://mail.example.test/v1/send#x"],
-    ["a host outside allowHosts", "https://other.example.test/v1/send"],
-    ["a port that allowHosts does not name", "https://mail.example.test:8443/v1/send"],
-    ["a value that is not a string", 42],
-  ])("throws for an endpoint with %s, and never echoes the URL", (_label, endpoint) => {
-    const text = refused(() => build({ endpoint }), String(endpoint), "example.test");
-    expect(text).toContain("config.endpoint");
-  });
+  it.each(BAD_ENDPOINTS)(
+    "throws for an endpoint with %s, and never echoes the URL",
+    (_label, endpoint) => {
+      const text = refused(() => build({ endpoint }), String(endpoint), "example.test");
+      expect(text).toContain("config.endpoint");
+    },
+  );
+
+  it.each(BAD_ENDPOINTS)(
+    "throws for a verify.endpoint with %s, and never echoes the URL",
+    (_label, endpoint) => {
+      const text = refused(() => build({ verify: { endpoint } }), String(endpoint), "example.test");
+      expect(text).toContain("config.verify.endpoint");
+    },
+  );
 
   it("allows a port that an allowHosts entry names", () => {
     const adapter = httpProviderFromConfig(
@@ -423,6 +458,11 @@ describe("httpProviderFromConfig: setup checks", () => {
     "x-auth-token",
     "X-Server-Token",
     "cookie",
+    "X-Session-Cookie",
+    "X-Request-Signature",
+    "X-Client-Credential",
+    "X-Bearer",
+    "X-Passphrase",
   ])("throws for a static %s header, and never echoes its value", (name) => {
     refused(() => build({ requestHeaders: { [name]: SECRET } }));
   });

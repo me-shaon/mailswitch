@@ -91,6 +91,9 @@ export async function signMailchannelsWebhook(
   };
 }
 
+/** The made-up customer handle of the fixture account. Pass it as `customerHandle`. */
+export const MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE = "test-handle-not-real";
+
 /** One MailChannels event, with the fields of the webhook schema. */
 export function mailchannelsEvent(
   event: string,
@@ -98,7 +101,7 @@ export function mailchannelsEvent(
 ): Record<string, unknown> {
   return {
     email: "billing@example.com",
-    customer_handle: "acct-test",
+    customer_handle: MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE,
     timestamp: 1793102340,
     event,
     request_id: REQUEST_ID,
@@ -124,7 +127,10 @@ export function mailchannelsAccepted(
   };
 }
 
-/** The fixture that drives `mailchannels()` through every conformance check. */
+/**
+ * The fixture that drives `mailchannels({ customerHandle })` through every conformance
+ * check, with `MAILCHANNELS_FIXTURE_CUSTOMER_HANDLE` as the handle.
+ */
 export function mailchannelsFixture(): ConformanceFixture {
   return {
     credentials: { apiKey: "test-mailchannels-key-not-real" },
