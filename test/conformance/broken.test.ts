@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type CheckReport, type ConformanceFixture, runChecks } from "../../src/conformance/index";
-import type { ProviderAdapter } from "../../src/index";
+import type { ProviderAdapter, ProviderMeta } from "../../src/index";
 import { FAKE_API_BASE, fakeFixture, fakeMeta, fakeProvider } from "../../src/testing/index";
 
 // The kit tests itself: each broken adapter must fail the check that targets its fault.
@@ -16,6 +16,18 @@ function failed(report: CheckReport): string[] {
 function problems(report: CheckReport, id: CheckReport["checks"][number]["id"]): string {
   const item = entry(report, id);
   return item?.status === "fail" ? item.problems.join("\n") : "";
+}
+
+// The fake meta with HTTP 409 mapped to not_sent, as Brevo maps a 400.
+function conflictAsNotSent(): ProviderMeta {
+  const meta = fakeMeta();
+  return {
+    ...meta,
+    statusMap: {
+      ...meta.statusMap,
+      409: { status: "not_sent", reason: "invalid_message", source: "https://example.com/docs" },
+    },
+  };
 }
 
 describe("conformance kit on broken adapters", () => {
@@ -112,6 +124,51 @@ describe("conformance kit on broken adapters", () => {
     };
     const report = await runChecks({ adapter: careless, fixture: fakeFixture(), tier: 1 });
     expect(failed(report)).toEqual(["idempotency.conflict"]);
+  });
+
+  it("passes idempotency.conflict when the adapter reads the body to change not_sent to unknown", async () => {
+    const base = fakeProvider({ transport: "fetch" });
+    const meta = conflictAsNotSent();
+    const reader: ProviderAdapter = {
+      ...base,
+      meta,
+      async send(message, ctx) {
+        let conflict = false;
+        const result = await base.send(message, {
+          ...ctx,
+          fetch: async (input, init) => {
+            const response = await ctx.fetch(input, init);
+            conflict = (await response.clone().text()).includes("idempotency_key_in_use");
+            return response;
+          },
+        });
+        // The base adapter keeps its own map, so apply the not_sent entry here. The body
+        // then shows a key conflict, and the adapter keeps the result unknown.
+        if (result.status !== "unknown" || result.httpStatus !== 409 || conflict) return result;
+        return { ...result, status: "not_sent", reason: "invalid_message" };
+      },
+    };
+    const report = await runChecks({ adapter: reader, fixture: fakeFixture(), tier: 1 });
+    expect(entry(report, "idempotency.conflict")?.status).toBe("pass");
+  });
+
+  it("fails idempotency.conflict when a not_sent status map entry gives a not_sent result", async () => {
+    const base = fakeProvider({ transport: "fetch" });
+    const meta = conflictAsNotSent();
+    const trusting: ProviderAdapter = {
+      ...base,
+      meta,
+      async send(message, ctx) {
+        // The base adapter keeps its own map, so apply the not_sent entry here.
+        const result = await base.send(message, ctx);
+        return result.status === "unknown" && result.httpStatus === 409
+          ? { ...result, status: "not_sent", reason: "invalid_message" }
+          : result;
+      },
+    };
+    const report = await runChecks({ adapter: trusting, fixture: fakeFixture(), tier: 1 });
+    expect(failed(report)).toEqual(["idempotency.conflict"]);
+    expect(problems(report, "idempotency.conflict")).toContain("HTTP 409");
   });
 
   it("fails webhook checks for an adapter that accepts any webhook", async () => {

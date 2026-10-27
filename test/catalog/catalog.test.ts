@@ -33,7 +33,7 @@ const ALLOWED =
   /^(\.\.\/core\/(meta|types)|\.\.\/providers\/[a-z0-9-]+\/meta|\.\.\/\.\.\/core\/(meta|classify|types))$/;
 
 describe("catalog", () => {
-  it("lists every provider at tier 1", () => {
+  it("lists every provider with its tier", () => {
     expect(catalog.map((meta) => [meta.id, meta.tier])).toEqual([
       ["resend", 1],
       ["tosend", 1],
@@ -41,6 +41,12 @@ describe("catalog", () => {
       ["cloudflare-binding", 1],
       ["mailgun", 1],
       ["postmark", 1],
+      ["brevo", 1],
+      ["mailersend", 1],
+      ["mailjet", 1],
+      ["smtp2go", 1],
+      ["zeptomail", 2],
+      ["sendgrid", 1],
       ["ses", 1],
       ["smtp", 1],
     ]);
@@ -48,6 +54,21 @@ describe("catalog", () => {
     expect(getProviderMeta("ses")?.name).toBe("Amazon SES");
     expect(getProviderMeta("resend")?.name).toBe("Resend");
     expect(getProviderMeta("tosend")?.capabilities.idempotency).toBe(false);
+    expect(getProviderMeta("sendgrid")?.name).toBe("SendGrid");
+    expect(getProviderMeta("sendgrid")?.webhooks).toBe(true);
+    expect(getProviderMeta("brevo")?.name).toBe("Brevo");
+    expect(getProviderMeta("brevo")?.nativeIdempotencyWindowMs).toBe(1_800_000);
+    expect(getProviderMeta("mailersend")?.name).toBe("MailerSend");
+    expect(getProviderMeta("mailersend")?.capabilities.maxRecipients).toBe(70);
+    expect(getProviderMeta("mailjet")?.capabilities.batchSize).toBe(50);
+    expect(getProviderMeta("mailjet")?.credentialFields.map((field) => field.name)).toEqual([
+      "apiKey",
+      "secretKey",
+    ]);
+    expect(getProviderMeta("smtp2go")?.name).toBe("SMTP2GO");
+    expect(getProviderMeta("smtp2go")?.capabilities.maxMessageBytes).toBe(50_000_000);
+    expect(getProviderMeta("zeptomail")?.name).toBe("ZeptoMail");
+    expect(getProviderMeta("zeptomail")?.webhooks).toBe(false);
     expect(getProviderMeta("nope")).toBeUndefined();
   });
 
@@ -91,6 +112,12 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/cloudflare/meta.ts");
     expect(files).toContain("../../src/providers/mailgun/meta.ts");
     expect(files).toContain("../../src/providers/postmark/meta.ts");
+    expect(files).toContain("../../src/providers/brevo/meta.ts");
+    expect(files).toContain("../../src/providers/mailersend/meta.ts");
+    expect(files).toContain("../../src/providers/mailjet/meta.ts");
+    expect(files).toContain("../../src/providers/smtp2go/meta.ts");
+    expect(files).toContain("../../src/providers/zeptomail/meta.ts");
+    expect(files).toContain("../../src/providers/sendgrid/meta.ts");
     expect(files).toContain("../../src/providers/ses/meta.ts");
     expect(files).toContain("../../src/providers/smtp/meta.ts");
     for (const [file, text] of Object.entries(sources)) {
@@ -147,6 +174,29 @@ describe("defineProviderMeta", () => {
       }),
     ).toThrow(/pattern/);
     expect(() => defineProviderMeta({ ...base, tier: 3 as 1 })).toThrow(/tier/);
+  });
+
+  it("checks nativeIdempotencyWindowMs", () => {
+    const native: ProviderMeta = {
+      ...base,
+      capabilities: { ...base.capabilities, idempotency: true },
+      nativeIdempotency: true,
+    };
+    const window = 30 * 60 * 1000;
+    expect(defineProviderMeta({ ...native, nativeIdempotencyWindowMs: window })).toMatchObject({
+      nativeIdempotencyWindowMs: window,
+    });
+    expect(() => defineProviderMeta({ ...base, nativeIdempotencyWindowMs: window })).toThrow(
+      TypeError,
+    );
+    expect(() => defineProviderMeta({ ...base, nativeIdempotencyWindowMs: window })).toThrow(
+      /nativeIdempotency must be true/,
+    );
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => defineProviderMeta({ ...native, nativeIdempotencyWindowMs: bad })).toThrow(
+        /a positive integer/,
+      );
+    }
   });
 
   it("throws for a preset that names an unknown field", () => {

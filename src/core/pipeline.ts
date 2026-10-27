@@ -33,6 +33,7 @@ import {
   finalizeIdempotency,
   minPendingTimeout,
   namespacedKey,
+  SENT_RETENTION_MS,
 } from "./idempotency";
 import { validateMessage } from "./message";
 import { checkRate, type RateRule } from "./rate-limit";
@@ -168,6 +169,15 @@ const LOST_CLAIM = "mailswitch: the claim was no longer current. The record did 
 const UNSAFE_SETUP =
   "mailswitch: a provider in the chain has no native idempotency and no idempotency store is set. A keyed send through that provider can go out twice on a retry.";
 
+const SHORT_WINDOW =
+  "mailswitch: a provider in the chain keeps an idempotency key for a short time and no idempotency store is set. A keyed retry after that time can go out twice.";
+
+/** True when the provider keeps a key for less time than the store keeps a sent record. */
+function shortWindow(entry: Entry): boolean {
+  const windowMs = entry.adapter.meta.nativeIdempotencyWindowMs;
+  return windowMs !== undefined && windowMs < SENT_RETENTION_MS;
+}
+
 function prepareEntries(options: MailerOptions): Entry[] {
   const list = options.providers;
   if (!Array.isArray(list) || list.length === 0) {
@@ -248,7 +258,8 @@ function checkResult(result: unknown, provider: string): SendResult {
  *
  * When a provider in the chain has no native idempotency and no `idempotency` store is
  * set, `createMailer` writes one warning to the logger. A keyed retry through that
- * provider can then send a second copy. Set an idempotency store to remove the risk.
+ * provider can then send a second copy. Set an idempotency store to remove the risk. A
+ * provider with a `nativeIdempotencyWindowMs` under 7 days gets the same warning.
  *
  * A provider answer with the reason `quota` fills the daily cap of that provider.
  *
@@ -297,8 +308,12 @@ export function createMailer(options: MailerOptions): Mailer {
     }
     namespacedKey(namespace, "check");
   }
-  if (!idempotency && entries.some((entry) => !entry.adapter.meta.nativeIdempotency)) {
-    safeWarn(logger, UNSAFE_SETUP);
+  if (!idempotency) {
+    if (entries.some((entry) => !entry.adapter.meta.nativeIdempotency)) {
+      safeWarn(logger, UNSAFE_SETUP);
+    } else if (entries.some(shortWindow)) {
+      safeWarn(logger, SHORT_WINDOW);
+    }
   }
   const clock = options.now ?? Date.now;
   const doFetch: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));

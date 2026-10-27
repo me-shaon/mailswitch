@@ -8,7 +8,7 @@
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
-    "limit": "4 KB",
+    "limit": "4.81 KB",
     "gzip": true
   },
   {
@@ -48,9 +48,45 @@
     "gzip": true
   },
   {
+    "name": "mailswitch/brevo",
+    "path": "dist/providers/brevo/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/mailersend",
+    "path": "dist/providers/mailersend/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/mailjet",
+    "path": "dist/providers/mailjet/index.js",
+    "limit": "8.47 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/smtp2go",
+    "path": "dist/providers/smtp2go/index.js",
+    "limit": "8.39 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/zeptomail",
+    "path": "dist/providers/zeptomail/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/sendgrid",
+    "path": "dist/providers/sendgrid/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/ses",
     "path": "dist/providers/ses/index.js",
-    "limit": "10 KB",
+    "limit": "10.1 KB",
     "gzip": true
   },
   {

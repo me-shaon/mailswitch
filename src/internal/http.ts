@@ -2,8 +2,8 @@
 // result, not an exception, and it is always `unknown`: the request may have reached the
 // provider before the error.
 
-import { classifyThrown } from "../core/classify";
-import type { SendResult, UnknownResult } from "../core/types";
+import { classifyResponse, classifyThrown, type StatusMap } from "../core/classify";
+import type { NotSentResult, SendResult, UnknownResult } from "../core/types";
 
 /** The default request timeout, in milliseconds. */
 export const DEFAULT_TIMEOUT_MS = 15_000;
@@ -80,6 +80,17 @@ export async function discardBody(response: Response): Promise<void> {
 /** Returns a copy of a result with the provider id set. */
 export function withProvider<T extends SendResult>(result: T, provider: string): T {
   return { ...result, provider };
+}
+
+/** Classifies a non-2xx response with the status map and sets the provider id. */
+export function classifyFailure(
+  response: Response,
+  statusMap: StatusMap | undefined,
+  now: number,
+  provider: string,
+): NotSentResult | UnknownResult {
+  const outcome = classifyResponse(response.status, response.headers, statusMap, { now });
+  return withProvider(outcome as NotSentResult | UnknownResult, provider);
 }
 
 /**

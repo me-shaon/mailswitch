@@ -75,6 +75,15 @@ function parseMailbox(text: string): Address | null {
   return name === "" ? { email } : { email, name };
 }
 
+/**
+ * Parses an address that `validateMessage` has already checked, as `{ email, name? }`.
+ * The `name` key is present only for a non-empty name, because `parseAddress` sets no
+ * other. The `{ email: "" }` fallback is never reached for a checked address.
+ */
+export function addressObject(input: AddressInput): Address {
+  return parseAddress(input) ?? { email: "" };
+}
+
 // Display names with only these characters need no quoting (RFC 5322 atext plus space).
 const PLAIN_NAME = /^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ ]+$/;
 

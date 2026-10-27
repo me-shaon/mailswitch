@@ -58,6 +58,11 @@ export interface ProviderMeta {
   webhooks?: boolean;
   /** The provider accepts an idempotency key and drops a repeat. */
   nativeIdempotency: boolean;
+  /**
+   * How long the provider keeps an idempotency key, in milliseconds. Leave it out when the
+   * window is at least as long as the store keeps a sent record. It needs `nativeIdempotency`.
+   */
+  nativeIdempotencyWindowMs?: number;
 }
 
 function fail(id: string, text: string): never {
@@ -114,7 +119,8 @@ function deepFreeze<T>(value: T): T {
 /**
  * Checks and freezes provider meta. It throws for a programmer error: a missing id, name,
  * or docs URL, a tier that is not 1 or 2, a duplicate field or preset, an invalid pattern,
- * or a tier 2 status map that maps a 5xx code to `not_sent`.
+ * a tier 2 status map that maps a 5xx code to `not_sent`, or a `nativeIdempotencyWindowMs`
+ * that is not a positive integer or has no native idempotency.
  */
 export function defineProviderMeta(meta: ProviderMeta): ProviderMeta {
   const id = typeof meta.id === "string" ? meta.id : "";
@@ -129,6 +135,13 @@ export function defineProviderMeta(meta: ProviderMeta): ProviderMeta {
   if (typeof meta.nativeIdempotency !== "boolean") fail(id, "nativeIdempotency must be a boolean.");
   if (meta.nativeIdempotency !== meta.capabilities.idempotency) {
     fail(id, "nativeIdempotency and capabilities.idempotency must agree.");
+  }
+  const windowMs = meta.nativeIdempotencyWindowMs;
+  if (windowMs !== undefined && !(meta.nativeIdempotency && windowMs > 0 && windowMs % 1 === 0)) {
+    fail(
+      id,
+      "nativeIdempotencyWindowMs must be a positive integer, and nativeIdempotency must be true.",
+    );
   }
   const names = checkFields(id, meta.credentialFields);
   if (meta.presets !== undefined) checkPresets(id, meta.presets, names);

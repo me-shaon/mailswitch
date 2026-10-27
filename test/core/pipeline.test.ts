@@ -611,6 +611,51 @@ describe("createMailer: options", () => {
   });
 });
 
+describe("createMailer: a short native key window", () => {
+  // A native provider that keeps a key for 30 minutes, as Brevo does.
+  function shortWindow(windowMs = 30 * 60 * 1000) {
+    const fake = fakeProvider({ id: "short" });
+    const meta = defineProviderMeta({ ...fakeMeta("short"), nativeIdempotencyWindowMs: windowMs });
+    return { adapter: defineProvider({ ...fake, meta }), credentials: { apiKey: "fk_a" } };
+  }
+
+  it("warns once when no idempotency store is set", () => {
+    const warn = vi.fn();
+    createMailer({ providers: [shortWindow()], logger: { warn } });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("keeps an idempotency key for a short time");
+  });
+
+  it("warns for a short window in a fallback provider", () => {
+    const warn = vi.fn();
+    const primary = { adapter: fakeProvider({ id: "a" }), credentials: { apiKey: "fk_a" } };
+    createMailer({ providers: [primary, shortWindow()], logger: { warn } });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not warn with a store, or with a window of at least the sent retention", () => {
+    const quiet = vi.fn();
+    createMailer({
+      providers: [shortWindow()],
+      namespace: NAMESPACE,
+      idempotency: new MemoryIdempotencyStore(),
+      logger: { warn: quiet },
+    });
+    createMailer({ providers: [shortWindow(7 * 24 * 60 * 60 * 1000)], logger: { warn: quiet } });
+    expect(quiet).not.toHaveBeenCalled();
+  });
+
+  it("writes one warning when the chain also has a provider with no native idempotency", () => {
+    const warn = vi.fn();
+    createMailer({
+      providers: [shortWindow(), { adapter: tosend(), credentials: { apiKey: TOSEND_KEY } }],
+      logger: { warn },
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("no native idempotency");
+  });
+});
+
 describe("createMailer: claim fence", () => {
   it("does not call the fallback after a stale conversion and a release", async () => {
     let now = T0;
