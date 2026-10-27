@@ -17,7 +17,10 @@ const NOW = Date.parse("2026-10-27T12:00:00.000Z");
 
 /** The made-up API token of the fixture. */
 export const MAILTRAP_FIXTURE_TOKEN = "test-mailtrap-token-not-real";
-/** The made-up webhook secret of the fixture. It protects nothing. */
+/**
+ * The made-up webhook secret of the fixture. It protects nothing.
+ * For tests only. Never use it in production config.
+ */
 export const MAILTRAP_FIXTURE_SECRET = "test-mailtrap-webhook-secret-not-real";
 /** The message id of the accepted answer. */
 export const MAILTRAP_FIXTURE_MESSAGE_ID = "mailtrap-message-0001";
@@ -45,6 +48,8 @@ export function mailtrapError(...errors: string[]): { success: false; errors: st
 export async function signMailtrapWebhook(input: {
   body: Uint8Array;
   secret: string;
+  /** The signing time. This provider signs no time, so the helper ignores it. */
+  at?: number;
 }): Promise<WebhookSample> {
   return {
     headers: new Headers({

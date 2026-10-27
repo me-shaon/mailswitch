@@ -18,7 +18,10 @@ const EMAIL_ID = "1u0SwL-B9zBpi9ffUq-JAB2";
 /** The event key of a sample event: `id`, `event`, `email_id`, `rcpt`, and `time`. */
 const sampleKey = (id: string, event: string) =>
   `${id}:${event}:${EMAIL_ID}:ana@example.org:2026-10-27T11:59:30Z`;
-/** The webhook secret of the fixture. It protects nothing. */
+/**
+ * The webhook secret of the fixture. It protects nothing.
+ * For tests only. Never use it in production config.
+ */
 export const SMTP2GO_FIXTURE_SECRET = "test-smtp2go-webhook-secret-not-real";
 /** A made-up API key in the documented format. */
 export const SMTP2GO_FIXTURE_KEY = "api-0A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p";
@@ -114,6 +117,8 @@ export function smtp2goEvent(
 export async function signSmtp2goWebhook(input: {
   body: Uint8Array;
   secret: string;
+  /** The signing time. This provider signs no time, so the helper ignores it. */
+  at?: number;
 }): Promise<WebhookSample> {
   return {
     headers: new Headers({

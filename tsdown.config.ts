@@ -12,6 +12,7 @@ const config: UserConfig = defineConfig({
     "testing/index": "src/testing/index.ts",
     "conformance/index": "src/conformance/index.ts",
     "conformance/vitest": "src/conformance/vitest.ts",
+    "conformance/fixtures/index": "src/conformance/fixtures/index.ts",
     "providers/resend/index": "src/providers/resend/index.ts",
     "providers/tosend/index": "src/providers/tosend/index.ts",
     "providers/cloudflare/index": "src/providers/cloudflare/index.ts",

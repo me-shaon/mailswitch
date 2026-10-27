@@ -16,7 +16,10 @@ const NOW = Date.parse("2026-10-27T12:00:00.000Z");
 const MESSAGE_UUID = "1ab23cd4-e567-4901-a345-6789f0ab1c2d";
 /** A 64-bit MessageID. It is beyond the safe range of a JS number. */
 export const MAILJET_FIXTURE_MESSAGE_ID = "19421777835146490";
-/** The webhook secret of the fixture. It protects nothing. */
+/**
+ * The webhook secret of the fixture. It protects nothing.
+ * For tests only. Never use it in production config.
+ */
 export const MAILJET_FIXTURE_SECRET = "test-mailjet-webhook-secret-not-real";
 
 /** The HTML page of a 401. The adapter must never copy it into a result. */
@@ -88,6 +91,8 @@ export function mailjetEvent(
 export async function signMailjetWebhook(input: {
   body: Uint8Array;
   secret: string;
+  /** The signing time. This provider signs no time, so the helper ignores it. */
+  at?: number;
 }): Promise<WebhookSample> {
   return {
     headers: new Headers({

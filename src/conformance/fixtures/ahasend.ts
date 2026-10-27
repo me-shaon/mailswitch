@@ -25,7 +25,10 @@ const NOW = Date.parse("2026-10-27T12:00:30.000Z");
 export const AHASEND_FIXTURE_ACCOUNT_ID = "00000000-0000-4000-8000-000000000001";
 /** The made-up API key of the fixture. */
 export const AHASEND_FIXTURE_API_KEY = "aha-sk-test-not-real-not-real-not-real";
-/** The made-up webhook secret of the fixture, with its prefix. */
+/**
+ * The made-up webhook secret of the fixture, with its prefix.
+ * For tests only. Never use it in production config.
+ */
 export const AHASEND_FIXTURE_SECRET = "aha-whsec-test-fixture-not-real";
 /** The `webhook-id` of every signed sample. */
 export const AHASEND_FIXTURE_DELIVERY_ID = "ahasend-delivery-0001";

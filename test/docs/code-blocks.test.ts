@@ -18,6 +18,7 @@ const DOCUMENTS = [
   "docs/guides/delivery-safety.md",
   "docs/guides/plainbooks.md",
   "docs/guides/envelopen.md",
+  "docs/guides/testing.md",
   "docs/providers/resend.md",
   "docs/providers/tosend.md",
   "docs/providers/postmark.md",

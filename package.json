@@ -66,6 +66,10 @@
       "types": "./dist/conformance/vitest.d.ts",
       "import": "./dist/conformance/vitest.js"
     },
+    "./conformance/fixtures": {
+      "types": "./dist/conformance/fixtures/index.d.ts",
+      "import": "./dist/conformance/fixtures/index.js"
+    },
     "./resend": {
       "types": "./dist/providers/resend/index.d.ts",
       "import": "./dist/providers/resend/index.js"

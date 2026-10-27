@@ -110,6 +110,7 @@ export async function onWebhook(request: Request, env: Env): Promise<Response> {
 - toSend signs no timestamp, so its adapter requires a dedupe store. The types refuse a call without one.
 - toSend sends each event once and does not retry. A non-2xx answer to toSend loses that event. Check the toSend logs after an outage. Resend retries a non-2xx answer for about a day.
 - Each provider guide gives the webhook secret and the replay rules of that provider. Postmark, Mailgun, toSend, SendGrid, Brevo, MailerSend, Mailjet, and SMTP2GO need a dedupe store. Amazon SES takes its topic allowlist as the `secret`.
+- To test your webhook route with signed samples, see the [testing guide](testing.md).
 
 
 ## Send a batch

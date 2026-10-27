@@ -114,6 +114,7 @@ Build a “bring your own email provider” form with provider metadata, credent
 
 - [Usage guide](docs/guides/usage.md): fallback, webhooks, batches, stores, and settings screens.
 - [Delivery safety](docs/guides/delivery-safety.md): retry rules and duplicate-send protection.
+- [Testing webhooks](docs/guides/testing.md): signed sample webhooks for your app tests.
 - [Provider comparison](docs/providers/README.md): supported features and individual provider guides.
 - [PlainBooks integration](docs/guides/plainbooks.md): invoices, PDFs, D1 setup, and a job outbox.
 - [Envelopen migration](docs/guides/envelopen.md): move from `@envelopen/providers`.

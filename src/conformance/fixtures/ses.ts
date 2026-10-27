@@ -13,7 +13,7 @@ import type { CapturedAttachment, ConformanceFixture, WebhookSample } from "../t
 const NOW = Date.parse("2026-10-26T12:00:30.000Z");
 /** The SES API origin of the fixture region. */
 export const SES_FIXTURE_API = "https://email.us-east-1.amazonaws.com";
-/** The allowlisted topic of the fixture. */
+/** The allowlisted topic of the fixture. For tests only. Never use it in production config. */
 export const SES_FIXTURE_TOPIC = "arn:aws:sns:us-east-1:123456789012:mailswitch-ses-events";
 /** The signing certificate URL of every signed sample. */
 export const SES_FIXTURE_CERT_URL =

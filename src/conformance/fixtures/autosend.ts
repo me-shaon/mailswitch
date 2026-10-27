@@ -17,7 +17,10 @@ const NOW = Date.parse("2026-10-27T12:00:00.000Z");
 
 /** The made-up API key of the fixture. */
 export const AUTOSEND_FIXTURE_KEY = "AS_test_not_real";
-/** The made-up webhook secret of the fixture. It protects nothing. */
+/**
+ * The made-up webhook secret of the fixture. It protects nothing.
+ * For tests only. Never use it in production config.
+ */
 export const AUTOSEND_FIXTURE_SECRET = "test-autosend-webhook-secret-not-real";
 /** The email id of the accepted answer. */
 export const AUTOSEND_FIXTURE_EMAIL_ID = "autosend-email-0001";

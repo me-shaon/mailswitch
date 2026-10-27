@@ -12,7 +12,7 @@ import type { ConformanceFixture, WebhookSample } from "../types";
 const NOW = Date.parse("2026-10-26T12:00:30.000Z");
 const DOMAIN = "mg.example.com";
 const MESSAGE_ID = "20261026120030.1.4F2A9C@mg.example.com";
-/** A test webhook signing key. */
+/** A test webhook signing key. For tests only. Never use it in production config. */
 export const MAILGUN_FIXTURE_SECRET: string = "mailgun-signing-key-0123456789abcdef";
 /** The send URL of the fixture domain in the US region. */
 export const MAILGUN_FIXTURE_SEND_URL: string = `${MAILGUN_REGIONS.us}/v3/${DOMAIN}/messages`;

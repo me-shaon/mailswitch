@@ -16,13 +16,18 @@ import type { ConformanceFixture, WebhookSample } from "../types";
 const NOW = Date.parse("2026-10-27T12:00:00.000Z");
 const MESSAGE_ID = "6892766ae78995a317577aa1";
 
-/** The webhook signing secret of the fixture. It protects nothing. */
+/**
+ * The webhook signing secret of the fixture. It protects nothing.
+ * For tests only. Never use it in production config.
+ */
 export const MAILERSEND_FIXTURE_SECRET = "fixture-signing-secret-AbCdEf0123456789";
 
 /** Signs a body the way MailerSend does. MailerSend signs no timestamp. */
 export async function signMailersendWebhook(input: {
   body: Uint8Array;
   secret: string;
+  /** The signing time. This provider signs no time, so the helper ignores it. */
+  at?: number;
 }): Promise<WebhookSample> {
   return {
     headers: new Headers({

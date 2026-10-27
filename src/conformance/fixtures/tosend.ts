@@ -2,10 +2,31 @@
 // https://tosend.com/docs (checked 2026-10-26). The ids are made up.
 
 import { TOSEND_API_BASE, toSendSignature } from "../../providers/tosend/index";
-import type { ConformanceFixture } from "../types";
+import type { ConformanceFixture, WebhookSample } from "../types";
 
 const NOW = Date.parse("2026-10-26T12:00:30.000Z");
 const MESSAGE_ID = "0100019a-tosend-1";
+
+/**
+ * The webhook secret of the fixture. It protects nothing.
+ * For tests only. Never use it in production config.
+ */
+export const TOSEND_FIXTURE_SECRET = "tosend-webhook-secret-0123456789";
+
+/** Signs a body the way toSend does. toSend signs no time, so the helper ignores `at`. */
+export async function signToSendWebhook(input: {
+  body: Uint8Array;
+  secret: string;
+  at?: number;
+}): Promise<WebhookSample> {
+  return {
+    headers: new Headers({
+      "x-tosend-signature": await toSendSignature(input.secret, input.body),
+      "content-type": "application/json",
+    }),
+    body: input.body,
+  };
+}
 
 /** The `reason` of the sample hard bounce. */
 export const TOSEND_HARD_BOUNCE_REASON = "smtp; 550 5.1.1 The email account does not exist";
@@ -115,13 +136,8 @@ export function toSendFixture(): ConformanceFixture {
       ],
     },
     webhook: {
-      secret: "tosend-webhook-secret-0123456789",
-      async sign({ body, secret }) {
-        return {
-          headers: new Headers({ "x-tosend-signature": await toSendSignature(secret, body) }),
-          body,
-        };
-      },
+      secret: TOSEND_FIXTURE_SECRET,
+      sign: signToSendWebhook,
       // toSend signs only the body, with no timestamp.
       staleAt: null,
       samples: [

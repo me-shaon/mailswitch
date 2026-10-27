@@ -5,12 +5,33 @@
 // https://developers.brevo.com/docs/transactional-webhooks
 // The hosts, logins, ids, and tokens are made up.
 
-import type { SmtpConformanceFixture } from "../types";
+import type { SmtpConformanceFixture, WebhookSample } from "../types";
 
 const NOW = Date.parse("2026-10-26T12:00:30.000Z");
-/** The Brevo webhook token of the fixture: 32 base64url characters (192 bits). */
+/**
+ * The Brevo webhook token of the fixture: 32 base64url characters (192 bits).
+ * For tests only. Never use it in production config.
+ */
 export const BREVO_FIXTURE_TOKEN = "YnJldm8tZml4dHVyZS10b2tlbi1vbmx5";
 export const BREVO_MESSAGE_ID = "<202610261159.12345678901@smtp-relay.mailin.fr>";
+
+/**
+ * Signs a body the way Brevo does: with a bearer token. The token covers no body and no
+ * time, so the helper ignores `at`.
+ */
+export async function signBrevoWebhook(input: {
+  body: Uint8Array;
+  secret: string;
+  at?: number;
+}): Promise<WebhookSample> {
+  return {
+    headers: new Headers({
+      authorization: `Bearer ${input.secret}`,
+      "content-type": "application/json",
+    }),
+    body: input.body,
+  };
+}
 
 /** A Brevo transactional webhook event. */
 export function brevoEvent(
@@ -70,9 +91,7 @@ export function smtpFixture(): SmtpConformanceFixture {
     }),
     webhook: {
       secret: BREVO_FIXTURE_TOKEN,
-      async sign({ body, secret }) {
-        return { headers: new Headers({ authorization: `Bearer ${secret}` }), body };
-      },
+      sign: signBrevoWebhook,
       // A bearer token covers no timestamp.
       staleAt: null,
       // A bearer token covers no body either, so a changed JSON body passes the token

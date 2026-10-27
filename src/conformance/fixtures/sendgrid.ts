@@ -7,11 +7,10 @@
 // https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/event
 // https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features
 //
-// The webhook keys are two P-256 key pairs that the module makes when it loads. The
-// fixture function is synchronous and the secret must be known when it returns, so the
-// keys are made by a top-level await and not inside the function. They protect nothing.
+// The webhook keys are two fixed P-256 key pairs, made once for tests. They protect
+// nothing. The sign helper imports a private key on its first call.
 
-import { bytesToBase64 } from "../../internal/encoding";
+import { base64ToBytes, bytesToBase64 } from "../../internal/encoding";
 import {
   SENDGRID_API_BASE,
   SENDGRID_SIGNATURE_HEADER,
@@ -24,23 +23,42 @@ const NOW = Date.parse("2026-10-27T12:00:30.000Z");
 const MESSAGE_ID = "W4bXK2lzRz-9fI0sJ3a1Rg";
 const SG_MESSAGE_ID = `${MESSAGE_ID}.filterdrecv-5bd8cbd9f8-abcde-1-6719F2A6-1.0`;
 
-/** Makes one P-256 key pair, with its public key as a base64 SubjectPublicKeyInfo. */
-async function keyPair(): Promise<{ publicKey: string; privateKey: CryptoKey }> {
-  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
-    "sign",
-    "verify",
-  ])) as CryptoKeyPair;
-  const spki = (await crypto.subtle.exportKey("spki", pair.publicKey)) as ArrayBuffer;
-  return { publicKey: bytesToBase64(new Uint8Array(spki)), privateKey: pair.privateKey };
+/**
+ * The public key of the fixture: a base64 SubjectPublicKeyInfo, as the console shows it.
+ * For tests only. Never use it in production config.
+ */
+export const SENDGRID_FIXTURE_PUBLIC_KEY =
+  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqaq3YcAU+LckULQaKImC7UcXbbnzO1l5gjqYBsJkQd2Uw4++wMvYj3uKaHGq/6DNjN2P9+iejqaaIZhTK0d+rQ==";
+/**
+ * The public key of a second key pair. Its signatures do not match the fixture key.
+ * For tests only. Never use it in production config.
+ */
+export const SENDGRID_FIXTURE_OTHER_PUBLIC_KEY =
+  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAphOu0Z0O5IF4CaVkl795mj113P+uGD4FXAQJAG93jGjmtg0XKtpjbRmGhcmfvNHRphTpUfGMpfR3OM47KOlRg==";
+
+// The PKCS #8 private keys of the two pairs. Test-only values that protect nothing.
+const FIXTURE_PRIVATE_KEY =
+  "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWpZOBLVh0gigvTAf7hwcZo2DY/irEZ15pdH+vBvTiRmhRANCAASpqrdhwBT4tyRQtBooiYLtRxdtufM7WXmCOpgGwmRB3ZTDj77Ay9iPe4pocar/oM2M3Y/36J6OppohmFMrR36t";
+const OTHER_PRIVATE_KEY =
+  "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgsapNVq9SlePozErMELFMu+k+JDF4LaVvOsCf9XhlCk2hRANCAAQCmE67RnQ7kgXgJpWSXv3maPXXc/64YPgVcBAkAb3eMaOa2DRcq2mNtGYaFyZ+80dGmFOlR8Yyl9Hc4zjso6VG";
+
+const privateKeys = new Map<string, Promise<CryptoKey>>();
+
+/** Imports one PKCS #8 private key on first use, and keeps it for later calls. */
+function importPrivateKey(pkcs8: string): Promise<CryptoKey> {
+  let key = privateKeys.get(pkcs8);
+  if (key === undefined) {
+    key = crypto.subtle.importKey(
+      "pkcs8",
+      base64ToBytes(pkcs8) as Uint8Array<ArrayBuffer>,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+    privateKeys.set(pkcs8, key);
+  }
+  return key;
 }
-
-const FIXTURE_PAIR = await keyPair();
-const OTHER_PAIR = await keyPair();
-
-/** The public key of the fixture: a base64 SubjectPublicKeyInfo, as the console shows it. */
-export const SENDGRID_FIXTURE_PUBLIC_KEY: string = FIXTURE_PAIR.publicKey;
-/** The public key of a second key pair. Its signatures do not match the fixture key. */
-export const SENDGRID_FIXTURE_OTHER_PUBLIC_KEY: string = OTHER_PAIR.publicKey;
 
 /** The DER form of one 32-byte integer: no leading zero bytes, and a 0x00 when the top bit is set. */
 function derInteger(bytes: Uint8Array): number[] {
@@ -57,8 +75,10 @@ export function rawToDerSignature(raw: Uint8Array): Uint8Array {
   return Uint8Array.from([0x30, body.length, ...body]);
 }
 
-function privateKeyOf(publicKey: string): CryptoKey {
-  return publicKey === OTHER_PAIR.publicKey ? OTHER_PAIR.privateKey : FIXTURE_PAIR.privateKey;
+function privateKeyOf(publicKey: string): Promise<CryptoKey> {
+  return importPrivateKey(
+    publicKey === SENDGRID_FIXTURE_OTHER_PUBLIC_KEY ? OTHER_PRIVATE_KEY : FIXTURE_PRIVATE_KEY,
+  );
 }
 
 /**
@@ -73,7 +93,7 @@ export async function signSendgridWebhook(input: {
   const timestamp = String(Math.floor(input.at / 1000));
   const raw = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
-    privateKeyOf(input.secret),
+    await privateKeyOf(input.secret),
     sendgridSignedPayload(timestamp, input.body),
   );
   return {

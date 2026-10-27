@@ -9,12 +9,33 @@
 // https://postmarkapp.com/developer/webhooks/spam-complaint-webhook
 
 import { POSTMARK_API_BASE, postmarkWebhookAuthorization } from "../../providers/postmark/index";
-import type { ConformanceFixture } from "../types";
+import type { ConformanceFixture, WebhookSample } from "../types";
 
 const NOW = Date.parse("2026-10-26T12:00:30.000Z");
 const MESSAGE_ID = "883953f4-6105-42a2-a16a-77a8eac79483";
-/** The webhook secret of the fixture: 32 base64url characters (192 bits). */
+/**
+ * The webhook secret of the fixture: 32 base64url characters (192 bits).
+ * For tests only. Never use it in production config.
+ */
 export const POSTMARK_FIXTURE_SECRET = "Zm9yLXRlc3RzLW9ubHktbm90LXJlYWwh";
+
+/**
+ * Signs a body the way Postmark does: with Basic auth. Basic auth covers no body and no
+ * time, so the helper ignores `at`.
+ */
+export async function signPostmarkWebhook(input: {
+  body: Uint8Array;
+  secret: string;
+  at?: number;
+}): Promise<WebhookSample> {
+  return {
+    headers: new Headers({
+      authorization: postmarkWebhookAuthorization(input.secret),
+      "content-type": "application/json",
+    }),
+    body: input.body,
+  };
+}
 
 interface SentBody {
   Headers?: { Name: string; Value: string }[];
@@ -178,12 +199,7 @@ export function postmarkFixture(): ConformanceFixture {
     },
     webhook: {
       secret: POSTMARK_FIXTURE_SECRET,
-      async sign({ body, secret }) {
-        return {
-          headers: new Headers({ authorization: postmarkWebhookAuthorization(secret) }),
-          body,
-        };
-      },
+      sign: signPostmarkWebhook,
       // Basic auth covers no timestamp.
       staleAt: null,
       // Basic auth covers no body either, so a changed JSON body passes the password

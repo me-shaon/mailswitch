@@ -22,6 +22,7 @@
       "mailswitch/crypto": ["./src/crypto/index.ts"],
       "mailswitch/testing": ["./src/testing/index.ts"],
       "mailswitch/conformance": ["./src/conformance/index.ts"],
+      "mailswitch/conformance/fixtures": ["./src/conformance/fixtures/index.ts"],
       "mailswitch/resend": ["./src/providers/resend/index.ts"],
       "mailswitch/tosend": ["./src/providers/tosend/index.ts"],
       "mailswitch/postmark": ["./src/providers/postmark/index.ts"],
