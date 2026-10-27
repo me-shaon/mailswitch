@@ -41,6 +41,7 @@ describe("catalog", () => {
       ["cloudflare-binding", 1],
       ["mailgun", 1],
       ["postmark", 1],
+      ["sendgrid", 1],
       ["ses", 1],
       ["smtp", 1],
     ]);
@@ -48,6 +49,8 @@ describe("catalog", () => {
     expect(getProviderMeta("ses")?.name).toBe("Amazon SES");
     expect(getProviderMeta("resend")?.name).toBe("Resend");
     expect(getProviderMeta("tosend")?.capabilities.idempotency).toBe(false);
+    expect(getProviderMeta("sendgrid")?.name).toBe("SendGrid");
+    expect(getProviderMeta("sendgrid")?.webhooks).toBe(true);
     expect(getProviderMeta("nope")).toBeUndefined();
   });
 
@@ -91,6 +94,7 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/cloudflare/meta.ts");
     expect(files).toContain("../../src/providers/mailgun/meta.ts");
     expect(files).toContain("../../src/providers/postmark/meta.ts");
+    expect(files).toContain("../../src/providers/sendgrid/meta.ts");
     expect(files).toContain("../../src/providers/ses/meta.ts");
     expect(files).toContain("../../src/providers/smtp/meta.ts");
     for (const [file, text] of Object.entries(sources)) {

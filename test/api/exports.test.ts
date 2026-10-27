@@ -173,6 +173,22 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "postmarkWebhooks",
     ],
   },
+  "./sendgrid": {
+    load: () => import("../../src/providers/sendgrid/index"),
+    names: [
+      "SENDGRID_API_BASE",
+      "SENDGRID_EU_API_BASE",
+      "SENDGRID_SIGNATURE_HEADER",
+      "SENDGRID_TIMESTAMP_HEADER",
+      "SENDGRID_WEBHOOK_TOLERANCE_MS",
+      "parseSendgridEvents",
+      "sendgrid",
+      "sendgridMeta",
+      "sendgridSignedPayload",
+      "sendgridWebhooks",
+      "verifySendgridWebhook",
+    ],
+  },
   "./ses": {
     load: () => import("../../src/providers/ses/index"),
     names: [

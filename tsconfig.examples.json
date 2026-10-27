@@ -25,6 +25,7 @@
       "mailswitch/resend": ["./src/providers/resend/index.ts"],
       "mailswitch/tosend": ["./src/providers/tosend/index.ts"],
       "mailswitch/postmark": ["./src/providers/postmark/index.ts"],
+      "mailswitch/sendgrid": ["./src/providers/sendgrid/index.ts"],
       "mailswitch/ses": ["./src/providers/ses/index.ts"],
       "mailswitch/mailgun": ["./src/providers/mailgun/index.ts"],
       "mailswitch/cloudflare": ["./src/providers/cloudflare/index.ts"],

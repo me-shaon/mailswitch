@@ -6,6 +6,7 @@ import { cloudflareBindingMeta, cloudflareRestMeta } from "../providers/cloudfla
 import { mailgunMeta } from "../providers/mailgun/meta";
 import { postmarkMeta } from "../providers/postmark/meta";
 import { resendMeta } from "../providers/resend/meta";
+import { sendgridMeta } from "../providers/sendgrid/meta";
 import { sesMeta } from "../providers/ses/meta";
 import { smtpMeta } from "../providers/smtp/meta";
 import { toSendMeta } from "../providers/tosend/meta";
@@ -20,6 +21,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   cloudflareBindingMeta,
   mailgunMeta,
   postmarkMeta,
+  sendgridMeta,
   sesMeta,
   smtpMeta,
 ]);

@@ -84,6 +84,10 @@
       "types": "./dist/providers/postmark/index.d.ts",
       "import": "./dist/providers/postmark/index.js"
     },
+    "./sendgrid": {
+      "types": "./dist/providers/sendgrid/index.d.ts",
+      "import": "./dist/providers/sendgrid/index.js"
+    },
     "./ses": {
       "types": "./dist/providers/ses/index.d.ts",
       "import": "./dist/providers/ses/index.js"
