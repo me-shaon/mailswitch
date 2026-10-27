@@ -1,5 +1,5 @@
-// The AhaSend request body of one message. Internal to the adapter. It is not a public
-// export. Checked 2026-10-27.
+// The AhaSend request body of one message. Internal to the adapter, except
+// `AHASEND_MAX_LIST_RECIPIENTS`, which the subpath exports. Checked 2026-10-27.
 // https://ahasend.com/docs/api-reference/messages/create-conversation.md
 
 import type { OutgoingMessage } from "../../core/types";

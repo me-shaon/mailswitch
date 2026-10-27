@@ -1,15 +1,6 @@
 // The engine of the generic HTTP provider. The code API and the JSON config API both build
 // their adapter here, so both follow the same host rules and the same status rules.
 // Internal to the provider.
-//
-// Each request:
-// 1. The message passes `validateMessage` and the refusal check of the API.
-// 2. The API builds the request. A build that throws or returns a bad request is
-//    `not_sent/invalid_message`, with no fetch.
-// 3. The URL passes the host rules, or the result is `not_sent/unsupported`, with no fetch.
-// 4. `callProvider` sends it with `redirect: "manual"`. A timeout or a thrown fetch is
-//    `unknown`, with a message that holds no URL.
-// 5. `classifyHttp` classifies the status, with the hook answer when there is a hook.
 
 import {
   defineProvider,
@@ -27,19 +18,30 @@ import {
   classifyHttp,
   type HttpClassifyAnswer,
   type HttpStatusRules,
+  isSuccess,
   sentResult,
   transportOutcome,
 } from "./classify";
 import { checkRequestUrl, describeBreak, type UrlRuleOptions } from "./hosts";
 
 /** The request methods that the generic provider sends. */
-export const HTTP_METHODS: readonly string[] = Object.freeze([
+export const HTTP_METHODS: readonly ["GET", "HEAD", "POST", "PUT", "PATCH"] = Object.freeze([
   "GET",
   "HEAD",
   "POST",
   "PUT",
   "PATCH",
-]);
+] as const);
+
+/** One of `HTTP_METHODS`. */
+export type HttpMethod = (typeof HTTP_METHODS)[number];
+
+/** The operation of one request. */
+export type HttpOperation = "send" | "verify";
+
+function isHttpMethod(value: unknown): value is HttpMethod {
+  return typeof value === "string" && (HTTP_METHODS as readonly string[]).includes(value);
+}
 
 /** The body of a request. An object or an array is sent as JSON. */
 export type HttpRequestBody =
@@ -70,7 +72,7 @@ export interface HttpRequestContext {
 
 /** What a `classify` hook gets. */
 export interface HttpClassifyInput {
-  operation: "send" | "verify";
+  operation: HttpOperation;
   status: number;
   headers: Headers;
   /** The parsed JSON body, or null for an empty or a non-JSON body. */
@@ -182,12 +184,10 @@ function readPath(value: unknown, path: string): unknown {
 
 /** A message id that is safe to return, or undefined. */
 function cleanId(value: unknown): string | undefined {
-  const text =
-    typeof value === "number" && Number.isFinite(value)
-      ? String(value)
-      : typeof value === "string"
-        ? value.trim()
-        : "";
+  let text: string;
+  if (typeof value === "number" && Number.isFinite(value)) text = String(value);
+  else if (typeof value === "string") text = value.trim();
+  else return undefined;
   if (text === "" || text.length > MAX_ID_LENGTH || hasForbiddenChars(text)) return undefined;
   return text;
 }
@@ -211,7 +211,7 @@ type Prepared = { ok: true; init: PreparedRequest } | { ok: false; result: NotSe
 
 interface PreparedRequest {
   url: string;
-  method: string;
+  method: HttpMethod;
   headers: Headers;
   body?: string | Uint8Array<ArrayBuffer>;
 }
@@ -225,7 +225,7 @@ export function createHttpAdapter(spec: HttpEngineSpec): ProviderAdapter {
     return { ok: false, result: { status: "not_sent", reason, message, provider } };
   }
 
-  function prepare(build: () => HttpRequest, operation: "send" | "verify"): Prepared {
+  function prepare(build: () => HttpRequest, operation: HttpOperation): Prepared {
     let request: HttpRequest;
     try {
       request = build();
@@ -240,7 +240,7 @@ export function createHttpAdapter(spec: HttpEngineSpec): ProviderAdapter {
       return refusal("invalid_message", `The ${operation} request builder returned no request.`);
     }
     const method = request.method ?? (operation === "send" ? "POST" : "GET");
-    if (typeof method !== "string" || !HTTP_METHODS.includes(method)) {
+    if (!isHttpMethod(method)) {
       return refusal(
         "invalid_message",
         `The ${operation} request has a method that is not allowed.`,
@@ -284,7 +284,7 @@ export function createHttpAdapter(spec: HttpEngineSpec): ProviderAdapter {
   async function call(
     prepared: PreparedRequest,
     ctx: SendContext,
-    operation: "send" | "verify",
+    operation: HttpOperation,
   ): Promise<SendResult> {
     const result = await callProvider({
       url: prepared.url,
@@ -298,10 +298,10 @@ export function createHttpAdapter(spec: HttpEngineSpec): ProviderAdapter {
     });
     if (!result.ok) return { ...transportOutcome(result.result.reason), provider };
     const { response } = result;
-    const success = response.status >= 200 && response.status <= 299;
     const hook = spec.classify;
     const wantsBody =
-      hook !== undefined || (success && operation === "send" && spec.idFrom !== undefined);
+      hook !== undefined ||
+      (isSuccess(response.status) && operation === "send" && spec.idFrom !== undefined);
     let body: unknown = null;
     if (wantsBody) body = await readJson(response);
     else await discardBody(response);

@@ -29,6 +29,7 @@ import {
   withProvider,
 } from "../../internal/http";
 import { asRecord } from "../../internal/json";
+import { verifyByGet } from "../../internal/verify";
 import { mailtrapMeta } from "./meta";
 import { mailtrapPayload } from "./payload";
 import { mailtrapWebhooks } from "./webhooks";
@@ -168,22 +169,19 @@ export function mailtrap(options: MailtrapOptions = {}): MailtrapAdapter {
     return accepted(await readJson(response), response.status);
   }
 
-  async function verify(ctx: SendContext): Promise<VerifyResult> {
+  function verify(ctx: SendContext): Promise<VerifyResult> {
     // The account list is an authenticated read on its own host. It sends no email.
-    const call = await callProvider({
-      url: `${urls.accounts}/api/accounts`,
-      method: "GET",
-      headers: headers(ctx),
-      timeoutMs: ctx.timeoutMs,
-      fetch: ctx.fetch,
-    });
-    if (!call.ok) return { ...withProvider(call.result, PROVIDER), ok: false };
-    await discardBody(call.response);
-    if (call.response.ok) return { ok: true };
-    return {
-      ...classifyFailure(call.response, mailtrapMeta.statusMap, ctx.now, PROVIDER),
-      ok: false,
-    };
+    return verifyByGet(
+      {
+        url: `${urls.accounts}/api/accounts`,
+        headers: headers(ctx),
+        timeoutMs: ctx.timeoutMs,
+        fetch: ctx.fetch,
+      },
+      PROVIDER,
+      mailtrapMeta.statusMap,
+      ctx.now,
+    );
   }
 
   const adapter = defineProvider({ meta: mailtrapMeta, send, verify, webhooks });

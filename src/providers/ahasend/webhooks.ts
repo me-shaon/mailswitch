@@ -86,7 +86,6 @@ export async function verifyAhasendWebhook(
   if (Math.abs(input.now - Number(timestamp) * 1000) > AHASEND_WEBHOOK_TOLERANCE_MS) {
     return { ok: false, reason: "stale" };
   }
-  // Only a verified body is decoded.
   return asRecord(decodeJsonBytes(input.body)) === undefined
     ? { ok: false, reason: "malformed" }
     : { ok: true };

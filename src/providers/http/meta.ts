@@ -5,7 +5,8 @@
 // the catalog entry `http`, never the id of a built adapter.
 
 import { defineStatusMap } from "../../core/classify";
-import { defineProviderMeta, type ProviderMeta } from "../../core/meta";
+import { type CredentialField, defineProviderMeta, type ProviderMeta } from "../../core/meta";
+import type { Capabilities } from "../../core/types";
 
 /** The docs URL of the generic provider. */
 export const HTTP_DOCS_URL =
@@ -46,3 +47,27 @@ export const httpMeta: ProviderMeta = defineProviderMeta({
   webhooks: false,
   nativeIdempotency: false,
 });
+
+/**
+ * The meta of one built generic adapter, at tier 2. The base table of the generic
+ * provider is in classify.ts, and a tier 2 status map keeps every 5xx unknown.
+ */
+export function genericMeta(
+  id: string,
+  name: string,
+  capabilities: Capabilities,
+  credentialFields: readonly CredentialField[],
+  docsUrl: string,
+): ProviderMeta {
+  return defineProviderMeta({
+    id,
+    name,
+    tier: 2,
+    capabilities,
+    credentialFields,
+    docsUrl,
+    statusMap: defineStatusMap({}),
+    webhooks: false,
+    nativeIdempotency: false,
+  });
+}

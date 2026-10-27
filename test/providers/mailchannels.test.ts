@@ -518,6 +518,18 @@ describe("mailchannels webhooks", () => {
     expect((error as Error).message).not.toContain(secret);
   });
 
+  it("throws at setup for a PEM block that is not a PUBLIC KEY", async () => {
+    const sample = await signed(THREE_EVENTS);
+    for (const label of ["PRIVATE KEY", "CERTIFICATE"]) {
+      const secret = `-----BEGIN ${label}-----\n${PUBLIC_KEY}\n-----END ${label}-----\n`;
+      const error = await hooks.verify(input(sample, secret)).catch((caught: unknown) => caught);
+      expect(error).toEqual(
+        new TypeError("The MailChannels webhook secret is not a base64 public key."),
+      );
+      expect((error as Error).message).not.toContain(PUBLIC_KEY);
+    }
+  });
+
   it("gives unknown for an unmapped event and reads recipients with care", () => {
     const body = utf8(
       JSON.stringify([

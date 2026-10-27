@@ -26,7 +26,7 @@ import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
 import { ed25519Verify } from "../../internal/ed25519";
 import { base64ToBytes, bytesToBase64, isBase64, utf8 } from "../../internal/encoding";
 import { asRecord, stringField } from "../../internal/json";
-import { decodeJsonBytes, timingSafeEqualText } from "../../internal/webhook-bytes";
+import { decodeJsonBytes } from "../../internal/webhook-bytes";
 
 /** The digest header of a MailChannels webhook request. */
 export const MAILCHANNELS_DIGEST_HEADER = "content-digest";
@@ -67,13 +67,14 @@ export async function mailchannelsContentDigest(body: Uint8Array): Promise<strin
 }
 
 /**
- * Reads the public key text. It accepts base64 and a PEM block, with the armor lines and
- * the white space removed.
+ * Reads the public key text. It accepts base64 and a `PUBLIC KEY` PEM block, with the
+ * armor lines and the white space removed. The armor of any other label stays in the
+ * text, so the base64 check refuses it.
  *
  * @throws TypeError when the key is not base64. The message never holds the key.
  */
 function keyText(secret: string): string {
-  const text = secret.replace(/-----[A-Z ]+-----/g, "").replace(/\s+/g, "");
+  const text = secret.replace(/-----(?:BEGIN|END) PUBLIC KEY-----/g, "").replace(/\s+/g, "");
   if (!isBase64(text)) {
     throw new TypeError("The MailChannels webhook secret is not a base64 public key.");
   }
@@ -182,9 +183,10 @@ export async function verifyMailchannelsWebhook(
   if (!(await ed25519Verify(key, signature.bytes, base))) {
     return { ok: false, reason: "bad_signature" };
   }
-  // The signed digest must match the raw body bytes.
+  // The signed digest must match the raw body bytes. The digest is not a secret, so a
+  // plain comparison is enough.
   const actual = (await mailchannelsContentDigest(input.body)).slice("sha-256=:".length, -1);
-  if (!(await timingSafeEqualText(actual, expected))) {
+  if (actual !== expected) {
     return { ok: false, reason: "bad_signature" };
   }
   // A replayed request carries its old `created` time, and the signature covers it.
@@ -196,7 +198,6 @@ export async function verifyMailchannelsWebhook(
   ) {
     return { ok: false, reason: "stale" };
   }
-  // Only a verified body is decoded.
   const value = decodeJsonBytes(input.body);
   return Array.isArray(value) && value.length <= MAILCHANNELS_MAX_WEBHOOK_EVENTS
     ? { ok: true }
@@ -215,7 +216,7 @@ function recipientsOf(record: Record<string, unknown>): string[] {
   const list = record.recipients;
   if (!Array.isArray(list)) return [];
   const out: string[] = [];
-  for (const item of list as unknown[]) {
+  for (const item of list) {
     const email =
       typeof item === "string" ? item.trim() : stringField(asRecord(item) ?? {}, "email");
     if (email) out.push(email);
@@ -239,7 +240,7 @@ export function parseMailchannelsEvents(provider: string, body: Uint8Array): Nor
   const value = decodeJsonBytes(body);
   if (!Array.isArray(value)) return [];
   const out: NormalizedEvent[] = [];
-  for (const item of value as unknown[]) {
+  for (const item of value) {
     const record = asRecord(item);
     if (record === undefined) continue;
     const rawType = stringField(record, "event") ?? "unknown";

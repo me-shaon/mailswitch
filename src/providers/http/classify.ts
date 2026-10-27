@@ -88,8 +88,13 @@ export function parseStatusRules(
   return { notSent, unknown };
 }
 
+/** True for a 2xx status. */
+export function isSuccess(status: number): boolean {
+  return Number.isInteger(status) && status >= 200 && status <= 299;
+}
+
 /** True when the rules allow `not_sent` for this status. This is the guard of the rule. */
-export function mayBeNotSent(status: number, rules: HttpStatusRules): boolean {
+function mayBeNotSent(status: number, rules: HttpStatusRules): boolean {
   return (
     Number.isInteger(status) &&
     status >= 400 &&
@@ -144,7 +149,7 @@ function tableOutcome(
   rules: HttpStatusRules,
   now: number,
 ): HttpOutcome {
-  if (Number.isInteger(status) && status >= 200 && status <= 299) return { status: "sent" };
+  if (isSuccess(status)) return { status: "sent" };
   if (rules.unknown.has(status)) return unknownOutcome(status);
   const base = Object.hasOwn(HTTP_BASE_NOT_SENT, status) ? HTTP_BASE_NOT_SENT[status] : undefined;
   if (base !== undefined) return notSentOutcome(status, base, headers, now);
@@ -170,7 +175,7 @@ export function classifyHttp(
   if (outcome.status === "not_sent" && !mayBeNotSent(status, rules)) {
     return unknownOutcome(status);
   }
-  if (outcome.status === "sent" && !(Number.isInteger(status) && status >= 200 && status <= 299)) {
+  if (outcome.status === "sent" && !isSuccess(status)) {
     return unknownOutcome(status);
   }
   return outcome;

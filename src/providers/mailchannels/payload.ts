@@ -1,5 +1,5 @@
-// The MailChannels request body of one message. Internal to the adapter. It is not a
-// public export.
+// The MailChannels request body of one message. Internal to the adapter, except
+// `MAILCHANNELS_MAX_HEADER_BYTES`, which the subpath exports.
 // https://docs.mailchannels.com/api-reference/send/send-an-email
 
 import type { OutgoingMessage } from "../../core/types";

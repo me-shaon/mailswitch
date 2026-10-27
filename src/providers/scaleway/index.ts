@@ -30,15 +30,9 @@ import type {
   UnknownResult,
 } from "../../core/types";
 import { credentialOrOption } from "../../internal/credential";
-import {
-  callProvider,
-  classifyFailure,
-  discardBody,
-  parseBaseUrl,
-  readJson,
-  withProvider,
-} from "../../internal/http";
+import { callProvider, parseBaseUrl, readJson, withProvider } from "../../internal/http";
 import { asRecord } from "../../internal/json";
+import { classifyWithBody, verifyByGet } from "../../internal/verify";
 import { scalewayMeta } from "./meta";
 import { scalewayPayload, scalewayRefusal } from "./payload";
 
@@ -88,13 +82,8 @@ function refine(result: NotSentResult, json: unknown): NotSentResult {
 }
 
 /** Classifies a failed response. Only a `not_sent` body is read. */
-async function failure(response: Response, now: number): Promise<NotSentResult | UnknownResult> {
-  const outcome = classifyFailure(response, scalewayMeta.statusMap, now, PROVIDER);
-  if (outcome.status === "unknown") {
-    await discardBody(response);
-    return outcome;
-  }
-  return refine(outcome, await readJson(response));
+function failure(response: Response, now: number): Promise<NotSentResult | UnknownResult> {
+  return classifyWithBody(response, scalewayMeta.statusMap, now, PROVIDER, refine);
 }
 
 function unclear(httpStatus: number, message: string): UnknownResult {
@@ -189,19 +178,18 @@ export function scaleway(options: ScalewayOptions = {}): ProviderAdapter {
     if (projectId === "") return { ...noProject(), ok: false };
     // The domain list is an authenticated read. It sends no email. An empty list is ok.
     const query = `project_id=${encodeURIComponent(projectId)}&page_size=1`;
-    const call = await callProvider({
-      url: `${base}/domains?${query}`,
-      method: "GET",
-      headers: headers(ctx),
-      timeoutMs: ctx.timeoutMs,
-      fetch: ctx.fetch,
-    });
-    if (!call.ok) return { ...withProvider(call.result, PROVIDER), ok: false };
-    if (call.response.ok) {
-      await discardBody(call.response);
-      return { ok: true };
-    }
-    return { ...(await failure(call.response, ctx.now)), ok: false };
+    return verifyByGet(
+      {
+        url: `${base}/domains?${query}`,
+        headers: headers(ctx),
+        timeoutMs: ctx.timeoutMs,
+        fetch: ctx.fetch,
+      },
+      PROVIDER,
+      scalewayMeta.statusMap,
+      ctx.now,
+      (response) => failure(response, ctx.now),
+    );
   }
 
   return defineProvider({ meta: scalewayMeta, send, verify });

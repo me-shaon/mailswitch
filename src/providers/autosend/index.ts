@@ -33,15 +33,9 @@ import type {
   UnknownResult,
 } from "../../core/types";
 import { credentialOrOption } from "../../internal/credential";
-import {
-  callProvider,
-  classifyFailure,
-  discardBody,
-  parseBaseUrl,
-  readJson,
-  withProvider,
-} from "../../internal/http";
+import { callProvider, parseBaseUrl, readJson, withProvider } from "../../internal/http";
 import { asRecord, numberField } from "../../internal/json";
+import { classifyWithBody, verifyByGet } from "../../internal/verify";
 import { autosendMeta } from "./meta";
 import { autosendPayload, autosendRefusal } from "./payload";
 import { autosendWebhooks } from "./webhooks";
@@ -121,13 +115,8 @@ function refine(result: NotSentResult, json: unknown): NotSentResult {
 }
 
 /** Classifies a failed response. Only a `not_sent` body is read. */
-async function failure(response: Response, now: number): Promise<NotSentResult | UnknownResult> {
-  const outcome = classifyFailure(response, autosendMeta.statusMap, now, PROVIDER);
-  if (outcome.status === "unknown") {
-    await discardBody(response);
-    return outcome;
-  }
-  return refine(outcome, await readJson(response));
+function failure(response: Response, now: number): Promise<NotSentResult | UnknownResult> {
+  return classifyWithBody(response, autosendMeta.statusMap, now, PROVIDER, refine);
 }
 
 /** Reads a 2xx send answer. Only `success: true` with a string `data.emailId` is `sent`. */
@@ -218,19 +207,18 @@ export function autosend(options: AutosendOptions = {}): AutosendAdapter {
     const verifyHeaders = headers(ctx);
     if (verifyHeaders === null) return { ...noProject(), ok: false };
     // The domain list is an authenticated read. It sends no email. An empty list is ok.
-    const call = await callProvider({
-      url: `${base}/v1/domains`,
-      method: "GET",
-      headers: verifyHeaders,
-      timeoutMs: ctx.timeoutMs,
-      fetch: ctx.fetch,
-    });
-    if (!call.ok) return { ...withProvider(call.result, PROVIDER), ok: false };
-    if (call.response.ok) {
-      await discardBody(call.response);
-      return { ok: true };
-    }
-    return { ...(await failure(call.response, ctx.now)), ok: false };
+    return verifyByGet(
+      {
+        url: `${base}/v1/domains`,
+        headers: verifyHeaders,
+        timeoutMs: ctx.timeoutMs,
+        fetch: ctx.fetch,
+      },
+      PROVIDER,
+      autosendMeta.statusMap,
+      ctx.now,
+      (response) => failure(response, ctx.now),
+    );
   }
 
   const adapter = defineProvider({ meta: autosendMeta, send, verify, webhooks });

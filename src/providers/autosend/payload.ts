@@ -7,13 +7,13 @@ import { addressObject } from "../../internal/address";
 import { attachmentBase64 } from "../../internal/encoding";
 
 /** The most custom headers of one email. */
-export const MAX_HEADERS = 20;
+const MAX_HEADERS = 20;
 /** The most attachments of one email. */
-export const MAX_ATTACHMENTS = 20;
+const MAX_ATTACHMENTS = 20;
 /** The longest subject, in characters. */
-export const MAX_SUBJECT = 998;
+const MAX_SUBJECT = 998;
 /** The longest custom header value, in characters. */
-export const MAX_HEADER_VALUE = 1000;
+const MAX_HEADER_VALUE = 1000;
 
 const HEADER_NAME = /^[A-Za-z0-9-]{1,76}$/;
 
@@ -23,7 +23,7 @@ const HEADER_NAME = /^[A-Za-z0-9-]{1,76}$/;
  * say whether AutoSend refuses them or drops them. mailswitch passes those two through,
  * so the send call decides.
  */
-export const RESERVED_HEADERS: ReadonlySet<string> = new Set([
+const RESERVED_HEADERS: ReadonlySet<string> = new Set([
   "from",
   "to",
   "cc",

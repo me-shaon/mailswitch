@@ -27,6 +27,7 @@ import {
   withProvider,
 } from "../../internal/http";
 import { asRecord, stringField } from "../../internal/json";
+import { verifyByGet } from "../../internal/verify";
 import { ahasendMeta } from "./meta";
 import { ahasendPayload, messageProblem, recipientCount } from "./payload";
 import { ahasendWebhooks } from "./webhooks";
@@ -108,7 +109,7 @@ function accepted(body: unknown, recipients: number): SendResult {
   const list = asRecord(body)?.data;
   if (!Array.isArray(list) || list.length === 0) return unreadable();
   let errors = 0;
-  for (const item of list as unknown[]) {
+  for (const item of list) {
     const entry = asRecord(item);
     const status = entry?.status;
     if (entry !== undefined && (status === "queued" || status === "scheduled")) {
@@ -194,22 +195,14 @@ export function ahasend(options: AhasendOptions = {}): AhasendAdapter {
     return accepted(await readJson(response), recipientCount(message));
   }
 
-  async function verify(ctx: SendContext): Promise<VerifyResult> {
+  function verify(ctx: SendContext): Promise<VerifyResult> {
     // Ping is authenticated and sends no email.
-    const call = await callProvider({
-      url: `${base}/v2/ping`,
-      method: "GET",
-      headers: headers(ctx),
-      timeoutMs: ctx.timeoutMs,
-      fetch: ctx.fetch,
-    });
-    if (!call.ok) return { ...withProvider(call.result, PROVIDER), ok: false };
-    await discardBody(call.response);
-    if (call.response.ok) return { ok: true };
-    return {
-      ...classifyFailure(call.response, ahasendMeta.statusMap, ctx.now, PROVIDER),
-      ok: false,
-    };
+    return verifyByGet(
+      { url: `${base}/v2/ping`, headers: headers(ctx), timeoutMs: ctx.timeoutMs, fetch: ctx.fetch },
+      PROVIDER,
+      ahasendMeta.statusMap,
+      ctx.now,
+    );
   }
 
   const adapter = defineProvider({ meta: ahasendMeta, send, verify, webhooks });

@@ -12,8 +12,6 @@
 //   deployer.
 
 import type { ProviderAdapter } from "../../core/adapter";
-import { defineStatusMap } from "../../core/classify";
-import { defineProviderMeta } from "../../core/meta";
 import type { AddressInput, OutgoingMessage } from "../../core/types";
 import { addressObject, formatAddress, hasForbiddenChars } from "../../internal/address";
 import { attachmentBase64, basicAuthorization } from "../../internal/encoding";
@@ -28,7 +26,7 @@ import {
 } from "./adapter";
 import { parseStatusRules } from "./classify";
 import { checkRequestUrl, describeBreak, parseAllowHosts, type UrlRuleOptions } from "./hosts";
-import { HTTP_DOCS_URL, httpMeta } from "./meta";
+import { genericMeta, HTTP_DOCS_URL, httpMeta } from "./meta";
 
 /** The body keys of the message parts. `from`, `to`, `subject`, and `attachments` are required. */
 export interface HttpFieldMap {
@@ -189,12 +187,15 @@ function checkUrl(value: unknown, field: string, rules: UrlRuleOptions): string 
   return checked.url.href;
 }
 
-function oneOf<T extends string>(value: unknown, field: string, allowed: readonly T[], def: T): T {
-  if (value === undefined) return def;
+function pick<T extends string>(value: unknown, field: string, allowed: readonly T[]): T {
   if (typeof value !== "string" || !allowed.includes(value as T)) {
     fail(field, `must be one of ${allowed.join(", ")}.`);
   }
   return value as T;
+}
+
+function oneOf<T extends string>(value: unknown, field: string, allowed: readonly T[], def: T): T {
+  return value === undefined ? def : pick(value, field, allowed);
 }
 
 function headerName(value: unknown, field: string): string {
@@ -213,7 +214,7 @@ function checkAuth(value: unknown): { header: AuthHeader; name: string } {
   const record = asRecord(value);
   if (!record) fail("auth", "must be an object.");
   if (record.type === undefined) fail("auth.type", "is required.");
-  const type = oneOf(record.type, "auth.type", ["bearer", "header", "basic"] as const, "bearer");
+  const type = pick(record.type, "auth.type", ["bearer", "header", "basic"] as const);
   if (type === "bearer") {
     closed(record, "auth", ["type"]);
     return { name: "authorization", header: (token) => ["authorization", `Bearer ${token}`] };
@@ -277,7 +278,7 @@ function checkRequestHeaders(value: unknown, authName: string): [string, string]
   const out: [string, string][] = [];
   for (const [name, header] of Object.entries(record)) {
     // The name is not echoed: a misplaced secret could be a name.
-    const lower = typeof name === "string" && HEADER_NAME.test(name) ? name.toLowerCase() : "";
+    const lower = HEADER_NAME.test(name) ? name.toLowerCase() : "";
     if (lower === "") fail("requestHeaders", "has a name that is not a header name.");
     if (HTTP_AUTH_HEADERS.includes(lower) || SECRET_WORDS.test(lower) || lower === authName) {
       fail(
@@ -384,27 +385,24 @@ export function httpProviderFromConfig(
     `${LABEL}: config.`,
   );
 
-  const meta = defineProviderMeta({
+  const meta = genericMeta(
     id,
     name,
-    tier: 2,
-    capabilities: {
+    {
       ...httpMeta.capabilities,
       cc: fields.cc !== undefined,
       bcc: fields.bcc !== undefined,
       replyTo: fields.replyTo !== undefined,
       customHeaders: fields.headers !== undefined,
     },
-    credentialFields: httpMeta.credentialFields,
-    docsUrl: HTTP_DOCS_URL,
-    statusMap: defineStatusMap({}),
-    webhooks: false,
-    nativeIdempotency: false,
-  });
+    httpMeta.credentialFields,
+    HTTP_DOCS_URL,
+  );
 
-  function headers(ctx: HttpRequestContext, json: boolean): Record<string, string> {
+  // The engine sends an object body as JSON, and sets `content-type` when no static
+  // header sets it.
+  function headers(ctx: HttpRequestContext): Record<string, string> {
     const out: Record<string, string> = { accept: "application/json" };
-    if (json) out["content-type"] = "application/json";
     for (const [key, value] of staticHeaders) out[key] = value;
     // The auth header goes last, so no static header can replace it.
     const [key, value] = auth.header((ctx.credentials.token ?? "").trim());
@@ -416,13 +414,13 @@ export function httpProviderFromConfig(
     return {
       url: endpoint,
       method,
-      headers: headers(ctx, true),
-      body: JSON.stringify(buildBody(message, fields, attachment, format === "string")),
+      headers: headers(ctx),
+      body: buildBody(message, fields, attachment, format === "string"),
     };
   }
 
   function verifyRequest(ctx: HttpRequestContext): HttpRequest {
-    return { url: verifyEndpoint, method: verifyMethod, headers: headers(ctx, false) };
+    return { url: verifyEndpoint, method: verifyMethod, headers: headers(ctx) };
   }
 
   function refuse(message: OutgoingMessage): string | null {

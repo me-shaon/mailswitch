@@ -114,6 +114,43 @@ describe("httpProviderFromConfig: send", () => {
     });
   });
 
+  it("sends the exact request bytes and headers for send and verify", async () => {
+    const rec = recorder(json(200, {}));
+    const adapter = build({ requestHeaders: { "X-Api-Version": "2" } });
+    const message = full({ cc: [], bcc: [], headers: {}, attachments: [] });
+    await adapter.send(message, context(rec));
+    await adapter.verify(context(rec));
+    expect(rec.calls[0]?.init.body).toBe(
+      JSON.stringify({
+        from: { email: "billing@example.com", name: "Acme Billing" },
+        to: [{ email: "ana@example.org", name: "Ana" }, { email: "bo@example.org" }],
+        reply_to: { email: "help@example.com" },
+        subject: "Your invoice",
+        html: "<p>Invoice attached.</p>",
+        text: "Invoice attached.",
+      }),
+    );
+    expect([...new Headers(rec.calls[0]?.init.headers)]).toEqual([
+      ["accept", "application/json"],
+      ["authorization", `Bearer ${TOKEN}`],
+      ["content-type", "application/json"],
+      ["x-api-version", "2"],
+    ]);
+    expect([...new Headers(rec.calls[1]?.init.headers)]).toEqual([
+      ["accept", "application/json"],
+      ["authorization", `Bearer ${TOKEN}`],
+      ["x-api-version", "2"],
+    ]);
+  });
+
+  it("keeps a static content-type header", async () => {
+    const rec = recorder(json(200, {}));
+    const requestHeaders = { "Content-Type": "application/vnd.mail+json" };
+    await build({ requestHeaders }).send(full(), context(rec));
+    const headers = new Headers(rec.calls[0]?.init.headers);
+    expect(headers.get("content-type")).toBe("application/vnd.mail+json");
+  });
+
   it("uses the default attachment keys when the config has no attachment sub-map", async () => {
     const rec = recorder(json(200, {}));
     const base = httpFixtureConfig();

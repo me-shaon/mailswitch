@@ -12,15 +12,14 @@
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
 import { bytesToHex, utf8 } from "../../internal/encoding";
-import { hmacSign, hmacVerify } from "../../internal/hmac";
+import { checkHexHmac } from "../../internal/hex-hmac-webhook";
+import { hmacSign } from "../../internal/hmac";
 import { asRecord, stringField } from "../../internal/json";
 import { sha256Hex } from "../../internal/sha256";
-import { decodeJsonBytes, hexToBytes } from "../../internal/webhook-bytes";
+import { decodeJsonBytes } from "../../internal/webhook-bytes";
 
 /** The header that carries the AutoSend signature. */
 export const AUTOSEND_SIGNATURE_HEADER = "x-webhook-signature";
-
-const SIGNATURE = /^[0-9a-f]{64}$/i;
 
 const TYPES: Readonly<Record<string, NormalizedEventType>> = {
   "email.delivered": "delivered",
@@ -49,16 +48,9 @@ export async function autosendSignature(secret: string, body: Uint8Array): Promi
 export async function verifyAutosendWebhook(
   input: WebhookVerifyInput,
 ): Promise<WebhookVerifyResult> {
-  if (key(input.secret) === "") return { ok: false, reason: "bad_signature" };
-  const header = input.headers.get(AUTOSEND_SIGNATURE_HEADER);
-  if (header === null) return { ok: false, reason: "bad_signature" };
-  const hex = header.trim();
-  if (!SIGNATURE.test(hex)) return { ok: false, reason: "malformed" };
-  const signature = hexToBytes(hex) ?? new Uint8Array(0);
-  if (!(await hmacVerify(key(input.secret), signature, input.body))) {
-    return { ok: false, reason: "bad_signature" };
-  }
-  // The signature covers the raw bytes. Only a verified body is decoded.
+  const secret = key(input.secret);
+  const reason = await checkHexHmac(secret, input.headers, AUTOSEND_SIGNATURE_HEADER, input.body);
+  if (reason !== undefined) return { ok: false, reason };
   return asRecord(decodeJsonBytes(input.body)) === undefined
     ? { ok: false, reason: "malformed" }
     : { ok: true };

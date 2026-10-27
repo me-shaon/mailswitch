@@ -11,15 +11,14 @@
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
 import { bytesToHex } from "../../internal/encoding";
-import { hmacSign, hmacVerify } from "../../internal/hmac";
+import { checkHexHmac } from "../../internal/hex-hmac-webhook";
+import { hmacSign } from "../../internal/hmac";
 import { asRecord, numberField, stringField } from "../../internal/json";
 import { sha256Hex } from "../../internal/sha256";
-import { decodeJsonBytes, hexToBytes } from "../../internal/webhook-bytes";
+import { decodeJsonBytes } from "../../internal/webhook-bytes";
 
 /** The header that carries the Mailtrap signature. */
 export const MAILTRAP_SIGNATURE_HEADER = "mailtrap-signature";
-
-const SIGNATURE = /^[0-9a-f]{64}$/i;
 
 const TYPES: Readonly<Record<string, NormalizedEventType>> = {
   delivery: "delivered",
@@ -50,14 +49,13 @@ function eventList(body: Uint8Array): unknown[] | undefined {
 export async function verifyMailtrapWebhook(
   input: WebhookVerifyInput,
 ): Promise<WebhookVerifyResult> {
-  if (input.secret === "") return { ok: false, reason: "bad_signature" };
-  const header = input.headers.get(MAILTRAP_SIGNATURE_HEADER);
-  if (header === null) return { ok: false, reason: "bad_signature" };
-  const hex = header.trim();
-  if (!SIGNATURE.test(hex)) return { ok: false, reason: "malformed" };
-  const valid = await hmacVerify(input.secret, hexToBytes(hex) ?? new Uint8Array(0), input.body);
-  if (!valid) return { ok: false, reason: "bad_signature" };
-  // The signature covers the raw bytes. Only a verified body is decoded.
+  const reason = await checkHexHmac(
+    input.secret,
+    input.headers,
+    MAILTRAP_SIGNATURE_HEADER,
+    input.body,
+  );
+  if (reason !== undefined) return { ok: false, reason };
   return eventList(input.body) === undefined ? { ok: false, reason: "malformed" } : { ok: true };
 }
 
@@ -76,12 +74,17 @@ export async function verifyMailtrapWebhook(
 export function parseMailtrapEvents(provider: string, body: Uint8Array): NormalizedEvent[] {
   const list = eventList(body) ?? [];
   const out: NormalizedEvent[] = [];
+  let bodyHash: string | undefined;
   list.forEach((item, index) => {
     const entry = asRecord(item);
     if (entry === undefined) return;
     const rawType = stringField(entry, "event") ?? "unknown";
     const type = TYPES[rawType] ?? "unknown";
-    const eventKey = stringField(entry, "event_id") ?? `${sha256Hex(body)}:${index}`;
+    let eventKey = stringField(entry, "event_id");
+    if (eventKey === undefined) {
+      bodyHash ??= sha256Hex(body);
+      eventKey = `${bodyHash}:${index}`;
+    }
     const event: NormalizedEvent = { type, provider, eventKey, rawType };
     if (type === "bounced") event.bounce = rawType === "bounce" ? "hard" : "soft";
     const recipient = stringField(entry, "email");

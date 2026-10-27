@@ -52,7 +52,7 @@ export function isIpv4Like(host: string): boolean {
 }
 
 /** Lowercases a host name and removes one trailing dot. */
-export function normalizeHost(host: string): string {
+function normalizeHost(host: string): string {
   const lower = host.toLowerCase();
   return lower.endsWith(".") ? lower.slice(0, -1) : lower;
 }

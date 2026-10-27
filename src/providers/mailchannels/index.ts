@@ -24,6 +24,7 @@ import {
   withProvider,
 } from "../../internal/http";
 import { asRecord, stringField } from "../../internal/json";
+import { verifyByGet } from "../../internal/verify";
 import { mailchannelsMeta } from "./meta";
 import { headerProblem, mailchannelsPayload } from "./payload";
 import { mailchannelsWebhooks } from "./webhooks";
@@ -91,13 +92,10 @@ function accepted(body: unknown, dryRun: boolean): SendResult {
     return { status: "sent", provider: PROVIDER };
   }
   if (!Array.isArray(record.results)) return unreadable();
-  for (const item of record.results as unknown[]) {
-    const entry = asRecord(item);
-    if (entry?.status !== "sent") continue;
-    const id = stringField(entry, "message_id");
-    return { status: "sent", provider: PROVIDER, ...(id ? { providerMessageId: id } : {}) };
-  }
-  return unreadable();
+  const entry = record.results.map(asRecord).find((item) => item?.status === "sent");
+  if (entry === undefined) return unreadable();
+  const id = stringField(entry, "message_id");
+  return { status: "sent", provider: PROVIDER, ...(id ? { providerMessageId: id } : {}) };
 }
 
 function checkOptions(options: MailchannelsOptions): string {
@@ -157,21 +155,18 @@ export function mailchannels(options: MailchannelsOptions = {}): MailchannelsAda
     return accepted(await readJson(response), dryRun);
   }
 
-  async function verify(ctx: SendContext): Promise<VerifyResult> {
-    const call = await callProvider({
-      url: `${base}/tx/v1/usage`,
-      method: "GET",
-      headers: headers(ctx),
-      timeoutMs: ctx.timeoutMs,
-      fetch: ctx.fetch,
-    });
-    if (!call.ok) return { ...withProvider(call.result, PROVIDER), ok: false };
-    await discardBody(call.response);
-    if (call.response.ok) return { ok: true };
-    return {
-      ...classifyFailure(call.response, mailchannelsMeta.statusMap, ctx.now, PROVIDER),
-      ok: false,
-    };
+  function verify(ctx: SendContext): Promise<VerifyResult> {
+    return verifyByGet(
+      {
+        url: `${base}/tx/v1/usage`,
+        headers: headers(ctx),
+        timeoutMs: ctx.timeoutMs,
+        fetch: ctx.fetch,
+      },
+      PROVIDER,
+      mailchannelsMeta.statusMap,
+      ctx.now,
+    );
   }
 
   const adapter = defineProvider({ meta: mailchannelsMeta, send, verify, webhooks });

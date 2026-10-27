@@ -10,9 +10,7 @@
 // - The JSON config API requires an `allowHosts` list from the deployer.
 
 import type { ProviderAdapter } from "../../core/adapter";
-import { defineStatusMap } from "../../core/classify";
 import type { CredentialField } from "../../core/meta";
-import { defineProviderMeta } from "../../core/meta";
 import type { Capabilities, OutgoingMessage } from "../../core/types";
 import {
   checkProviderId,
@@ -26,7 +24,7 @@ import {
 } from "./adapter";
 import { parseStatusRules } from "./classify";
 import { parseAllowHosts } from "./hosts";
-import { HTTP_DOCS_URL } from "./meta";
+import { genericMeta, HTTP_DOCS_URL } from "./meta";
 
 export {
   HTTP_METHODS,
@@ -182,21 +180,8 @@ export function httpProvider(options: HttpProviderOptions): ProviderAdapter {
   if (typeof docsUrl !== "string" || !docsUrl.startsWith("https://")) {
     throw new TypeError(`${LABEL}: docsUrl must be an https URL.`);
   }
-  const meta = defineProviderMeta({
-    id,
-    name,
-    tier: 2,
-    capabilities,
-    credentialFields,
-    docsUrl,
-    // The base table of the generic provider is in classify.ts. A tier 2 status map
-    // keeps every 5xx unknown.
-    statusMap: defineStatusMap({}),
-    webhooks: false,
-    nativeIdempotency: false,
-  });
   return createHttpAdapter({
-    meta,
+    meta: genericMeta(id, name, capabilities, credentialFields, docsUrl),
     rules,
     urlRules: { allowHosts },
     buildRequest: options.buildRequest,

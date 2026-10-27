@@ -9,7 +9,7 @@ import { attachmentBase64 } from "../../internal/encoding";
 import { encodeMailbox } from "../../internal/mime";
 
 /** The most attachments of one email. */
-export const MAX_ATTACHMENTS = 10;
+const MAX_ATTACHMENTS = 10;
 
 /**
  * The text of the first Scaleway rule that the message breaks, or null. `validateMessage`
