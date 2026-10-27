@@ -234,6 +234,10 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "smtp2goWebhooks",
     ],
   },
+  "./zeptomail": {
+    load: () => import("../../src/providers/zeptomail/index"),
+    names: ["ZEPTOMAIL_AUTH_SCHEME", "ZEPTOMAIL_HOSTS", "zeptomail", "zeptomailMeta"],
+  },
   "./sendgrid": {
     load: () => import("../../src/providers/sendgrid/index"),
     names: [

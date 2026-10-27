@@ -100,6 +100,10 @@
       "types": "./dist/providers/smtp2go/index.d.ts",
       "import": "./dist/providers/smtp2go/index.js"
     },
+    "./zeptomail": {
+      "types": "./dist/providers/zeptomail/index.d.ts",
+      "import": "./dist/providers/zeptomail/index.js"
+    },
     "./sendgrid": {
       "types": "./dist/providers/sendgrid/index.d.ts",
       "import": "./dist/providers/sendgrid/index.js"

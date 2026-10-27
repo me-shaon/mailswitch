@@ -6,6 +6,7 @@ import { resend } from "../../src/providers/resend/index";
 import { sendgrid } from "../../src/providers/sendgrid/index";
 import { smtp2go } from "../../src/providers/smtp2go/index";
 import { tosend } from "../../src/providers/tosend/index";
+import { zeptomail } from "../../src/providers/zeptomail/index";
 
 // Live smoke tests call real provider APIs. They run only when their env vars are set,
 // so CI makes no live calls. The provider units add a send test to each block:
@@ -25,6 +26,11 @@ import { tosend } from "../../src/providers/tosend/index";
 // - SMTP2GO: MAILSWITCH_LIVE_SMTP2GO_KEY, MAILSWITCH_LIVE_SMTP2GO_FROM, MAILSWITCH_LIVE_TO.
 //   SMTP2GO has no sandbox flag in the request, so it sends one real email. Set
 //   MAILSWITCH_LIVE_TO to an address of the account owner.
+// - ZeptoMail: MAILSWITCH_LIVE_ZEPTOMAIL_TOKEN, MAILSWITCH_LIVE_ZEPTOMAIL_FROM,
+//   MAILSWITCH_LIVE_TO, and the optional MAILSWITCH_LIVE_ZEPTOMAIL_REGION. This block is
+//   the release gate of the ZeptoMail verify request. It records that a good token gets
+//   400 TM_3201 (ok) and that a wrong token gets 401 TM_4001 (not_sent/auth). Then it sends
+//   one real email. The FROM address must be on a verified domain.
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -61,6 +67,11 @@ const MAILJET = [
 const SMTP2GO = [
   "MAILSWITCH_LIVE_SMTP2GO_KEY",
   "MAILSWITCH_LIVE_SMTP2GO_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const ZEPTOMAIL = [
+  "MAILSWITCH_LIVE_ZEPTOMAIL_TOKEN",
+  "MAILSWITCH_LIVE_ZEPTOMAIL_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
 
@@ -263,4 +274,48 @@ describe.skipIf(!hasLiveEnv(SMTP2GO[0] as string))("live smoke: SMTP2GO", () => 
     );
     expect(result).toMatchObject({ status: "sent", provider: "smtp2go" });
   });
+});
+
+describe.skipIf(!hasLiveEnv(ZEPTOMAIL[0] as string))("live smoke: ZeptoMail", () => {
+  it("has the env vars of the ZeptoMail smoke test", () => {
+    expect(hasLiveEnv(...ZEPTOMAIL)).toBe(true);
+  });
+
+  const context = (token: string) => ({
+    fetch: (input: string, init: RequestInit) => fetch(input, init),
+    timeoutMs: 15_000,
+    credentials: {
+      token,
+      region: env.MAILSWITCH_LIVE_ZEPTOMAIL_REGION || "com",
+      fromAddress: env.MAILSWITCH_LIVE_ZEPTOMAIL_FROM ?? "",
+    },
+    now: Date.now(),
+  });
+
+  it.skipIf(!hasLiveEnv(...ZEPTOMAIL))(
+    "verifies a good and a wrong token, and sends one email",
+    async () => {
+      const adapter = zeptomail();
+      const ctx = context(env.MAILSWITCH_LIVE_ZEPTOMAIL_TOKEN ?? "");
+      // Release gate: a good token gets 400 TM_3201.
+      expect(await adapter.verify(ctx)).toEqual({ ok: true });
+      // Release gate: a wrong token gets 401 TM_4001.
+      expect(await adapter.verify(context("mailswitch-wrong-token-0000000000"))).toMatchObject({
+        ok: false,
+        status: "not_sent",
+        reason: "auth",
+        httpStatus: 401,
+      });
+      const result = await adapter.send(
+        {
+          from: env.MAILSWITCH_LIVE_ZEPTOMAIL_FROM ?? "",
+          to: [env.MAILSWITCH_LIVE_TO ?? ""],
+          subject: "mailswitch live smoke test (ZeptoMail)",
+          text: "This email comes from the mailswitch live smoke test.",
+        },
+        ctx,
+      );
+      expect(result).toMatchObject({ status: "sent", provider: "zeptomail" });
+    },
+  );
 });

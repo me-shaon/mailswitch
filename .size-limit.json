@@ -8,7 +8,7 @@
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
-    "limit": "4.43 KB",
+    "limit": "4.81 KB",
     "gzip": true
   },
   {
@@ -69,6 +69,12 @@
     "name": "mailswitch/smtp2go",
     "path": "dist/providers/smtp2go/index.js",
     "limit": "8.39 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/zeptomail",
+    "path": "dist/providers/zeptomail/index.js",
+    "limit": "8 KB",
     "gzip": true
   },
   {

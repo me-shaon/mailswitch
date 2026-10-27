@@ -33,7 +33,7 @@ const ALLOWED =
   /^(\.\.\/core\/(meta|types)|\.\.\/providers\/[a-z0-9-]+\/meta|\.\.\/\.\.\/core\/(meta|classify|types))$/;
 
 describe("catalog", () => {
-  it("lists every provider at tier 1", () => {
+  it("lists every provider with its tier", () => {
     expect(catalog.map((meta) => [meta.id, meta.tier])).toEqual([
       ["resend", 1],
       ["tosend", 1],
@@ -45,6 +45,7 @@ describe("catalog", () => {
       ["mailersend", 1],
       ["mailjet", 1],
       ["smtp2go", 1],
+      ["zeptomail", 2],
       ["sendgrid", 1],
       ["ses", 1],
       ["smtp", 1],
@@ -66,6 +67,8 @@ describe("catalog", () => {
     ]);
     expect(getProviderMeta("smtp2go")?.name).toBe("SMTP2GO");
     expect(getProviderMeta("smtp2go")?.capabilities.maxMessageBytes).toBe(50_000_000);
+    expect(getProviderMeta("zeptomail")?.name).toBe("ZeptoMail");
+    expect(getProviderMeta("zeptomail")?.webhooks).toBe(false);
     expect(getProviderMeta("nope")).toBeUndefined();
   });
 
@@ -113,6 +116,7 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/mailersend/meta.ts");
     expect(files).toContain("../../src/providers/mailjet/meta.ts");
     expect(files).toContain("../../src/providers/smtp2go/meta.ts");
+    expect(files).toContain("../../src/providers/zeptomail/meta.ts");
     expect(files).toContain("../../src/providers/sendgrid/meta.ts");
     expect(files).toContain("../../src/providers/ses/meta.ts");
     expect(files).toContain("../../src/providers/smtp/meta.ts");
