@@ -72,10 +72,17 @@ CI makes no live calls. Run the live smoke tests on your computer before a relea
 | Mailjet | `MAILSWITCH_LIVE_MAILJET_KEY`, `MAILSWITCH_LIVE_MAILJET_SECRET`, `MAILSWITCH_LIVE_MAILJET_FROM`, `MAILSWITCH_LIVE_TO` |
 | SMTP2GO | `MAILSWITCH_LIVE_SMTP2GO_KEY`, `MAILSWITCH_LIVE_SMTP2GO_FROM`, `MAILSWITCH_LIVE_TO` |
 | ZeptoMail | `MAILSWITCH_LIVE_ZEPTOMAIL_TOKEN`, `MAILSWITCH_LIVE_ZEPTOMAIL_FROM`, `MAILSWITCH_LIVE_TO`, and optional `MAILSWITCH_LIVE_ZEPTOMAIL_REGION` |
+| MailChannels | `MAILSWITCH_LIVE_MAILCHANNELS_KEY`, `MAILSWITCH_LIVE_MAILCHANNELS_FROM`, `MAILSWITCH_LIVE_TO` |
+| AhaSend | `MAILSWITCH_LIVE_AHASEND_KEY`, `MAILSWITCH_LIVE_AHASEND_ACCOUNT_ID`, `MAILSWITCH_LIVE_AHASEND_FROM`, `MAILSWITCH_LIVE_TO` |
+| Mailtrap | `MAILSWITCH_LIVE_MAILTRAP_TOKEN`, `MAILSWITCH_LIVE_MAILTRAP_FROM`, `MAILSWITCH_LIVE_TO`, and optional `MAILSWITCH_LIVE_MAILTRAP_SANDBOX_ID` |
+| AutoSend | `MAILSWITCH_LIVE_AUTOSEND_KEY`, `MAILSWITCH_LIVE_AUTOSEND_FROM`, `MAILSWITCH_LIVE_TO` |
+| Scaleway | `MAILSWITCH_LIVE_SCALEWAY_SECRET_KEY`, `MAILSWITCH_LIVE_SCALEWAY_PROJECT_ID`, `MAILSWITCH_LIVE_SCALEWAY_FROM`, `MAILSWITCH_LIVE_TO` |
 
 The SendGrid, Brevo, and Mailjet blocks use the sandbox mode of the provider, so they deliver no email. The MailerSend, SMTP2GO, and ZeptoMail blocks send one real email.
 
 The ZeptoMail block also runs `verify` with a valid token and with a wrong token. Before a release, both answers must match: `ok` for the valid token, and `not_sent/auth` for the wrong token. If they do not match, stop the release and name the gap in the release pull request.
+
+The MailChannels block uses dry-run mode, and the AhaSend block uses sandbox mode, so they deliver no email. The Mailtrap block sends to a sandbox inbox when its sandbox ID is set. The AutoSend and Scaleway blocks send one real email. The generic HTTP provider has no live smoke test, because it has no fixed endpoint.
 
 The other providers have no live smoke test yet. Their recorded fixtures run in the conformance suite.
 

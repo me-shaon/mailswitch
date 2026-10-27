@@ -1,6 +1,6 @@
 # mailswitch
 
-Transactional email for Cloudflare Workers. One API sends through Resend, toSend, Postmark, Amazon SES, Mailgun, SendGrid, Brevo, MailerSend, Mailjet, SMTP2GO, ZeptoMail, Cloudflare Email, or any SMTP server, with a fallback to a second provider. A retry with the same idempotency key never sends the same email twice.
+Transactional email for Cloudflare Workers. One API sends through Resend, toSend, Postmark, Amazon SES, Mailgun, SendGrid, Brevo, MailerSend, Mailjet, SMTP2GO, ZeptoMail, MailChannels, AhaSend, Mailtrap, AutoSend, Scaleway, Cloudflare Email, any SMTP server, or a generic HTTP endpoint, with a fallback to a second provider. A retry with the same idempotency key never sends the same email twice.
 
 > **Status:** pre-1.0. The package is on npm as `mailswitch`. A minor release can change the public API. The changelog names each change.
 
@@ -174,6 +174,12 @@ export async function onWebhook(request: Request, env: Env): Promise<Response> {
 | ZeptoMail | `mailswitch/zeptomail` | 2 | 15 MB | No (store claim) | One request per message | None | [ZeptoMail](docs/providers/zeptomail.md) |
 | Cloudflare Email (REST API) | `mailswitch/cloudflare` | 1 | 5 MiB | No (store claim) | 25, 5 at a time | None | [Cloudflare Email](docs/providers/cloudflare.md) |
 | Cloudflare Email (Workers binding) | `mailswitch/cloudflare` | 1 | 5 MiB | No (store claim) | One call per message | None | [Cloudflare Email](docs/providers/cloudflare.md) |
+| MailChannels | `mailswitch/mailchannels` | 1 | 30 MB | No (store claim) | One request per message | Ed25519 signature, dedupe store required | [MailChannels](docs/providers/mailchannels.md) |
+| AhaSend | `mailswitch/ahasend` | 1 | 10 MB | Yes, for 24 hours (also store claim) | One request per message | HMAC with timestamp, dedupe store required | [AhaSend](docs/providers/ahasend.md) |
+| Mailtrap | `mailswitch/mailtrap` | 1 | 10 MB | No (store claim) | One request per message | HMAC, dedupe store required | [Mailtrap](docs/providers/mailtrap.md) |
+| AutoSend | `mailswitch/autosend` | 1 | 40 MB | No (store claim) | One request per message | HMAC, dedupe store required | [AutoSend](docs/providers/autosend.md) |
+| Scaleway Transactional Email | `mailswitch/scaleway` | 2 | 2 MB | No (store claim) | One request per message | None | [Scaleway](docs/providers/scaleway.md) |
+| Generic HTTP | `mailswitch/http` | 2 | Set by the user | No (store claim) | One request per message | None | [Generic HTTP](docs/providers/http.md) |
 | SMTP | `mailswitch/smtp` | 1 | The server `SIZE` | No (store claim) | 50 on one connection | Brevo, from `mailswitch/smtp/brevo` | [SMTP](docs/providers/smtp.md) |
 
 Every provider supports attachments, cc, bcc, reply-to, and custom headers. Brevo has no inline images: it refuses an attachment with a `contentId`. MailerSend accepts custom headers only on its Professional plan and above.
