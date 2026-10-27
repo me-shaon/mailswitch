@@ -601,7 +601,7 @@ A custom provider is done when its suite passes. A built-in provider also needs 
 
 1. Add the subpath to `exports` in `package.json`, for example `"./lettermill"`.
 2. Add the entry to `tsdown.config.ts`.
-3. Add a gzip budget to `.size-limit.json`. An HTTP provider starts at 4 KB.
+3. Add a gzip budget to `.size-limit.json`. An HTTP provider starts at 8 KB. When the measured size is over the budget, set the budget to the measured size plus 256 bytes, and say why in the commit message.
 4. Add the meta to `catalog` in `src/catalog/index.ts`, and update `test/catalog/catalog.test.ts`.
 5. Add a Workers runtime test in `test/workers/<id>.test.ts` that runs `runChecks`.
 6. Run every check of the repository:

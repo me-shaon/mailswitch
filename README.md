@@ -1,8 +1,8 @@
 # mailswitch
 
-Transactional email for Cloudflare Workers. One API sends through Resend, toSend, Postmark, Amazon SES, Mailgun, Cloudflare Email, or any SMTP server, with a fallback to a second provider. A retry with the same idempotency key never sends the same email twice.
+Transactional email for Cloudflare Workers. One API sends through Resend, toSend, Postmark, Amazon SES, Mailgun, SendGrid, Brevo, MailerSend, Mailjet, SMTP2GO, ZeptoMail, Cloudflare Email, or any SMTP server, with a fallback to a second provider. A retry with the same idempotency key never sends the same email twice.
 
-> **Status:** pre-release, not published. The package is not on npm yet. The API in this README is the current API of the code in this repository. The first release is 0.1.0.
+> **Status:** pre-1.0. The package is on npm as `mailswitch`. A minor release can change the public API. The changelog names each change.
 
 ## Why mailswitch
 
@@ -155,7 +155,7 @@ export async function onWebhook(request: Request, env: Env): Promise<Response> {
 - A replay of an acknowledged event is left out of `events`. The handler answers 200.
 - toSend signs no timestamp, so its adapter requires a dedupe store. The types refuse a call without one.
 - toSend sends each event once and does not retry. A non-2xx answer to toSend loses that event. Check the toSend logs after an outage. Resend retries a non-2xx answer for about a day.
-- Each provider guide gives the webhook secret and the replay rules of that provider. Postmark, Mailgun, and toSend need a dedupe store. Amazon SES takes its topic allowlist as the `secret`.
+- Each provider guide gives the webhook secret and the replay rules of that provider. Postmark, Mailgun, toSend, SendGrid, Brevo, MailerSend, Mailjet, and SMTP2GO need a dedupe store. Amazon SES takes its topic allowlist as the `secret`.
 
 ## Providers
 
@@ -166,11 +166,17 @@ export async function onWebhook(request: Request, env: Env): Promise<Response> {
 | Postmark | `mailswitch/postmark` | 1 | 10 MB | No (store claim) | 500 | Basic auth, dedupe store required | [Postmark](docs/providers/postmark.md) |
 | Amazon SES | `mailswitch/ses` | 1 | 40 MB | No (store claim) | One request per message | SNS signature and topic allowlist | [Amazon SES](docs/providers/ses.md) |
 | Mailgun | `mailswitch/mailgun` | 1 | 25 MB | No (store claim) | One request per message | HMAC, dedupe store required | [Mailgun](docs/providers/mailgun.md) |
+| SendGrid | `mailswitch/sendgrid` | 1 | 20 MB | No (store claim) | One request per message | ECDSA signature, dedupe store required | [SendGrid](docs/providers/sendgrid.md) |
+| Brevo (HTTP API) | `mailswitch/brevo` | 1 | 20 MB | Yes, for 30 minutes (also store claim) | One request per message | Bearer token, dedupe store required | [Brevo](docs/providers/brevo.md) |
+| MailerSend | `mailswitch/mailersend` | 1 | 25 MB | No (store claim) | One request per message | HMAC, dedupe store required | [MailerSend](docs/providers/mailersend.md) |
+| Mailjet | `mailswitch/mailjet` | 1 | 15 MB per request | No (store claim) | 50 | Basic auth, dedupe store required | [Mailjet](docs/providers/mailjet.md) |
+| SMTP2GO | `mailswitch/smtp2go` | 1 | 50 MB | No (store claim) | One request per message | Basic or Bearer token, dedupe store required | [SMTP2GO](docs/providers/smtp2go.md) |
+| ZeptoMail | `mailswitch/zeptomail` | 2 | 15 MB | No (store claim) | One request per message | None | [ZeptoMail](docs/providers/zeptomail.md) |
 | Cloudflare Email (REST API) | `mailswitch/cloudflare` | 1 | 5 MiB | No (store claim) | 25, 5 at a time | None | [Cloudflare Email](docs/providers/cloudflare.md) |
 | Cloudflare Email (Workers binding) | `mailswitch/cloudflare` | 1 | 5 MiB | No (store claim) | One call per message | None | [Cloudflare Email](docs/providers/cloudflare.md) |
 | SMTP | `mailswitch/smtp` | 1 | The server `SIZE` | No (store claim) | 50 on one connection | Brevo, from `mailswitch/smtp/brevo` | [SMTP](docs/providers/smtp.md) |
 
-Every provider supports attachments, cc, bcc, reply-to, and custom headers.
+Every provider supports attachments, cc, bcc, reply-to, and custom headers. Brevo has no inline images: it refuses an attachment with a `contentId`. MailerSend accepts custom headers only on its Professional plan and above.
 
 A tier 1 provider has send, attachments, credential verify, webhooks where the provider offers them, and a status map with a source for each override. A tier 2 provider has send, attachments, and verify, and every 5xx is `unknown`.
 

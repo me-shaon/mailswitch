@@ -1,10 +1,10 @@
 # Release mailswitch
 
-Last checked: 2026-10-26
+Last checked: 2026-10-27
 
 This guide is for maintainers. It tells how to set up the release workflow, how to check a release before it goes out, and how to publish it.
 
-The package version in `package.json` is `0.0.0`. The pending changeset makes a minor bump, so the first published version is `0.1.0`.
+The release workflow sets the version from the pending changesets. Do not change the version in `package.json` by hand.
 
 ## One-time setup
 
@@ -66,6 +66,16 @@ CI makes no live calls. Run the live smoke tests on your computer before a relea
 |---|---|
 | Resend | `MAILSWITCH_LIVE_RESEND_KEY`, `MAILSWITCH_LIVE_RESEND_FROM`, `MAILSWITCH_LIVE_TO` |
 | toSend | `MAILSWITCH_LIVE_TOSEND_KEY`, `MAILSWITCH_LIVE_TOSEND_FROM`, `MAILSWITCH_LIVE_TOSEND_TO` |
+| SendGrid | `MAILSWITCH_LIVE_SENDGRID_KEY`, `MAILSWITCH_LIVE_SENDGRID_FROM`, `MAILSWITCH_LIVE_TO` |
+| Brevo | `MAILSWITCH_LIVE_BREVO_KEY`, `MAILSWITCH_LIVE_BREVO_FROM`, `MAILSWITCH_LIVE_TO` |
+| MailerSend | `MAILSWITCH_LIVE_MAILERSEND_KEY`, `MAILSWITCH_LIVE_MAILERSEND_FROM`, `MAILSWITCH_LIVE_TO` |
+| Mailjet | `MAILSWITCH_LIVE_MAILJET_KEY`, `MAILSWITCH_LIVE_MAILJET_SECRET`, `MAILSWITCH_LIVE_MAILJET_FROM`, `MAILSWITCH_LIVE_TO` |
+| SMTP2GO | `MAILSWITCH_LIVE_SMTP2GO_KEY`, `MAILSWITCH_LIVE_SMTP2GO_FROM`, `MAILSWITCH_LIVE_TO` |
+| ZeptoMail | `MAILSWITCH_LIVE_ZEPTOMAIL_TOKEN`, `MAILSWITCH_LIVE_ZEPTOMAIL_FROM`, `MAILSWITCH_LIVE_TO`, and optional `MAILSWITCH_LIVE_ZEPTOMAIL_REGION` |
+
+The SendGrid, Brevo, and Mailjet blocks use the sandbox mode of the provider, so they deliver no email. The MailerSend, SMTP2GO, and ZeptoMail blocks send one real email.
+
+The ZeptoMail block also runs `verify` with a valid token and with a wrong token. Before a release, both answers must match: `ok` for the valid token, and `not_sent/auth` for the wrong token. If they do not match, stop the release and name the gap in the release pull request.
 
 The other providers have no live smoke test yet. Their recorded fixtures run in the conformance suite.
 
@@ -76,7 +86,7 @@ MAILSWITCH_LIVE_TO=you@example.com \
 corepack pnpm vitest run test/live
 ```
 
-Each smoke test verifies the key and sends one email. Check that the email arrives. Do not paste the keys into a shell history that other people can read.
+Each smoke test verifies the key and sends one email, or validates one email in sandbox mode. Check that the email arrives. Do not paste the keys into a shell history that other people can read.
 
 ### The CPU check (R36)
 
