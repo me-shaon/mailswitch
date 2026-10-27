@@ -20,13 +20,13 @@
   {
     "name": "mailswitch/resend",
     "path": "dist/providers/resend/index.js",
-    "limit": "8 KB",
+    "limit": "8.34 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/tosend",
     "path": "dist/providers/tosend/index.js",
-    "limit": "8 KB",
+    "limit": "8.35 KB",
     "gzip": true
   },
   {
@@ -38,37 +38,37 @@
   {
     "name": "mailswitch/mailgun",
     "path": "dist/providers/mailgun/index.js",
-    "limit": "8.44 KB",
+    "limit": "8.87 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/postmark",
     "path": "dist/providers/postmark/index.js",
-    "limit": "8.21 KB",
+    "limit": "8.6 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/brevo",
     "path": "dist/providers/brevo/index.js",
-    "limit": "8 KB",
+    "limit": "8.27 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/mailersend",
     "path": "dist/providers/mailersend/index.js",
-    "limit": "8.1 KB",
+    "limit": "8.52 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/mailjet",
     "path": "dist/providers/mailjet/index.js",
-    "limit": "8.65 KB",
+    "limit": "9.06 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/smtp2go",
     "path": "dist/providers/smtp2go/index.js",
-    "limit": "8.44 KB",
+    "limit": "8.82 KB",
     "gzip": true
   },
   {
@@ -80,31 +80,31 @@
   {
     "name": "mailswitch/sendgrid",
     "path": "dist/providers/sendgrid/index.js",
-    "limit": "8 KB",
+    "limit": "8.01 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/mailchannels",
     "path": "dist/providers/mailchannels/index.js",
-    "limit": "8.41 KB",
+    "limit": "8.8 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/ahasend",
     "path": "dist/providers/ahasend/index.js",
-    "limit": "8 KB",
+    "limit": "8.41 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/mailtrap",
     "path": "dist/providers/mailtrap/index.js",
-    "limit": "8 KB",
+    "limit": "8.33 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/autosend",
     "path": "dist/providers/autosend/index.js",
-    "limit": "8.62 KB",
+    "limit": "9 KB",
     "gzip": true
   },
   {
@@ -122,7 +122,7 @@
   {
     "name": "mailswitch/ses",
     "path": "dist/providers/ses/index.js",
-    "limit": "10.36 KB",
+    "limit": "10.78 KB",
     "gzip": true
   },
   {
