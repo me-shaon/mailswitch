@@ -23,7 +23,7 @@
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent } from "../../core/events";
 import { basicAuthorization } from "../../internal/encoding";
-import { asRecord } from "../../internal/json";
+import { asRecord, stringField } from "../../internal/json";
 import {
   checkSharedTokenSecret,
   generateSharedTokenSecret,
@@ -122,13 +122,6 @@ function verifier(
   };
 }
 
-type Fields = Record<string, unknown>;
-
-function text(record: Fields, name: string): string | undefined {
-  const value = record[name];
-  return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
-}
-
 const MESSAGE_ID = /"MessageID"\s*:\s*(\d+)/g;
 
 /**
@@ -151,7 +144,7 @@ export function parseMailjetEvents(provider: string, body: Uint8Array): Normaliz
   for (const entry of list) {
     const item = asRecord(entry);
     if (item === undefined) continue;
-    let messageId = text(item, "MessageID");
+    let messageId = stringField(item, "MessageID");
     const id = item.MessageID;
     if (typeof id === "number" && Number.isFinite(id)) {
       // The next raw number with the same value is the one of this entry.
@@ -165,13 +158,13 @@ export function parseMailjetEvents(provider: string, body: Uint8Array): Normaliz
       if (at >= 0) cursor = at + 1;
       messageId = at >= 0 ? (digits[at] as string) : String(id);
     }
-    const rawType = text(item, "event");
+    const rawType = stringField(item, "event");
     if (rawType === undefined) continue;
-    const recipient = text(item, "email");
+    const recipient = stringField(item, "email");
     const time = item.time;
     const seconds = typeof time === "number" && Number.isFinite(time) ? time : undefined;
     const parts = [rawType, messageId ?? "", recipient?.toLowerCase() ?? "", seconds ?? ""];
-    const link = rawType === "click" ? text(item, "url") : undefined;
+    const link = rawType === "click" ? stringField(item, "url") : undefined;
     if (link !== undefined) parts.push(link);
     const eventKey = parts.join(":");
     if (keys.has(eventKey)) continue;
@@ -184,7 +177,7 @@ export function parseMailjetEvents(provider: string, body: Uint8Array): Normaliz
       event.bounce = item.hard_bounce === true ? "hard" : "soft";
     }
     if (recipient !== undefined) event.recipient = recipient;
-    const guid = text(item, "Message_GUID") ?? messageId;
+    const guid = stringField(item, "Message_GUID") ?? messageId;
     if (guid !== undefined) event.providerMessageId = guid;
     if (seconds !== undefined) event.occurredAt = seconds * 1000;
     events.push(event);
