@@ -53,6 +53,7 @@ describe("catalog", () => {
       ["ahasend", 1],
       ["mailtrap", 1],
       ["autosend", 1],
+      ["scaleway", 2],
     ]);
     expect(getProviderMeta("postmark")?.webhooks).toBe(true);
     expect(getProviderMeta("ses")?.name).toBe("Amazon SES");
@@ -68,6 +69,8 @@ describe("catalog", () => {
     expect(getProviderMeta("mailtrap")?.capabilities.maxRecipients).toBe(1000);
     expect(getProviderMeta("autosend")?.name).toBe("AutoSend");
     expect(getProviderMeta("autosend")?.capabilities.maxRecipients).toBe(50);
+    expect(getProviderMeta("scaleway")?.name).toBe("Scaleway Transactional Email");
+    expect(getProviderMeta("scaleway")?.capabilities.maxRecipients).toBe(10);
     expect(getProviderMeta("brevo")?.name).toBe("Brevo");
     expect(getProviderMeta("brevo")?.nativeIdempotencyWindowMs).toBe(1_800_000);
     expect(getProviderMeta("mailersend")?.name).toBe("MailerSend");
@@ -136,6 +139,7 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/ahasend/meta.ts");
     expect(files).toContain("../../src/providers/mailtrap/meta.ts");
     expect(files).toContain("../../src/providers/autosend/meta.ts");
+    expect(files).toContain("../../src/providers/scaleway/meta.ts");
     for (const [file, text] of Object.entries(sources)) {
       for (const spec of importsOf(text)) {
         expect(spec, `${file} imports ${spec}`).toMatch(ALLOWED);

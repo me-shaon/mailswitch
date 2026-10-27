@@ -120,6 +120,10 @@
       "types": "./dist/providers/autosend/index.d.ts",
       "import": "./dist/providers/autosend/index.js"
     },
+    "./scaleway": {
+      "types": "./dist/providers/scaleway/index.d.ts",
+      "import": "./dist/providers/scaleway/index.js"
+    },
     "./sendgrid": {
       "types": "./dist/providers/sendgrid/index.d.ts",
       "import": "./dist/providers/sendgrid/index.js"

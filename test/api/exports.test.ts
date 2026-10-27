@@ -321,6 +321,10 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "verifyAutosendWebhook",
     ],
   },
+  "./scaleway": {
+    load: () => import("../../src/providers/scaleway/index"),
+    names: ["SCALEWAY_API_BASE", "SCALEWAY_TEM_PATH", "scaleway", "scalewayMeta"],
+  },
   "./ses": {
     load: () => import("../../src/providers/ses/index"),
     names: [

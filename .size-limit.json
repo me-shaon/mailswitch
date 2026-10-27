@@ -108,6 +108,12 @@
     "gzip": true
   },
   {
+    "name": "mailswitch/scaleway",
+    "path": "dist/providers/scaleway/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/ses",
     "path": "dist/providers/ses/index.js",
     "limit": "10.1 KB",

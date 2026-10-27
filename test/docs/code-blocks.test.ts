@@ -31,6 +31,7 @@ const DOCUMENTS = [
   "docs/providers/ahasend.md",
   "docs/providers/mailtrap.md",
   "docs/providers/autosend.md",
+  "docs/providers/scaleway.md",
   "docs/providers/ses.md",
   "docs/providers/mailgun.md",
   "docs/providers/cloudflare.md",

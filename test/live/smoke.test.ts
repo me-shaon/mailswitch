@@ -7,6 +7,7 @@ import { mailersend } from "../../src/providers/mailersend/index";
 import { mailjet } from "../../src/providers/mailjet/index";
 import { mailtrap } from "../../src/providers/mailtrap/index";
 import { resend } from "../../src/providers/resend/index";
+import { scaleway } from "../../src/providers/scaleway/index";
 import { sendgrid } from "../../src/providers/sendgrid/index";
 import { smtp2go } from "../../src/providers/smtp2go/index";
 import { tosend } from "../../src/providers/tosend/index";
@@ -48,6 +49,10 @@ import { zeptomail } from "../../src/providers/zeptomail/index";
 // - AutoSend: MAILSWITCH_LIVE_AUTOSEND_KEY, MAILSWITCH_LIVE_AUTOSEND_FROM, MAILSWITCH_LIVE_TO.
 //   AutoSend has no sandbox, so it sends one real email. Set MAILSWITCH_LIVE_TO to an
 //   address of the account owner. Use a project key (AS_).
+// - Scaleway: MAILSWITCH_LIVE_SCALEWAY_SECRET_KEY, MAILSWITCH_LIVE_SCALEWAY_PROJECT_ID,
+//   MAILSWITCH_LIVE_SCALEWAY_FROM, MAILSWITCH_LIVE_TO. Scaleway has no sandbox, so it sends
+//   one real email. Set MAILSWITCH_LIVE_TO to an address of the account owner. The FROM
+//   address must be on a checked domain of the Project.
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -105,6 +110,12 @@ const MAILTRAP = [
 const AUTOSEND = [
   "MAILSWITCH_LIVE_AUTOSEND_KEY",
   "MAILSWITCH_LIVE_AUTOSEND_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const SCALEWAY = [
+  "MAILSWITCH_LIVE_SCALEWAY_SECRET_KEY",
+  "MAILSWITCH_LIVE_SCALEWAY_PROJECT_ID",
+  "MAILSWITCH_LIVE_SCALEWAY_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
 const ZEPTOMAIL = [
@@ -477,5 +488,35 @@ describe.skipIf(!hasLiveEnv(AUTOSEND[0] as string))("live smoke: AutoSend", () =
       ctx,
     );
     expect(result).toMatchObject({ status: "sent", provider: "autosend" });
+  });
+});
+
+describe.skipIf(!hasLiveEnv(SCALEWAY[0] as string))("live smoke: Scaleway", () => {
+  it("has the env vars of the Scaleway smoke test", () => {
+    expect(hasLiveEnv(...SCALEWAY)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...SCALEWAY))("verifies the key and sends one real email", async () => {
+    const adapter = scaleway();
+    const ctx = {
+      fetch: (input: string, init: RequestInit) => fetch(input, init),
+      timeoutMs: 15_000,
+      credentials: {
+        secretKey: env.MAILSWITCH_LIVE_SCALEWAY_SECRET_KEY ?? "",
+        projectId: env.MAILSWITCH_LIVE_SCALEWAY_PROJECT_ID ?? "",
+      },
+      now: Date.now(),
+    };
+    expect(await adapter.verify(ctx)).toEqual({ ok: true });
+    const result = await adapter.send(
+      {
+        from: env.MAILSWITCH_LIVE_SCALEWAY_FROM ?? "",
+        to: [env.MAILSWITCH_LIVE_TO ?? ""],
+        subject: "mailswitch live smoke test (Scaleway)",
+        text: "This email comes from the mailswitch live smoke test.",
+      },
+      ctx,
+    );
+    expect(result).toMatchObject({ status: "sent", provider: "scaleway" });
   });
 });

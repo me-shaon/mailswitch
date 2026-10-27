@@ -13,6 +13,7 @@ import { mailjetMeta } from "../providers/mailjet/meta";
 import { mailtrapMeta } from "../providers/mailtrap/meta";
 import { postmarkMeta } from "../providers/postmark/meta";
 import { resendMeta } from "../providers/resend/meta";
+import { scalewayMeta } from "../providers/scaleway/meta";
 import { sendgridMeta } from "../providers/sendgrid/meta";
 import { sesMeta } from "../providers/ses/meta";
 import { smtpMeta } from "../providers/smtp/meta";
@@ -42,6 +43,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   ahasendMeta,
   mailtrapMeta,
   autosendMeta,
+  scalewayMeta,
 ]);
 
 /** Returns the meta of a built-in provider, or undefined for an unknown id. */
