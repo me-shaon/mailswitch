@@ -254,6 +254,26 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "verifySendgridWebhook",
     ],
   },
+  "./mailchannels": {
+    load: () => import("../../src/providers/mailchannels/index"),
+    names: [
+      "MAILCHANNELS_API_BASE",
+      "MAILCHANNELS_DIGEST_HEADER",
+      "MAILCHANNELS_MAX_HEADER_BYTES",
+      "MAILCHANNELS_MAX_WEBHOOK_EVENTS",
+      "MAILCHANNELS_SIGNATURE_HEADER",
+      "MAILCHANNELS_SIGNATURE_INPUT_HEADER",
+      "MAILCHANNELS_WEBHOOK_FUTURE_SKEW_MS",
+      "MAILCHANNELS_WEBHOOK_TOLERANCE_MS",
+      "mailchannels",
+      "mailchannelsContentDigest",
+      "mailchannelsMeta",
+      "mailchannelsSignatureBase",
+      "mailchannelsWebhooks",
+      "parseMailchannelsEvents",
+      "verifyMailchannelsWebhook",
+    ],
+  },
   "./ses": {
     load: () => import("../../src/providers/ses/index"),
     names: [

@@ -104,6 +104,10 @@
       "types": "./dist/providers/zeptomail/index.d.ts",
       "import": "./dist/providers/zeptomail/index.js"
     },
+    "./mailchannels": {
+      "types": "./dist/providers/mailchannels/index.d.ts",
+      "import": "./dist/providers/mailchannels/index.js"
+    },
     "./sendgrid": {
       "types": "./dist/providers/sendgrid/index.d.ts",
       "import": "./dist/providers/sendgrid/index.js"

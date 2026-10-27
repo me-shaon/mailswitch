@@ -4,6 +4,7 @@
 import type { ProviderMeta } from "../core/meta";
 import { brevoMeta } from "../providers/brevo/meta";
 import { cloudflareBindingMeta, cloudflareRestMeta } from "../providers/cloudflare/meta";
+import { mailchannelsMeta } from "../providers/mailchannels/meta";
 import { mailersendMeta } from "../providers/mailersend/meta";
 import { mailgunMeta } from "../providers/mailgun/meta";
 import { mailjetMeta } from "../providers/mailjet/meta";
@@ -34,6 +35,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   sendgridMeta,
   sesMeta,
   smtpMeta,
+  mailchannelsMeta,
 ]);
 
 /** Returns the meta of a built-in provider, or undefined for an unknown id. */

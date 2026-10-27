@@ -84,6 +84,12 @@
     "gzip": true
   },
   {
+    "name": "mailswitch/mailchannels",
+    "path": "dist/providers/mailchannels/index.js",
+    "limit": "8.3 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/ses",
     "path": "dist/providers/ses/index.js",
     "limit": "10.1 KB",

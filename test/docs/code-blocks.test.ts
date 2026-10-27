@@ -27,6 +27,7 @@ const DOCUMENTS = [
   "docs/providers/smtp2go.md",
   "docs/providers/zeptomail.md",
   "docs/providers/sendgrid.md",
+  "docs/providers/mailchannels.md",
   "docs/providers/ses.md",
   "docs/providers/mailgun.md",
   "docs/providers/cloudflare.md",

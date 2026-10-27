@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { brevo } from "../../src/providers/brevo/index";
+import { mailchannels } from "../../src/providers/mailchannels/index";
 import { mailersend } from "../../src/providers/mailersend/index";
 import { mailjet } from "../../src/providers/mailjet/index";
 import { resend } from "../../src/providers/resend/index";
@@ -31,6 +32,9 @@ import { zeptomail } from "../../src/providers/zeptomail/index";
 //   the release gate of the ZeptoMail verify request. It records that a good token gets
 //   400 TM_3201 (ok) and that a wrong token gets 401 TM_4001 (not_sent/auth). Then it sends
 //   one real email. The FROM address must be on a verified domain.
+// - MailChannels: MAILSWITCH_LIVE_MAILCHANNELS_KEY, MAILSWITCH_LIVE_MAILCHANNELS_FROM,
+//   MAILSWITCH_LIVE_TO. It uses dry-run mode, so MailChannels renders the message and sends
+//   no email. The FROM domain needs a Domain Lockdown TXT record.
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -67,6 +71,11 @@ const MAILJET = [
 const SMTP2GO = [
   "MAILSWITCH_LIVE_SMTP2GO_KEY",
   "MAILSWITCH_LIVE_SMTP2GO_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const MAILCHANNELS = [
+  "MAILSWITCH_LIVE_MAILCHANNELS_KEY",
+  "MAILSWITCH_LIVE_MAILCHANNELS_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
 const ZEPTOMAIL = [
@@ -316,6 +325,36 @@ describe.skipIf(!hasLiveEnv(ZEPTOMAIL[0] as string))("live smoke: ZeptoMail", ()
         ctx,
       );
       expect(result).toMatchObject({ status: "sent", provider: "zeptomail" });
+    },
+  );
+});
+
+describe.skipIf(!hasLiveEnv(MAILCHANNELS[0] as string))("live smoke: MailChannels", () => {
+  it("has the env vars of the MailChannels smoke test", () => {
+    expect(hasLiveEnv(...MAILCHANNELS)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...MAILCHANNELS))(
+    "verifies the key and sends in dry-run mode",
+    async () => {
+      const adapter = mailchannels({ dryRun: true });
+      const ctx = {
+        fetch: (input: string, init: RequestInit) => fetch(input, init),
+        timeoutMs: 15_000,
+        credentials: { apiKey: env.MAILSWITCH_LIVE_MAILCHANNELS_KEY ?? "" },
+        now: Date.now(),
+      };
+      expect(await adapter.verify(ctx)).toEqual({ ok: true });
+      const result = await adapter.send(
+        {
+          from: env.MAILSWITCH_LIVE_MAILCHANNELS_FROM ?? "",
+          to: [env.MAILSWITCH_LIVE_TO ?? ""],
+          subject: "mailswitch live smoke test (MailChannels dry run)",
+          text: "This request comes from the mailswitch live smoke test. Dry-run mode sends no email.",
+        },
+        ctx,
+      );
+      expect(result).toMatchObject({ status: "sent", provider: "mailchannels" });
     },
   );
 });
