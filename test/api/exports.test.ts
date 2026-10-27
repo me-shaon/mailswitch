@@ -173,6 +173,22 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "postmarkWebhooks",
     ],
   },
+  "./brevo": {
+    load: () => import("../../src/providers/brevo/index"),
+    names: [
+      "BREVO_API_BASE",
+      "BREVO_MIN_HEX_TOKEN_LENGTH",
+      "BREVO_MIN_TOKEN_LENGTH",
+      "BREVO_WEBHOOK_EVENTS",
+      "brevo",
+      "brevoMeta",
+      "brevoWebhooks",
+      "checkBrevoWebhookToken",
+      "generateBrevoWebhookToken",
+      "parseBrevoEvents",
+      "verifyBrevoWebhook",
+    ],
+  },
   "./sendgrid": {
     load: () => import("../../src/providers/sendgrid/index"),
     names: [

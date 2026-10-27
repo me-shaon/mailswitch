@@ -2,6 +2,7 @@
 // It imports only meta files, so no adapter code is in this bundle.
 
 import type { ProviderMeta } from "../core/meta";
+import { brevoMeta } from "../providers/brevo/meta";
 import { cloudflareBindingMeta, cloudflareRestMeta } from "../providers/cloudflare/meta";
 import { mailgunMeta } from "../providers/mailgun/meta";
 import { postmarkMeta } from "../providers/postmark/meta";
@@ -21,6 +22,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   cloudflareBindingMeta,
   mailgunMeta,
   postmarkMeta,
+  brevoMeta,
   sendgridMeta,
   sesMeta,
   smtpMeta,

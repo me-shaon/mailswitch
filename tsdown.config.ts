@@ -17,6 +17,7 @@ const config: UserConfig = defineConfig({
     "providers/cloudflare/index": "src/providers/cloudflare/index.ts",
     "providers/mailgun/index": "src/providers/mailgun/index.ts",
     "providers/postmark/index": "src/providers/postmark/index.ts",
+    "providers/brevo/index": "src/providers/brevo/index.ts",
     "providers/sendgrid/index": "src/providers/sendgrid/index.ts",
     "providers/ses/index": "src/providers/ses/index.ts",
     "providers/smtp/index": "src/providers/smtp/index.ts",

@@ -4,6 +4,8 @@ Last checked: 2026-10-26
 
 The SMTP adapter is in `mailswitch/smtp`. It is a tier 1 provider. It sends email with attachments through any SMTP submission server. It sends batches on one connection and checks the login. The optional `mailswitch/smtp/brevo` subpath adds Brevo webhooks.
 
+To send through the Brevo API instead of the Brevo SMTP relay, use the [Brevo adapter](brevo.md). It also sends an idempotency key.
+
 ## Give the adapter a socket
 
 The adapter does not open sockets itself. It does not import `cloudflare:sockets`. Your Worker imports `connect` from `cloudflare:sockets` and gives it to mailswitch.
@@ -249,5 +251,6 @@ Brevo sends no event id. The event key is `<event>:<message-id>:<recipient>:<tim
 - [Gmail sending limits](https://support.google.com/mail/answer/22839)
 - [Google Workspace sending limits](https://support.google.com/a/answer/166852)
 - [Brevo transactional webhooks](https://developers.brevo.com/docs/transactional-webhooks)
+- [The Brevo API adapter](brevo.md)
 - [Cloudflare TCP sockets](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/)
 - [Mailpit SMTP](https://mailpit.axllent.org/docs/configuration/smtp/)

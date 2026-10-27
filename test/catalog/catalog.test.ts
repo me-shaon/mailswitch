@@ -41,6 +41,7 @@ describe("catalog", () => {
       ["cloudflare-binding", 1],
       ["mailgun", 1],
       ["postmark", 1],
+      ["brevo", 1],
       ["sendgrid", 1],
       ["ses", 1],
       ["smtp", 1],
@@ -51,6 +52,8 @@ describe("catalog", () => {
     expect(getProviderMeta("tosend")?.capabilities.idempotency).toBe(false);
     expect(getProviderMeta("sendgrid")?.name).toBe("SendGrid");
     expect(getProviderMeta("sendgrid")?.webhooks).toBe(true);
+    expect(getProviderMeta("brevo")?.name).toBe("Brevo");
+    expect(getProviderMeta("brevo")?.nativeIdempotencyWindowMs).toBe(1_800_000);
     expect(getProviderMeta("nope")).toBeUndefined();
   });
 
@@ -94,6 +97,7 @@ describe("catalog", () => {
     expect(files).toContain("../../src/providers/cloudflare/meta.ts");
     expect(files).toContain("../../src/providers/mailgun/meta.ts");
     expect(files).toContain("../../src/providers/postmark/meta.ts");
+    expect(files).toContain("../../src/providers/brevo/meta.ts");
     expect(files).toContain("../../src/providers/sendgrid/meta.ts");
     expect(files).toContain("../../src/providers/ses/meta.ts");
     expect(files).toContain("../../src/providers/smtp/meta.ts");

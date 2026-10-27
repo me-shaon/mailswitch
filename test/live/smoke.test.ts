@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { brevo } from "../../src/providers/brevo/index";
 import { resend } from "../../src/providers/resend/index";
 import { sendgrid } from "../../src/providers/sendgrid/index";
 import { tosend } from "../../src/providers/tosend/index";
@@ -10,6 +11,8 @@ import { tosend } from "../../src/providers/tosend/index";
 // - toSend (U6): MAILSWITCH_LIVE_TOSEND_KEY, MAILSWITCH_LIVE_TOSEND_FROM, MAILSWITCH_LIVE_TOSEND_TO.
 // - SendGrid: MAILSWITCH_LIVE_SENDGRID_KEY, MAILSWITCH_LIVE_SENDGRID_FROM, MAILSWITCH_LIVE_TO.
 //   It uses sandbox mode, so SendGrid checks the request and delivers no email.
+// - Brevo: MAILSWITCH_LIVE_BREVO_KEY, MAILSWITCH_LIVE_BREVO_FROM, MAILSWITCH_LIVE_TO.
+//   It sends the X-Sib-Sandbox: drop header, so Brevo checks the request and sends no email.
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -31,6 +34,7 @@ const SENDGRID = [
   "MAILSWITCH_LIVE_SENDGRID_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
+const BREVO = ["MAILSWITCH_LIVE_BREVO_KEY", "MAILSWITCH_LIVE_BREVO_FROM", "MAILSWITCH_LIVE_TO"];
 
 describe("live smoke gate", () => {
   it("needs every env var of a block", () => {
@@ -118,5 +122,33 @@ describe.skipIf(!hasLiveEnv(SENDGRID[0] as string))("live smoke: SendGrid", () =
       ctx,
     );
     expect(result).toMatchObject({ status: "sent", provider: "sendgrid" });
+  });
+});
+
+describe.skipIf(!hasLiveEnv(BREVO[0] as string))("live smoke: Brevo", () => {
+  it("has the env vars of the Brevo smoke test", () => {
+    expect(hasLiveEnv(...BREVO)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...BREVO))("verifies the key and sends in sandbox mode", async () => {
+    const adapter = brevo({ sandbox: true });
+    const ctx = {
+      fetch: (input: string, init: RequestInit) => fetch(input, init),
+      timeoutMs: 15_000,
+      credentials: { apiKey: env.MAILSWITCH_LIVE_BREVO_KEY ?? "" },
+      now: Date.now(),
+    };
+    expect(await adapter.verify(ctx)).toEqual({ ok: true });
+    const result = await adapter.send(
+      {
+        from: env.MAILSWITCH_LIVE_BREVO_FROM ?? "",
+        to: [env.MAILSWITCH_LIVE_TO ?? ""],
+        subject: "mailswitch live smoke test (Brevo sandbox)",
+        text: "This request comes from the mailswitch live smoke test. Sandbox mode sends no email.",
+        idempotencyKey: `mailswitch-live-${Date.now()}`,
+      },
+      ctx,
+    );
+    expect(result).toMatchObject({ status: "sent", provider: "brevo" });
   });
 });

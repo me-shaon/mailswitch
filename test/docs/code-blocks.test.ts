@@ -21,6 +21,7 @@ const DOCUMENTS = [
   "docs/providers/resend.md",
   "docs/providers/tosend.md",
   "docs/providers/postmark.md",
+  "docs/providers/brevo.md",
   "docs/providers/sendgrid.md",
   "docs/providers/ses.md",
   "docs/providers/mailgun.md",

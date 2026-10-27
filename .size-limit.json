@@ -48,6 +48,12 @@
     "gzip": true
   },
   {
+    "name": "mailswitch/brevo",
+    "path": "dist/providers/brevo/index.js",
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/sendgrid",
     "path": "dist/providers/sendgrid/index.js",
     "limit": "8 KB",
