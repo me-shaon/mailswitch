@@ -162,6 +162,17 @@ MailChannels gives no event id. The event key is `<request_id>:<event>:<recipien
 
 A webhook event carries the `request_id` of the send request and no message id. So mailswitch does not set `providerMessageId` on an event. The send result holds the `message_id` of the personalization, which is a different id. To match an event to a send, use the recipient and the time.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when MailChannels sends these fields:
+
+- `text`: `reason`.
+- `enhancedCode`: `status`.
+
+The MailChannels docs do not confirm these field names. mailswitch reads them as optional. The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
+To check the field names, put a raw bounce body from MailChannels in `MAILSWITCH_LIVE_MAILCHANNELS_BOUNCE_BODY` and run the live smoke test. The test logs which fields are present. It never logs their values.
+
 ## Live smoke test
 
 The live smoke test sends in dry-run mode, so MailChannels sends no email. It runs only when these environment variables are set:

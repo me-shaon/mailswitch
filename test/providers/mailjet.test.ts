@@ -708,3 +708,35 @@ describe("mailjet webhooks", () => {
     expect(await send()).toMatchObject({ ok: true, events: [] });
   });
 });
+
+describe("mailjet bounce detail", () => {
+  const parse = (event: Record<string, unknown>) =>
+    parseMailjetEvents("mailjet", utf8(JSON.stringify(event)));
+
+  it("reads error for a hard bounce", () => {
+    const events = parse(mailjetEvent("bounce", { hard_bounce: true, error: "user unknown" }));
+    expect(events[0]?.bounceDetail).toEqual({ text: "user unknown" });
+  });
+
+  it("adds error_related_to in parentheses when it is present", () => {
+    const events = parse(
+      mailjetEvent("bounce", {
+        hard_bounce: true,
+        error: "user unknown",
+        error_related_to: "recipient",
+      }),
+    );
+    expect(events[0]?.bounceDetail).toEqual({ text: "user unknown (recipient)" });
+  });
+
+  it("gives no detail and no error for a bounce with neither field", () => {
+    const events = parse(mailjetEvent("bounce", { hard_bounce: false }));
+    expect(events[0]?.type).toBe("bounced");
+    expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+
+  it("gives no detail to a blocked event that carries error", () => {
+    const events = parse(mailjetEvent("blocked", { error: "preblocked" }));
+    expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+});

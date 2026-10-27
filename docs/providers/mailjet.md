@@ -188,6 +188,16 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 
 Mailjet sends no event id. The event key is `<event>:<MessageID>:<email>:<time>`, with the email in lowercase. A `click` event also adds its `url`. These fields do not change when Mailjet sends the same request again. `MessageID` can be larger than a safe JavaScript number, so mailswitch reads its digits from the raw body. When one request holds the same key twice, mailswitch keeps one event.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Mailjet sends these fields:
+
+- `text`: `error`, with `error_related_to` in parentheses when it is present.
+
+The Mailjet docs do not confirm these field names. mailswitch reads them as optional. The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
+To check the field names, put a raw bounce body from Mailjet in `MAILSWITCH_LIVE_MAILJET_BOUNCE_BODY` and run the live smoke test. The test logs which fields are present. It never logs their values.
+
 ## Links
 
 - [Send API v3.1](https://dev.mailjet.com/openapi/openapi-mailjet/send-emails/postsendv31.md)

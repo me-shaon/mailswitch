@@ -216,6 +216,7 @@ export function mailjetFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: "user unknown (recipient)" },
               recipient: "bo@example.org",
               eventKey: `bounce:${MAILJET_FIXTURE_MESSAGE_ID}:bo@example.org:1793102395`,
             },
@@ -233,7 +234,12 @@ export function mailjetFixture(): ConformanceFixture {
             mailjetEvent("blocked", { error_related_to: "recipient", error: "preblocked" }),
           ]),
           expected: [
-            { type: "bounced", bounce: "soft", rawType: "bounce" },
+            {
+              type: "bounced",
+              bounce: "soft",
+              rawType: "bounce",
+              bounceDetail: { text: "mailbox full (domain)" },
+            },
             { type: "complained", rawType: "spam" },
             {
               type: "unknown",

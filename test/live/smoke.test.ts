@@ -520,3 +520,28 @@ describe.skipIf(!hasLiveEnv(SCALEWAY[0] as string))("live smoke: Scaleway", () =
     expect(result).toMatchObject({ status: "sent", provider: "scaleway" });
   });
 });
+
+// The Mailjet and MailChannels docs do not confirm the bounce field names that the
+// adapters read. Put a raw bounce webhook body that the provider sent in one of these env
+// vars. The check logs whether each field is present. It never logs a field value.
+// - MAILSWITCH_LIVE_MAILJET_BOUNCE_BODY: fields `error` and `error_related_to`.
+// - MAILSWITCH_LIVE_MAILCHANNELS_BOUNCE_BODY: fields `reason` and `status`.
+const BOUNCE_FIELDS: readonly [string, string, readonly string[]][] = [
+  ["Mailjet", "MAILSWITCH_LIVE_MAILJET_BOUNCE_BODY", ["error", "error_related_to"]],
+  ["MailChannels", "MAILSWITCH_LIVE_MAILCHANNELS_BOUNCE_BODY", ["reason", "status"]],
+];
+
+describe.each(BOUNCE_FIELDS)("live smoke: %s bounce fields", (name, variable, fields) => {
+  it.skipIf(!hasLiveEnv(variable))("logs which bounce fields are present", () => {
+    const value: unknown = JSON.parse(env[variable] ?? "");
+    const list = Array.isArray(value) ? value : [value];
+    const entry = list.find(
+      (item): item is Record<string, unknown> => typeof item === "object" && item !== null,
+    );
+    expect(entry).toBeDefined();
+    const present = Object.fromEntries(
+      fields.map((field) => [field, typeof entry?.[field] === "string"]),
+    );
+    console.info(`${name} bounce fields present:`, present);
+  });
+});

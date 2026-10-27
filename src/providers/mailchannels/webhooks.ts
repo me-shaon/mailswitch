@@ -28,6 +28,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { ed25519Verify } from "../../internal/ed25519";
 import { base64ToBytes, bytesToBase64, isBase64, utf8 } from "../../internal/encoding";
 import { asRecord, stringField } from "../../internal/json";
@@ -286,7 +287,12 @@ export function parseMailchannelsEvents(
       stringField(record, "url") ?? "",
     ].join(":");
     const event: NormalizedEvent = { type, provider, eventKey, rawType };
-    if (type === "bounced") event.bounce = rawType === "hard-bounced" ? "hard" : "soft";
+    if (type === "bounced") {
+      event.bounce = rawType === "hard-bounced" ? "hard" : "soft";
+      // The MailChannels docs do not list these field names, so both stay optional.
+      const detail = bounceDetail({ text: record.reason, enhancedCode: record.status });
+      if (detail !== undefined) event.bounceDetail = detail;
+    }
     if (recipients.length === 1) event.recipient = recipients[0] as string;
     if (typeof seconds === "number" && Number.isFinite(seconds)) event.occurredAt = seconds * 1000;
     out.push(event);
