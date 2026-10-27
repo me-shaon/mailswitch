@@ -116,6 +116,10 @@
       "types": "./dist/providers/mailtrap/index.d.ts",
       "import": "./dist/providers/mailtrap/index.js"
     },
+    "./autosend": {
+      "types": "./dist/providers/autosend/index.d.ts",
+      "import": "./dist/providers/autosend/index.js"
+    },
     "./sendgrid": {
       "types": "./dist/providers/sendgrid/index.d.ts",
       "import": "./dist/providers/sendgrid/index.js"

@@ -308,6 +308,19 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "verifyMailtrapWebhook",
     ],
   },
+  "./autosend": {
+    load: () => import("../../src/providers/autosend/index"),
+    names: [
+      "AUTOSEND_API_BASE",
+      "AUTOSEND_SIGNATURE_HEADER",
+      "autosend",
+      "autosendMeta",
+      "autosendSignature",
+      "autosendWebhooks",
+      "parseAutosendEvents",
+      "verifyAutosendWebhook",
+    ],
+  },
   "./ses": {
     load: () => import("../../src/providers/ses/index"),
     names: [

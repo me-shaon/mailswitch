@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ahasend } from "../../src/providers/ahasend/index";
+import { autosend } from "../../src/providers/autosend/index";
 import { brevo } from "../../src/providers/brevo/index";
 import { mailchannels } from "../../src/providers/mailchannels/index";
 import { mailersend } from "../../src/providers/mailersend/index";
@@ -44,6 +45,9 @@ import { zeptomail } from "../../src/providers/zeptomail/index";
 //   and the optional MAILSWITCH_LIVE_MAILTRAP_SANDBOX_ID. With the sandbox id, the send goes
 //   to that sandbox inbox and delivers no email. Without it, it sends one real email. Set
 //   MAILSWITCH_LIVE_TO to an address of the account owner.
+// - AutoSend: MAILSWITCH_LIVE_AUTOSEND_KEY, MAILSWITCH_LIVE_AUTOSEND_FROM, MAILSWITCH_LIVE_TO.
+//   AutoSend has no sandbox, so it sends one real email. Set MAILSWITCH_LIVE_TO to an
+//   address of the account owner. Use a project key (AS_).
 //
 // Each block checks that its env vars are complete. A block with an adapter also sends.
 
@@ -96,6 +100,11 @@ const AHASEND = [
 const MAILTRAP = [
   "MAILSWITCH_LIVE_MAILTRAP_TOKEN",
   "MAILSWITCH_LIVE_MAILTRAP_FROM",
+  "MAILSWITCH_LIVE_TO",
+];
+const AUTOSEND = [
+  "MAILSWITCH_LIVE_AUTOSEND_KEY",
+  "MAILSWITCH_LIVE_AUTOSEND_FROM",
   "MAILSWITCH_LIVE_TO",
 ];
 const ZEPTOMAIL = [
@@ -442,4 +451,31 @@ describe.skipIf(!hasLiveEnv(MAILTRAP[0] as string))("live smoke: Mailtrap", () =
       expect(result).toMatchObject({ status: "sent", provider: "mailtrap" });
     },
   );
+});
+
+describe.skipIf(!hasLiveEnv(AUTOSEND[0] as string))("live smoke: AutoSend", () => {
+  it("has the env vars of the AutoSend smoke test", () => {
+    expect(hasLiveEnv(...AUTOSEND)).toBe(true);
+  });
+
+  it.skipIf(!hasLiveEnv(...AUTOSEND))("verifies the key and sends one real email", async () => {
+    const adapter = autosend();
+    const ctx = {
+      fetch: (input: string, init: RequestInit) => fetch(input, init),
+      timeoutMs: 15_000,
+      credentials: { apiKey: env.MAILSWITCH_LIVE_AUTOSEND_KEY ?? "" },
+      now: Date.now(),
+    };
+    expect(await adapter.verify(ctx)).toEqual({ ok: true });
+    const result = await adapter.send(
+      {
+        from: env.MAILSWITCH_LIVE_AUTOSEND_FROM ?? "",
+        to: [env.MAILSWITCH_LIVE_TO ?? ""],
+        subject: "mailswitch live smoke test (AutoSend)",
+        text: "This email comes from the mailswitch live smoke test.",
+      },
+      ctx,
+    );
+    expect(result).toMatchObject({ status: "sent", provider: "autosend" });
+  });
 });

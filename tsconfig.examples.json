@@ -34,6 +34,7 @@
       "mailswitch/mailchannels": ["./src/providers/mailchannels/index.ts"],
       "mailswitch/ahasend": ["./src/providers/ahasend/index.ts"],
       "mailswitch/mailtrap": ["./src/providers/mailtrap/index.ts"],
+      "mailswitch/autosend": ["./src/providers/autosend/index.ts"],
       "mailswitch/ses": ["./src/providers/ses/index.ts"],
       "mailswitch/mailgun": ["./src/providers/mailgun/index.ts"],
       "mailswitch/cloudflare": ["./src/providers/cloudflare/index.ts"],
