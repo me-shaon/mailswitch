@@ -1,5 +1,21 @@
 # mailswitch
 
+## 0.3.0
+
+### Minor Changes
+
+- 0fb99ea: Add the AhaSend provider at `mailswitch/ahasend`, with native idempotency and Standard Webhooks checks.
+- 0fb99ea: Add the AutoSend provider at `mailswitch/autosend`, with project and account keys and signed webhook checks.
+- 0fb99ea: Add the generic HTTP provider at `mailswitch/http`, with a code API, a JSON config API, and safety rules that code enforces.
+- 0fb99ea: Add the MailChannels provider at `mailswitch/mailchannels`, with Ed25519 webhook checks.
+- 0fb99ea: Add the Mailtrap provider at `mailswitch/mailtrap`, with the transactional, bulk, and sandbox hosts and signed webhook checks.
+- 0fb99ea: `callProvider` in `mailswitch/provider-kit` accepts an optional `redirect` option and passes it to fetch.
+- 0fb99ea: Add the Scaleway Transactional Email provider at `mailswitch/scaleway`, with a secret key and a Project ID.
+
+### Patch Changes
+
+- 0fb99ea: A `retryAfterMs` taken from a `Retry-After` header is now capped at one hour, and it is never `Infinity`.
+
 ## 0.2.0
 
 ### Minor Changes
