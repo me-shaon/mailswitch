@@ -115,6 +115,19 @@ it("keeps the bounce text out of the console, the dedupe calls, and the D1 rows"
       return inner.release(input);
     },
     purgeExpired: (now) => inner.purgeExpired(now),
+    // The bulk methods too, so the test covers the path that the D1 store takes.
+    claimMany: (input) => {
+      calls.push(input);
+      return inner.claimMany(input);
+    },
+    commitMany: (input) => {
+      calls.push(input);
+      return inner.commitMany(input);
+    },
+    releaseMany: (leases) => {
+      calls.push(leases);
+      return inner.releaseMany(leases);
+    },
   };
   const body = JSON.parse(toSendBounce("ana@example.org")) as { data: Record<string, unknown> };
   body.data.reason = `smtp; 550 5.1.1 ${canary}`;
