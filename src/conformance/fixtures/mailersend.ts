@@ -163,6 +163,7 @@ export function mailersendFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: "550 5.1.1 unknown user", smtpCode: 550 },
               rawType: "activity.hard_bounced",
               eventKey: "act-hard_bounced-0001",
             },
@@ -171,9 +172,23 @@ export function mailersendFixture(): ConformanceFixture {
         {
           label: "soft bounce",
           body: JSON.stringify(
-            mailersendEvent("activity.soft_bounced", { recipient: "bo@example.org" }),
+            mailersendEvent("activity.soft_bounced", {
+              recipient: "bo@example.org",
+              meta: {
+                bounce_reason: "452 4.2.2 mailbox full",
+                bounce_code: 452,
+                bounce_type: "soft",
+              },
+            }),
           ),
-          expected: [{ type: "bounced", bounce: "soft", recipient: "bo@example.org" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              recipient: "bo@example.org",
+              bounceDetail: { text: "452 4.2.2 mailbox full", smtpCode: 452 },
+            },
+          ],
         },
         {
           label: "spam complaint",

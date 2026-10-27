@@ -7,7 +7,8 @@
 // event key is the SNS MessageId, which SNS keeps across retries. The second and later
 // recipients of one message add `:<index>`.
 
-import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import type { BounceDetail, NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { sesMeta } from "./meta";
 import { isSnsSubscribeUrl, parseSnsMessage, parseTopicArn } from "./sns-verify";
 
@@ -99,14 +100,33 @@ export function parseSesEvents(body: Uint8Array): SesEvent[] {
   // A "not-spam" feedback report is not a complaint.
   if (detail.complaintFeedbackType === "not-spam") fields.type = "unknown";
   const at = time(detail.timestamp, snsTime);
+  // Pair each recipient with its own bounce fields before the filter drops bad entries.
+  // The filter shifts the indexes, so a later pairing would attach the wrong detail.
   const recipients = (Array.isArray(detail[list]) ? (detail[list] as unknown[]) : [])
-    .map((item) => (typeof item === "string" ? item : record(item).emailAddress))
-    .filter((item): item is string => typeof item === "string" && item !== "");
+    .map((item) => {
+      const entry = record(item);
+      const address = typeof item === "string" ? item : entry.emailAddress;
+      const reason =
+        mapped === "bounced"
+          ? bounceDetail({ text: entry.diagnosticCode, enhancedCode: entry.status })
+          : undefined;
+      return { address, reason };
+    })
+    .filter(
+      (item): item is { address: string; reason: BounceDetail | undefined } =>
+        typeof item.address === "string" && item.address !== "",
+    );
   if (recipients.length === 0) return [event(fields, at)];
-  return recipients.map((recipient, index) =>
-    event(
-      { ...fields, recipient, eventKey: index === 0 ? sns.MessageId : `${sns.MessageId}:${index}` },
+  return recipients.map(({ address, reason }, index) => {
+    const out = event(
+      {
+        ...fields,
+        recipient: address,
+        eventKey: index === 0 ? sns.MessageId : `${sns.MessageId}:${index}`,
+      },
       at,
-    ),
-  );
+    );
+    if (reason !== undefined && out.type === "bounced") out.bounceDetail = reason;
+    return out;
+  });
 }

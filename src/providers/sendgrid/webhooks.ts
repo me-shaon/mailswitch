@@ -10,6 +10,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { ecdsaP256Verify } from "../../internal/ecdsa";
 import { base64ToBytes, isBase64, utf8 } from "../../internal/encoding";
 import { decodeJsonBytes } from "../../internal/webhook-bytes";
@@ -117,7 +118,11 @@ export function parseSendgridEvents(provider: string, body: Uint8Array): Normali
       text(record, "sg_event_id") ??
       [messageId, rawType, String(seconds ?? ""), recipient?.toLowerCase(), index].join(":");
     const event: NormalizedEvent = { type, provider, eventKey, rawType };
-    if (bounce !== undefined) event.bounce = bounce;
+    if (bounce !== undefined) {
+      event.bounce = bounce;
+      const detail = bounceDetail({ text: record.reason, enhancedCode: record.status });
+      if (detail !== undefined) event.bounceDetail = detail;
+    }
     if (recipient !== undefined) event.recipient = recipient;
     if (messageId !== undefined) event.providerMessageId = messageId;
     if (typeof seconds === "number" && Number.isFinite(seconds)) event.occurredAt = seconds * 1000;

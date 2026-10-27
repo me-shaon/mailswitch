@@ -88,6 +88,7 @@ export function smtpFixture(): SmtpConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: "550 5.1.1 unknown user" },
               recipient: "ana@example.org",
               providerMessageId: BREVO_MESSAGE_ID,
               rawType: "hard_bounce",
@@ -98,8 +99,17 @@ export function smtpFixture(): SmtpConformanceFixture {
         },
         {
           label: "soft bounce",
-          body: JSON.stringify(brevoEvent("soft_bounce", "ben@example.org")),
-          expected: [{ type: "bounced", bounce: "soft", recipient: "ben@example.org" }],
+          body: JSON.stringify(
+            brevoEvent("soft_bounce", "ben@example.org", { reason: "452 4.2.2 mailbox full" }),
+          ),
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              recipient: "ben@example.org",
+              bounceDetail: { text: "452 4.2.2 mailbox full" },
+            },
+          ],
         },
         {
           label: "invalid email",

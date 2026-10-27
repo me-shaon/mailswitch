@@ -144,6 +144,15 @@ One request holds up to 500 events in `{"events": [...]}`. Each entry gives one 
 
 Read `bounce_category`, `response`, and `response_code` in your own code when you need the bounce details.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Mailtrap sends these fields:
+
+- `text`: `response`.
+- `smtpCode`: `response_code`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Live smoke test
 
 The live smoke test runs only when these environment variables are set:

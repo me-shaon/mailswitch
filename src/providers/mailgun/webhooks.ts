@@ -14,6 +14,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail, cleanBounceText } from "../../internal/bounce-detail";
 import { bytesToHex, utf8 } from "../../internal/encoding";
 import { hmacSign, hmacVerify } from "../../internal/hmac";
 import { decodeJsonBytes, hexToBytes } from "../../internal/webhook-bytes";
@@ -149,6 +150,16 @@ export function parseMailgunEvents(provider: string, body: Uint8Array): Normaliz
   else if (rawType === "failed") mapped = failed(data);
   const event: NormalizedEvent = { type: mapped.type, provider, eventKey: token, rawType };
   if (mapped.bounce !== undefined) event.bounce = mapped.bounce;
+  if (mapped.type === "bounced") {
+    // Mailgun puts the SMTP reply in `message`. Some failures have only `description`.
+    const status = record(data["delivery-status"]);
+    const detail = bounceDetail({
+      text: cleanBounceText(status?.message) ?? status?.description,
+      smtpCode: status?.code,
+      enhancedCode: status?.["enhanced-code"],
+    });
+    if (detail !== undefined) event.bounceDetail = detail;
+  }
   const recipient = text(data, "recipient");
   if (recipient !== undefined) event.recipient = recipient;
   const headers = record(record(data.message)?.headers);

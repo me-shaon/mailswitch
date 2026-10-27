@@ -151,6 +151,14 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 
 The event key is `RecordType:ID`, for example `Bounce:692560173`. mailswitch reads the ID digits from the raw body, because a bounce ID can be larger than a safe JavaScript number. A `Delivery` record has no ID, so its key is `Delivery:<MessageID>:<recipient>`. Postmark reports one delivery for each recipient of a message. Any other record without an ID, for example `Open`, gets `<RecordType>:<MessageID>:<recipient>:<time>`. A `Click` record also adds its link. These fields do not change when Postmark sends the same request again.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Postmark sends these fields:
+
+- `text`: `Details`, or `Description` when `Details` is empty.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Links
 
 - [Email API](https://postmarkapp.com/developer/api/email-api)

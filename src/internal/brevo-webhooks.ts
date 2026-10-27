@@ -22,6 +22,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../core/adapter";
 import type { NormalizedEvent } from "../core/events";
+import { bounceDetail } from "./bounce-detail";
 import { numberField, stringField } from "./json";
 import {
   checkSharedTokenSecret,
@@ -103,6 +104,10 @@ function eventOf(provider: string, record: Fields): NormalizedEvent | null {
   } else if (rawType === "soft_bounce") {
     event.type = "bounced";
     event.bounce = "soft";
+  }
+  if (event.type === "bounced") {
+    const detail = bounceDetail({ text: record.reason });
+    if (detail !== undefined) event.bounceDetail = detail;
   }
   if (recipient !== undefined) event.recipient = recipient;
   if (messageId !== undefined) event.providerMessageId = messageId;

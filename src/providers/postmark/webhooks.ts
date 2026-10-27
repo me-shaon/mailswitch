@@ -11,6 +11,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail, cleanBounceText } from "../../internal/bounce-detail";
 import { base64ToBytes, bytesToBase64, utf8 } from "../../internal/encoding";
 import { decodeJsonBytes, timingSafeEqualText } from "../../internal/webhook-bytes";
 
@@ -209,7 +210,14 @@ export function parsePostmarkEvents(provider: string, body: Uint8Array): Normali
   const eventKey =
     id === undefined ? parts.filter((part) => part !== undefined).join(":") : `${rawType}:${id}`;
   const event: NormalizedEvent = { type, provider, eventKey, rawType };
-  if (bounce !== undefined) event.bounce = bounce;
+  if (bounce !== undefined) {
+    event.bounce = bounce;
+    // Postmark puts the full SMTP reply in `Details` and a short summary in `Description`.
+    const detail = bounceDetail({
+      text: cleanBounceText(record.Details) ?? record.Description,
+    });
+    if (detail !== undefined) event.bounceDetail = detail;
+  }
   if (recipient !== undefined) event.recipient = recipient;
   if (messageId !== undefined) event.providerMessageId = messageId;
   const at = Date.parse(time ?? "");

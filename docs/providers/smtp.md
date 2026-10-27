@@ -244,6 +244,14 @@ The token does not cover the body. Use HTTPS for the webhook URL, so nobody can 
 
 Brevo sends no event id. The event key is `<event>:<message-id>:<recipient>:<time>`. The time is `ts_epoch` in milliseconds, or `ts_event` in seconds. These fields do not change when Brevo sends the same event again.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Brevo sends these fields:
+
+- `text`: `reason`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Links
 
 - [RFC 6409, message submission](https://www.rfc-editor.org/rfc/rfc6409)

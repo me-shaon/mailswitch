@@ -137,3 +137,13 @@ The binding holds while the first request holds its lease or after its keys are 
 | Any other event, for example `opened` | `unknown` |
 
 `providerMessageId` is the `message-id` header without angle brackets. It matches the id in the send result.
+
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Mailgun sends these fields:
+
+- `text`: `delivery-status.message`, or `delivery-status.description` when `message` is empty.
+- `smtpCode`: `delivery-status.code`.
+- `enhancedCode`: `delivery-status.enhanced-code`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.

@@ -6,6 +6,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { bytesToHex } from "../../internal/encoding";
 import { hmacSign, hmacVerify } from "../../internal/hmac";
 import { sha256Hex } from "../../internal/sha256";
@@ -68,6 +69,9 @@ function toEvent(provider: string, item: unknown, eventKey: string): NormalizedE
         : field(data, "bounce_type") === "Permanent"
           ? "hard"
           : "soft";
+    // toSend also puts `reason` on a complaint, so read it only for a bounce.
+    const detail = bounceDetail({ text: data?.reason });
+    if (detail !== undefined) event.bounceDetail = detail;
   }
   const recipient = field(data, "email");
   if (recipient !== undefined) event.recipient = recipient;

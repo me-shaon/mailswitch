@@ -8,6 +8,7 @@
 
 import type { WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { base64ToBytes, utf8 } from "../../internal/encoding";
 import { hmacVerify } from "../../internal/hmac";
 import { decodeJsonBytes } from "../../internal/webhook-bytes";
@@ -118,7 +119,7 @@ interface ResendEvent {
   data?: {
     email_id?: unknown;
     to?: unknown;
-    bounce?: { type?: unknown };
+    bounce?: { type?: unknown; message?: unknown };
   };
 }
 
@@ -147,7 +148,11 @@ export function parseResendEvents(body: Uint8Array, headers: Headers): Normalize
   const eventKey = header(headers, "id") || `${messageId ?? ""}:${rawType}:${createdAt}`;
   const type = TYPES[rawType] ?? "unknown";
   const out: NormalizedEvent = { type, provider: PROVIDER, eventKey, rawType };
-  if (type === "bounced") out.bounce = data.bounce?.type === "Permanent" ? "hard" : "soft";
+  if (type === "bounced") {
+    out.bounce = data.bounce?.type === "Permanent" ? "hard" : "soft";
+    const detail = bounceDetail({ text: data.bounce?.message });
+    if (detail !== undefined) out.bounceDetail = detail;
+  }
   const to = typeof data.to === "string" ? [data.to] : Array.isArray(data.to) ? data.to : [];
   if (to.length === 1 && typeof to[0] === "string") out.recipient = to[0];
   if (messageId !== undefined) out.providerMessageId = messageId;

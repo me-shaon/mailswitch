@@ -156,6 +156,15 @@ The spam complaint example of MailerSend has the type `spam_complaints` in `data
 
 The event key is `data.id`, the id of the activity. A body without it gets the SHA-256 of the raw body.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when MailerSend sends these fields:
+
+- `text`: `data.meta.bounce_reason`.
+- `smtpCode`: `data.meta.bounce_code`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Links
 
 - [Email API](https://developers.mailersend.com/api/v1/email)

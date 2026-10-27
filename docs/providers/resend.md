@@ -159,6 +159,14 @@ Use the full handler from the [README](../../README.md#receive-webhooks): answer
 
 `recipient` is set only when the email had exactly one `to` address. `providerMessageId` is the Resend email ID. It matches the `providerMessageId` of the `sent` result.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Resend sends these fields:
+
+- `text`: `data.bounce.message`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

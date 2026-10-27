@@ -7,6 +7,12 @@ import type { ConformanceFixture } from "../types";
 const NOW = Date.parse("2026-10-26T12:00:30.000Z");
 const MESSAGE_ID = "0100019a-tosend-1";
 
+/** The `reason` of the sample hard bounce. */
+export const TOSEND_HARD_BOUNCE_REASON = "smtp; 550 5.1.1 The email account does not exist";
+
+/** The `reason` of the sample soft bounce. */
+export const TOSEND_SOFT_BOUNCE_REASON = "smtp; 452 4.2.2 The email account is over quota";
+
 /** A toSend bounce body for one recipient. */
 export function toSendBounce(
   email: string,
@@ -22,7 +28,7 @@ export function toSendBounce(
       bounce_sub_type: hard ? "General" : "MailboxFull",
       is_hard_bounce: hard,
       sender_fault: false,
-      reason: "smtp; 550 5.1.1 The email account does not exist",
+      reason: hard ? TOSEND_HARD_BOUNCE_REASON : TOSEND_SOFT_BOUNCE_REASON,
       timestamp: "2026-10-26T11:59:58.000Z",
       message_id: messageId,
     },
@@ -126,6 +132,7 @@ export function toSendFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: TOSEND_HARD_BOUNCE_REASON },
               recipient: "ana@example.org",
               providerMessageId: MESSAGE_ID,
               rawType: "bounced",
@@ -136,7 +143,14 @@ export function toSendFixture(): ConformanceFixture {
         {
           label: "soft bounce",
           body: toSendBounce("bo@example.org", false),
-          expected: [{ type: "bounced", bounce: "soft", recipient: "bo@example.org" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              bounceDetail: { text: TOSEND_SOFT_BOUNCE_REASON },
+              recipient: "bo@example.org",
+            },
+          ],
         },
         {
           label: "complaint",

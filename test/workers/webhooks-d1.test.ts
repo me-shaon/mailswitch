@@ -5,6 +5,7 @@ import { utf8 } from "../../src/internal/encoding";
 import { tosend } from "../../src/providers/tosend/index";
 import { toSendSignature } from "../../src/providers/tosend/webhooks";
 import { applyD1Schema, D1DedupeStore } from "../../src/stores/d1";
+import type { DedupeStore } from "../../src/stores/types";
 import { handleWebhook } from "../../src/webhooks/index";
 import { dedupeBulkSuite, dedupeStoreSuite } from "../stores/dedupe-suite";
 
@@ -93,4 +94,48 @@ it("refuses a committed value that is not 0 or 1 with the CHECK constraint", asy
 
 it("refuses a value that is not a D1 binding", () => {
   expect(() => new D1DedupeStore({} as never)).toThrow(TypeError);
+});
+
+it("keeps the bounce text out of the console, the dedupe calls, and the D1 rows", async () => {
+  const canary = "cnry-bounce-reason-7f3a9c";
+  const inner = await freshStore();
+  // handleWebhook takes no logger or hooks. The console and the store are the only sinks.
+  const calls: unknown[] = [];
+  const dedupe: DedupeStore = {
+    claim: (input) => {
+      calls.push(input);
+      return inner.claim(input);
+    },
+    commit: (input) => {
+      calls.push(input);
+      return inner.commit(input);
+    },
+    release: (input) => {
+      calls.push(input);
+      return inner.release(input);
+    },
+    purgeExpired: (now) => inner.purgeExpired(now),
+  };
+  const body = JSON.parse(toSendBounce("ana@example.org")) as { data: Record<string, unknown> };
+  body.data.reason = `smtp; 550 5.1.1 ${canary}`;
+  const logs: unknown[] = [];
+  const methods = ["log", "info", "warn", "error", "debug"] as const;
+  const saved = methods.map((method) => console[method]);
+  for (const method of methods) console[method] = (...args: unknown[]) => logs.push(args);
+  try {
+    const options = { adapter: tosend(), secret: SECRET, dedupe, now: () => NOW };
+    const result = await handleWebhook(await delivery(JSON.stringify(body)), options);
+    if (!result.ok) throw new Error(result.rejection);
+    expect(result.events[0]?.bounceDetail?.text).toBe(`smtp; 550 5.1.1 ${canary}`);
+    await result.ack();
+  } finally {
+    methods.forEach((method, index) => {
+      console[method] = saved[index] as (typeof console)[typeof method];
+    });
+  }
+  const rows = await db.prepare("SELECT * FROM mailswitch_webhook_dedupe").all();
+  expect(rows.results).toHaveLength(1);
+  expect(JSON.stringify(rows.results)).not.toContain(canary);
+  expect(JSON.stringify(calls)).not.toContain(canary);
+  expect(JSON.stringify(logs)).not.toContain(canary);
 });

@@ -11,6 +11,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { bytesToHex, utf8 } from "../../internal/encoding";
 import { checkHexHmac } from "../../internal/hex-hmac-webhook";
 import { hmacSign } from "../../internal/hmac";
@@ -99,6 +100,8 @@ export function parseAutosendEvents(provider: string, body: Uint8Array): Normali
     const bounceType = stringField(data, "bounceType");
     if (bounceType === "Permanent") event.bounce = "hard";
     else if (bounceType === "Transient") event.bounce = "soft";
+    const detail = bounceDetail({ text: data.reason });
+    if (detail !== undefined) event.bounceDetail = detail;
   }
   if (recipient !== undefined) event.recipient = recipient;
   if (messageId !== undefined) event.providerMessageId = messageId;

@@ -216,13 +216,21 @@ export function sesFixture(): ConformanceFixture {
               bounceType: "Permanent",
               bounceSubType: "General",
               timestamp: "2026-10-26T12:00:00.000Z",
-              bouncedRecipients: [{ emailAddress: "ana@example.org" }],
+              bouncedRecipients: [
+                {
+                  emailAddress: "ana@example.org",
+                  action: "failed",
+                  status: "5.1.1",
+                  diagnosticCode: "smtp; 550 5.1.1 user unknown",
+                },
+              ],
             },
           }),
           expected: [
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: "smtp; 550 5.1.1 user unknown", enhancedCode: "5.1.1" },
               recipient: "ana@example.org",
               providerMessageId: SES_FIXTURE_MESSAGE_ID,
               occurredAt: Date.parse("2026-10-26T12:00:00.000Z"),
@@ -240,7 +248,12 @@ export function sesFixture(): ConformanceFixture {
               bounce: {
                 bounceType: "Transient",
                 bouncedRecipients: [
-                  { emailAddress: "ana@example.org" },
+                  {
+                    emailAddress: "ana@example.org",
+                    action: "delayed",
+                    status: "4.4.7",
+                    diagnosticCode: "smtp; 451 4.4.7 message expired",
+                  },
                   { emailAddress: "bo@example.org" },
                 ],
               },
@@ -251,6 +264,7 @@ export function sesFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "soft",
+              bounceDetail: { text: "smtp; 451 4.4.7 message expired", enhancedCode: "4.4.7" },
               recipient: "ana@example.org",
               eventKey: "1b2c3d4e-0000-5000-8000-000000000002",
             },

@@ -171,15 +171,30 @@ export function autosendFixture(): ConformanceFixture {
             bounceSubType: "NoEmail",
             reason: "550 5.1.1 unknown user",
           }),
-          expected: [{ type: "bounced", bounce: "hard", rawType: "email.bounced" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "hard",
+              rawType: "email.bounced",
+              bounceDetail: { text: "550 5.1.1 unknown user" },
+            },
+          ],
         },
         {
           label: "transient bounce",
           body: autosendEvent("email.bounced", {
             bounceType: "Transient",
             bounceSubType: "General",
+            reason: "451 4.3.0 temporary failure",
           }),
-          expected: [{ type: "bounced", bounce: "soft", rawType: "email.bounced" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              rawType: "email.bounced",
+              bounceDetail: { text: "451 4.3.0 temporary failure" },
+            },
+          ],
         },
         {
           label: "spam report",

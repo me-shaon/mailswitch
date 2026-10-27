@@ -182,16 +182,45 @@ export function ahasendFixture(): ConformanceFixture {
         {
           label: "bounce",
           body: ahasendEvent("message.bounced", {
-            delivery_attempt: { smtp_code: 550, enhanced_status_code: "5.1.1" },
+            delivery_attempt: {
+              smtp_code: 550,
+              enhanced_status_code: "5.1.1",
+              response: "550 5.1.1 The email account that you tried to reach does not exist",
+            },
           }),
-          expected: [{ type: "bounced", rawType: "message.bounced" }],
+          expected: [
+            {
+              type: "bounced",
+              rawType: "message.bounced",
+              bounceDetail: {
+                text: "550 5.1.1 The email account that you tried to reach does not exist",
+                smtpCode: 550,
+                enhancedCode: "5.1.1",
+              },
+            },
+          ],
         },
         {
           label: "transient error",
           body: ahasendEvent("message.transient_error", {
-            delivery_attempt: { smtp_code: 452, enhanced_status_code: "4.2.2" },
+            delivery_attempt: {
+              smtp_code: 452,
+              enhanced_status_code: "4.2.2",
+              response: "452 4.2.2 Mailbox full",
+            },
           }),
-          expected: [{ type: "bounced", bounce: "soft", rawType: "message.transient_error" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              rawType: "message.transient_error",
+              bounceDetail: {
+                text: "452 4.2.2 Mailbox full",
+                smtpCode: 452,
+                enhancedCode: "4.2.2",
+              },
+            },
+          ],
         },
         {
           label: "complaint",

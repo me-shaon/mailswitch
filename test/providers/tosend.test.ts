@@ -360,3 +360,19 @@ describe("tosend webhooks", () => {
     expect(hooks.parse(body, headers)).toEqual([]);
   });
 });
+
+describe("tosend bounce detail", () => {
+  const parse = (body: string) => tosend().webhooks?.parse(utf8(body), new Headers()) ?? [];
+
+  it("reads data.reason for a bounce", () => {
+    expect(parse(toSendBounce("ana@example.org"))[0]?.bounceDetail).toEqual({
+      text: "smtp; 550 5.1.1 The email account does not exist",
+    });
+  });
+
+  it("gives no detail to a complaint with reason abuse", () => {
+    const events = parse(toSendComplaint("ana@example.org"));
+    expect(events[0]?.type).toBe("complained");
+    expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+});

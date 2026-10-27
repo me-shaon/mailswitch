@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  POSTMARK_BOUNCE_DESCRIPTION,
   POSTMARK_FIXTURE_SECRET,
+  POSTMARK_HARD_BOUNCE_DETAILS,
   postmarkBounce,
   postmarkDelivery,
   postmarkFixture,
@@ -282,6 +284,7 @@ describe("postmark events through handleWebhook", () => {
       {
         type: "bounced",
         bounce: "hard",
+        bounceDetail: { text: POSTMARK_HARD_BOUNCE_DETAILS },
         provider: "postmark",
         eventKey: "Bounce:692560173",
         rawType: "Bounce",
@@ -347,5 +350,26 @@ describe("postmark events through handleWebhook", () => {
       });
       await outcome.ack();
     }
+  });
+});
+
+describe("postmark bounce detail", () => {
+  const parse = (body: string) => postmark().webhooks?.parse(utf8(body), new Headers()) ?? [];
+
+  it("reads Details when it is not empty", () => {
+    expect(parse(postmarkBounce("ana@example.org"))[0]?.bounceDetail).toEqual({
+      text: POSTMARK_HARD_BOUNCE_DETAILS,
+    });
+  });
+
+  it("falls back to Description when Details is empty or blank", () => {
+    for (const details of ["", "   "]) {
+      const body = postmarkBounce("ana@example.org", "HardBounce", "1", "m-1", details);
+      expect(parse(body)[0]?.bounceDetail).toEqual({ text: POSTMARK_BOUNCE_DESCRIPTION });
+    }
+  });
+
+  it("gives no detail to a delivery", () => {
+    expect(parse(postmarkDelivery("ana@example.org"))[0]?.bounceDetail).toBeUndefined();
   });
 });

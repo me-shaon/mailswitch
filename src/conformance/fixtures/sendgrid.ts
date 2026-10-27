@@ -207,6 +207,7 @@ export function sendgridFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: "500 unknown recipient", enhancedCode: "5.0.0" },
               rawType: "bounce",
               recipient: "ana@example.org",
               eventKey: "sg-bounce-0001",
@@ -214,6 +215,7 @@ export function sendgridFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "soft",
+              bounceDetail: { text: "451 try again later", enhancedCode: "4.0.0" },
               rawType: "bounce",
               recipient: "bo@example.org",
               eventKey: "sg-blocked-0002",

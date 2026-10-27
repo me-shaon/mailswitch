@@ -210,12 +210,17 @@ export function smtp2goFixture(): ConformanceFixture {
         {
           label: "hard bounce",
           body: JSON.stringify(
-            smtp2goEvent("bounce", { bounce: "hard", context: "550 5.1.1 user unknown" }),
+            smtp2goEvent("bounce", {
+              bounce: "hard",
+              context: "RCPT TO:<ana@example.org>",
+              message: "550 5.1.1 user unknown",
+            }),
           ),
           expected: [
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: "550 5.1.1 user unknown" },
               eventKey: sampleKey("b1c2d3e4f5a6-bounce", "bounce"),
             },
           ],
@@ -223,12 +228,17 @@ export function smtp2goFixture(): ConformanceFixture {
         {
           label: "soft bounce",
           body: JSON.stringify(
-            smtp2goEvent("bounce", { id: "c2d3e4f5a6b7-bounce", bounce: "soft" }),
+            smtp2goEvent("bounce", {
+              id: "c2d3e4f5a6b7-bounce",
+              bounce: "soft",
+              message: "452 4.2.2 mailbox full",
+            }),
           ),
           expected: [
             {
               type: "bounced",
               bounce: "soft",
+              bounceDetail: { text: "452 4.2.2 mailbox full" },
               eventKey: sampleKey("c2d3e4f5a6b7-bounce", "bounce"),
             },
           ],

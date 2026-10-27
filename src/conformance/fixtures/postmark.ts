@@ -21,12 +21,21 @@ interface SentBody {
   Attachments?: { Name: string; Content: string }[];
 }
 
+/** The `Details` of the sample hard bounce: the SMTP reply of the remote server. */
+export const POSTMARK_HARD_BOUNCE_DETAILS =
+  "smtp;550 5.1.1 The email account that you tried to reach does not exist.";
+
+/** The `Description` of every sample bounce. */
+export const POSTMARK_BOUNCE_DESCRIPTION =
+  "The server was unable to deliver your message (ex: unknown user, mailbox not found).";
+
 /** A Postmark bounce webhook body. `id` is the bounce ID, a 64-bit integer. */
 export function postmarkBounce(
   email: string,
   type: string = "HardBounce",
   id: string = "692560173",
   messageId: string = MESSAGE_ID,
+  details: string = POSTMARK_HARD_BOUNCE_DETAILS,
 ): string {
   const codes: Record<string, number> = {
     HardBounce: 1,
@@ -35,7 +44,7 @@ export function postmarkBounce(
     AutoResponder: 16,
   };
   // The ID goes in as raw digits, as Postmark sends it, so a 64-bit ID keeps every digit.
-  return `{"RecordType":"Bounce","MessageStream":"outbound","ID":${id},"Type":${JSON.stringify(type)},"TypeCode":${codes[type] ?? 0},"Name":"Hard bounce","Tag":"Test","MessageID":"${messageId}","Metadata":{"a_key":"a_value"},"ServerID":23,"Description":"The server was unable to deliver your message (ex: unknown user, mailbox not found).","Details":"Test bounce details","Email":${JSON.stringify(email)},"From":"sender@example.com","BouncedAt":"2026-10-26T11:59:58Z","DumpAvailable":true,"Inactive":true,"CanActivate":true,"Subject":"Test subject","Content":"Test content"}`;
+  return `{"RecordType":"Bounce","MessageStream":"outbound","ID":${id},"Type":${JSON.stringify(type)},"TypeCode":${codes[type] ?? 0},"Name":"Hard bounce","Tag":"Test","MessageID":"${messageId}","Metadata":{"a_key":"a_value"},"ServerID":23,"Description":${JSON.stringify(POSTMARK_BOUNCE_DESCRIPTION)},"Details":${JSON.stringify(details)},"Email":${JSON.stringify(email)},"From":"sender@example.com","BouncedAt":"2026-10-26T11:59:58Z","DumpAvailable":true,"Inactive":true,"CanActivate":true,"Subject":"Test subject","Content":"Test content"}`;
 }
 
 /** A Postmark delivery webhook body. A delivery has no ID. */
@@ -189,6 +198,7 @@ export function postmarkFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: POSTMARK_HARD_BOUNCE_DETAILS },
               recipient: "ana@example.org",
               providerMessageId: MESSAGE_ID,
               rawType: "Bounce",
@@ -198,12 +208,13 @@ export function postmarkFixture(): ConformanceFixture {
           ],
         },
         {
-          label: "soft bounce with a 64-bit ID",
-          body: postmarkBounce("bo@example.org", "SoftBounce", "9007199254740993"),
+          label: "soft bounce with a 64-bit ID and empty details",
+          body: postmarkBounce("bo@example.org", "SoftBounce", "9007199254740993", MESSAGE_ID, ""),
           expected: [
             {
               type: "bounced",
               bounce: "soft",
+              bounceDetail: { text: POSTMARK_BOUNCE_DESCRIPTION },
               recipient: "bo@example.org",
               eventKey: "Bounce:9007199254740993",
             },

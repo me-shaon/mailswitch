@@ -143,6 +143,15 @@ The event key is `sg_event_id`, which SendGrid gives for dedupe. An event withou
 
 `providerMessageId` is `sg_message_id`, unchanged. It starts with the `X-Message-Id` value of the send, followed by a dot and more text. To match an event to a send, compare the part before the first dot.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when SendGrid sends these fields:
+
+- `text`: `reason`.
+- `enhancedCode`: `status`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Links
 
 - [Mail Send API](https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send)

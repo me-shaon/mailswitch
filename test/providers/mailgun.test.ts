@@ -390,3 +390,51 @@ describe("mailgun webhooks through handleWebhook", () => {
     ]);
   });
 });
+
+describe("mailgun bounce detail", () => {
+  async function parseSigned(body: string) {
+    const sample = await signMailgunWebhook({
+      body: utf8(body),
+      secret: MAILGUN_FIXTURE_SECRET,
+      at: NOW,
+    });
+    return mailgun().webhooks?.parse(sample.body, new Headers(sample.headers)) ?? [];
+  }
+
+  it("leaves out enhancedCode when a temporary failure has a null enhanced-code", async () => {
+    const events = await parseSigned(
+      mailgunEvent("failed", {
+        severity: "temporary",
+        reason: "generic",
+        "delivery-status": { code: 421, "enhanced-code": null, message: "421 try again later" },
+      }),
+    );
+    expect(events[0]?.bounceDetail).toEqual({ text: "421 try again later", smtpCode: 421 });
+  });
+
+  it("uses description when message is empty", async () => {
+    const events = await parseSigned(
+      mailgunEvent("failed", {
+        severity: "permanent",
+        reason: "bounce",
+        "delivery-status": {
+          code: 605,
+          message: "",
+          description: "Not delivering to previously bounced address",
+        },
+      }),
+    );
+    // 605 is not an SMTP code, so the builder drops it.
+    expect(events[0]?.bounceDetail).toEqual({
+      text: "Not delivering to previously bounced address",
+    });
+  });
+
+  it("gives no detail to a delivery or a complaint", async () => {
+    const delivered = await parseSigned(
+      mailgunEvent("delivered", { "delivery-status": { code: 250, message: "OK" } }),
+    );
+    expect(delivered[0]?.bounceDetail).toBeUndefined();
+    expect((await parseSigned(mailgunEvent("complained")))[0]?.bounceDetail).toBeUndefined();
+  });
+});

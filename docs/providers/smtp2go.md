@@ -213,6 +213,14 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 
 The event key is `<id>:<event>:<email_id>:<rcpt>:<time>`, with the address in lowercase. A missing field is empty. The SMTP2GO docs call `id` the id of the webhook, so mailswitch does not use `id` alone. When one request holds the same key twice, mailswitch keeps one event.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when SMTP2GO sends these fields:
+
+- `text`: `message`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Links
 
 - [Send a standard email](https://developers.smtp2go.com/reference/send-standard-email.md)

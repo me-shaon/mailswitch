@@ -140,6 +140,7 @@ export function resendFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: "Mailbox does not exist." },
               recipient: "ana@example.org",
               providerMessageId: MESSAGE_ID,
               eventKey: RESEND_FIXTURE_SVIX_ID,
@@ -153,7 +154,14 @@ export function resendFixture(): ConformanceFixture {
           body: resendEvent("email.bounced", {
             bounce: { message: "Mailbox full.", subType: "MailboxFull", type: "Transient" },
           }),
-          expected: [{ type: "bounced", bounce: "soft", eventKey: RESEND_FIXTURE_SVIX_ID }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              bounceDetail: { text: "Mailbox full." },
+              eventKey: RESEND_FIXTURE_SVIX_ID,
+            },
+          ],
         },
         {
           label: "complaint",
