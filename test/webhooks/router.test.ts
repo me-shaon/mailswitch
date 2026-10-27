@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  MAILGUN_FIXTURE_SECRET,
+  mailgunEvent,
+  signMailgunWebhook,
+} from "../../src/conformance/fixtures/mailgun";
+import {
   RESEND_FIXTURE_SECRET,
   RESEND_FIXTURE_SVIX_ID,
   resendEvent,
@@ -8,12 +13,15 @@ import {
 import { toSendBounce, toSendComplaint } from "../../src/conformance/fixtures/tosend";
 import type { ProviderAdapter } from "../../src/core/adapter";
 import { utf8 } from "../../src/internal/encoding";
+import { sha256Hex } from "../../src/internal/sha256";
+import { mailgun } from "../../src/providers/mailgun/index";
 import { resend } from "../../src/providers/resend/index";
 import { tosend } from "../../src/providers/tosend/index";
 import { toSendSignature } from "../../src/providers/tosend/webhooks";
 import { MemoryDedupeStore } from "../../src/stores/memory";
 import type { DedupeStore } from "../../src/stores/types";
 import {
+  type BodyBoundAdapter,
   DEFAULT_DEDUPE_TTL_MS,
   DEFAULT_LEASE_MS,
   handleWebhook,
@@ -407,5 +415,358 @@ describe("handleWebhook dedupe", () => {
       }),
     );
     expect(b.events).toHaveLength(1);
+  });
+});
+
+/** A memory store with the bulk methods that records each call. */
+function bulkSpyStore(): {
+  store: Required<DedupeStore>;
+  inner: MemoryDedupeStore;
+  calls: { method: string; keys: string[] }[];
+} {
+  const inner = new MemoryDedupeStore();
+  const calls: { method: string; keys: string[] }[] = [];
+  const record = (method: string, keys: readonly string[]) => {
+    calls.push({ method, keys: [...keys] });
+  };
+  const store: Required<DedupeStore> = {
+    claim: (input) => {
+      record("claim", [input.key]);
+      return inner.claim(input);
+    },
+    commit: (input) => {
+      record("commit", [input.key]);
+      return inner.commit(input);
+    },
+    release: (input) => {
+      record("release", [input.key]);
+      return inner.release(input);
+    },
+    claimMany: (input) => {
+      record("claimMany", input.keys);
+      return inner.claimMany(input);
+    },
+    commitMany: (input) => {
+      record(
+        "commitMany",
+        input.leases.map((lease) => lease.key),
+      );
+      return inner.commitMany(input);
+    },
+    releaseMany: (leases) => {
+      record(
+        "releaseMany",
+        leases.map((lease) => lease.key),
+      );
+      return inner.releaseMany(leases);
+    },
+    purgeExpired: (now) => inner.purgeExpired(now),
+  };
+  return { store, inner, calls };
+}
+
+/** A memory store with the single methods only, so the router uses its loop. */
+function loopStore(inner: MemoryDedupeStore): DedupeStore {
+  return {
+    claim: (input) => inner.claim(input),
+    commit: (input) => inner.commit(input),
+    release: (input) => inner.release(input),
+    purgeExpired: (now) => inner.purgeExpired(now),
+  };
+}
+
+/** A toSend body with `count` distinct events. */
+function toSendBody(count: number, from = 0): string {
+  const items = Array.from({ length: count }, (_, i) =>
+    toSendBounce(`r${from + i}@example.org`, true, `msg-${from + i}`),
+  );
+  return `[${items.join(",")}]`;
+}
+
+/**
+ * The toSend adapter with the recipient as the event key. toSend keys hold the body
+ * hash, so this adapter lets two bodies share a key and one body repeat a key.
+ */
+function recipientKeyed() {
+  const base = tosend();
+  const parse = base.webhooks.parse;
+  return {
+    ...base,
+    webhooks: {
+      ...base.webhooks,
+      parse: (raw: Uint8Array, headers: Headers) =>
+        parse(raw, headers).map((event) => ({ ...event, eventKey: event.recipient ?? "" })),
+    },
+  };
+}
+
+/** The dedupe keys of a body for `recipientKeyed`, in body order. */
+async function toSendKeys(body: string): Promise<string[]> {
+  return recipientKeyed()
+    .webhooks.parse(utf8(body), new Headers())
+    .map((event) => `tosend:default:${event.eventKey}`);
+}
+
+/**
+ * A body-bound adapter for tests. It accepts any signature, and its body is a JSON array
+ * of event keys.
+ */
+function syntheticBodyBound(): BodyBoundAdapter {
+  const base = tosend();
+  return {
+    ...base,
+    meta: { ...base.meta, id: "syn" },
+    requiresDedupe: true,
+    bodyBoundKeys: true,
+    webhooks: {
+      ...base.webhooks,
+      verify: async () => ({ ok: true }),
+      parse: (raw: Uint8Array) =>
+        (JSON.parse(new TextDecoder().decode(raw)) as string[]).map((eventKey) => ({
+          type: "unknown" as const,
+          provider: "syn",
+          eventKey,
+          rawType: "test",
+        })),
+    },
+  };
+}
+
+describe("handleWebhook with a bulk dedupe store", () => {
+  const options = (dedupe: DedupeStore, clock = { t: NOW }) => ({
+    adapter: recipientKeyed(),
+    secret: TOSEND_SECRET,
+    dedupe,
+    now: () => clock.t,
+  });
+
+  it("claims the keys of 3 events in one claimMany call and commits them in one call", async () => {
+    const { store, calls } = bulkSpyStore();
+    const body = toSendBody(3);
+    const outcome = accepted(await handleWebhook(await toSendRequest(body), options(store)));
+    expect(outcome.events).toHaveLength(3);
+    expect(calls).toEqual([{ method: "claimMany", keys: await toSendKeys(body) }]);
+    await outcome.ack();
+    expect(calls.map((call) => call.method)).toEqual(["claimMany", "commitMany"]);
+    expect(calls[1]?.keys).toHaveLength(3);
+  });
+
+  it("gives 0 events for the same body after ack()", async () => {
+    const { store } = bulkSpyStore();
+    const body = toSendBody(3);
+    await accepted(await handleWebhook(await toSendRequest(body), options(store))).ack();
+    const again = await handleWebhook(await toSendRequest(body), options(store));
+    expect(accepted(again).events).toEqual([]);
+  });
+
+  it("gives a repeated event once and claims distinct keys", async () => {
+    const { store, calls } = bulkSpyStore();
+    const one = toSendBounce("ana@example.org");
+    const outcome = accepted(
+      await handleWebhook(await toSendRequest(`[${one},${one}]`), options(store)),
+    );
+    expect(outcome.events).toHaveLength(1);
+    expect(calls[0]?.keys).toHaveLength(1);
+  });
+
+  it("refuses a retry during the lease as in_flight and releases every lease of the retry", async () => {
+    const { store, inner, calls } = bulkSpyStore();
+    accepted(await handleWebhook(await toSendRequest(toSendBody(1)), options(store)));
+    const retryBody = toSendBody(3);
+    const retry = await handleWebhook(await toSendRequest(retryBody), options(store));
+    expect(retry).toEqual({ ok: false, rejection: "in_flight", status: 409 });
+    const [, fresh1, fresh2] = await toSendKeys(retryBody);
+    expect(calls.at(-1)).toEqual({ method: "releaseMany", keys: [fresh1, fresh2] });
+    const free = await inner.claimMany({
+      keys: [fresh1 as string, fresh2 as string],
+      leaseMs: DEFAULT_LEASE_MS,
+      now: NOW,
+    });
+    expect(free.map((outcome) => outcome.status)).toEqual(["new", "new"]);
+  });
+
+  it("lets one of two parallel bodies with a shared key win, and releases the other's keys", async () => {
+    const { store, inner } = bulkSpyStore();
+    const a = toSendBody(2, 0);
+    const b = toSendBody(2, 1);
+    const [first, second] = await Promise.all([
+      handleWebhook(await toSendRequest(a), options(store)),
+      handleWebhook(await toSendRequest(b), options(store)),
+    ]);
+    const outcomes = [first, second];
+    const winner = outcomes.findIndex((outcome) => outcome?.ok);
+    expect(winner).not.toBe(-1);
+    const loser = outcomes[1 - winner];
+    expect(loser).toEqual({ ok: false, rejection: "in_flight", status: 409 });
+    // The key that only the loser had is free again.
+    const loserKeys = await toSendKeys(winner === 0 ? b : a);
+    const winnerKeys = await toSendKeys(winner === 0 ? a : b);
+    const onlyLoser = loserKeys.filter((key) => !winnerKeys.includes(key));
+    expect(onlyLoser).toHaveLength(1);
+    const free = await inner.claim({ key: onlyLoser[0] as string, leaseMs: 1, now: NOW });
+    expect(free.status).toBe("new");
+  });
+
+  it("refuses a Mailgun token reused with another body as bad_signature", async () => {
+    const { store, calls } = bulkSpyStore();
+    const mailgunOptions = {
+      adapter: mailgun(),
+      secret: MAILGUN_FIXTURE_SECRET,
+      dedupe: store,
+      now: () => NOW,
+    };
+    const signedMailgun = async (data: string) => {
+      const sample = await signMailgunWebhook({
+        body: utf8(data),
+        secret: MAILGUN_FIXTURE_SECRET,
+        at: NOW,
+        token: "a".repeat(50),
+      });
+      return post(sample.body, sample.headers);
+    };
+    const bounce = mailgunEvent("failed", { severity: "permanent", reason: "bounce" });
+    const first = accepted(await handleWebhook(await signedMailgun(bounce), mailgunOptions));
+    expect(first.events).toHaveLength(1);
+    expect(calls[0]?.keys).toHaveLength(2);
+    const other = mailgunEvent("delivered", {}, "eve@example.org");
+    expect(await handleWebhook(await signedMailgun(other), mailgunOptions)).toEqual({
+      ok: false,
+      rejection: "bad_signature",
+      status: 401,
+    });
+    expect(calls.every((call) => call.method !== "claim")).toBe(true);
+  });
+
+  it("gives the same result as the loop for every primary and bound key state", async () => {
+    type State = "free" | "held" | "done";
+    const states: State[] = ["free", "held", "done"];
+    const body = JSON.stringify(["e0", "e1", "e2"]);
+    const fingerprint = sha256Hex(utf8(body));
+    const put = async (inner: MemoryDedupeStore, key: string, state: State) => {
+      if (state === "free") return;
+      const claim = await inner.claim({ key, leaseMs: DEFAULT_LEASE_MS, now: NOW - 1 });
+      if (state === "done" && claim.status === "new") {
+        await inner.commit({ key, leaseId: claim.leaseId, ttlMs: DEFAULT_DEDUPE_TTL_MS, now: NOW });
+      }
+    };
+    const run = async (bulk: boolean, combo: State[]) => {
+      const inner = new MemoryDedupeStore();
+      for (const [i, event] of ["e1", "e2"].entries()) {
+        await put(inner, `syn:default:${event}`, combo[i * 2] as State);
+        await put(inner, `syn:default:${event}#${fingerprint}`, combo[i * 2 + 1] as State);
+      }
+      const dedupe = bulk ? inner : loopStore(inner);
+      const outcome = await handleWebhook(post(body, new Headers()), {
+        adapter: syntheticBodyBound(),
+        secret: "s",
+        dedupe,
+        ttlMs: DEFAULT_DEDUPE_TTL_MS,
+        now: () => NOW,
+      });
+      const view = outcome.ok
+        ? { ok: true, keys: outcome.events.map((event) => event.eventKey) }
+        : outcome;
+      if (outcome.ok) await outcome.ack();
+      // The state of each key after the request shows the same releases and commits.
+      const after: string[] = [];
+      for (const event of ["e0", "e1", "e2"]) {
+        for (const key of [`syn:default:${event}`, `syn:default:${event}#${fingerprint}`]) {
+          after.push((await inner.claim({ key, leaseMs: 1, now: NOW + 1 })).status);
+        }
+      }
+      return { view, after };
+    };
+    for (const a of states) {
+      for (const b of states) {
+        for (const c of states) {
+          for (const d of states) {
+            const combo = [a, b, c, d];
+            expect(await run(true, combo), combo.join(",")).toEqual(await run(false, combo));
+          }
+        }
+      }
+    }
+  });
+
+  it("puts both keys of a body-bound event in the same chunk", async () => {
+    const { store, calls } = bulkSpyStore();
+    const keys = Array.from({ length: 300 }, (_, i) => `e${i}`);
+    const outcome = await handleWebhook(post(JSON.stringify(keys), new Headers()), {
+      adapter: syntheticBodyBound(),
+      secret: "s",
+      dedupe: store,
+      now: () => NOW,
+    });
+    expect(accepted(outcome).events).toHaveLength(300);
+    expect(calls.map((call) => call.keys.length)).toEqual([500, 100]);
+    expect(calls[0]?.keys.at(-2)).toBe("syn:default:e249");
+    expect(calls[0]?.keys.at(-1)).toMatch(/^syn:default:e249#[0-9a-f]{64}$/);
+  });
+
+  it("releases the leases of the first chunk when the second claimMany throws", async () => {
+    const { store, inner, calls } = bulkSpyStore();
+    let claims = 0;
+    const failing: DedupeStore = {
+      ...store,
+      claimMany: (input) => {
+        claims++;
+        if (claims === 2) return Promise.reject(new Error("store down"));
+        return store.claimMany(input);
+      },
+    };
+    const body = toSendBody(600);
+    await expect(handleWebhook(await toSendRequest(body), options(failing))).rejects.toThrow(
+      "store down",
+    );
+    const keys = await toSendKeys(body);
+    expect(calls.at(-1)).toEqual({ method: "releaseMany", keys: keys.slice(0, 500) });
+    const again = await inner.claimMany({ keys, leaseMs: 1, now: NOW });
+    expect(again.every((outcome) => outcome.status === "new")).toBe(true);
+  });
+
+  it("uses the loop for a store with only claimMany", async () => {
+    const { store, calls } = bulkSpyStore();
+    const partial: DedupeStore = {
+      claim: store.claim,
+      commit: store.commit,
+      release: store.release,
+      purgeExpired: store.purgeExpired,
+      claimMany: store.claimMany,
+    };
+    const outcome = accepted(
+      await handleWebhook(await toSendRequest(toSendBody(2)), options(partial)),
+    );
+    await outcome.ack();
+    expect(calls.map((call) => call.method)).toEqual(["claim", "claim", "commit", "commit"]);
+  });
+
+  it("claims a body with 1,200 events in 3 chunks", async () => {
+    const { store, calls } = bulkSpyStore();
+    const outcome = accepted(
+      await handleWebhook(await toSendRequest(toSendBody(1200)), options(store)),
+    );
+    expect(outcome.events).toHaveLength(1200);
+    await outcome.ack();
+    expect(calls.map((call) => [call.method, call.keys.length])).toEqual([
+      ["claimMany", 500],
+      ["claimMany", 500],
+      ["claimMany", 200],
+      ["commitMany", 500],
+      ["commitMany", 500],
+      ["commitMany", 200],
+    ]);
+  });
+
+  it("releases every lease in chunks on release()", async () => {
+    const { store, inner, calls } = bulkSpyStore();
+    const body = toSendBody(600);
+    const outcome = accepted(await handleWebhook(await toSendRequest(body), options(store)));
+    await outcome.release();
+    expect(calls.slice(2).map((call) => [call.method, call.keys.length])).toEqual([
+      ["releaseMany", 500],
+      ["releaseMany", 100],
+    ]);
+    const again = await inner.claimMany({ keys: await toSendKeys(body), leaseMs: 1, now: NOW });
+    expect(again.every((outcome) => outcome.status === "new")).toBe(true);
   });
 });

@@ -9,7 +9,7 @@
 import type { ProviderAdapter } from "../core/adapter";
 import type { NormalizedEvent, WebhookRejection } from "../core/events";
 import { sha256Hex } from "../internal/sha256";
-import type { DedupeStore } from "../stores/types";
+import type { DedupeClaimOutcome, DedupeReleaseInput, DedupeStore } from "../stores/types";
 
 export type {
   ProviderWebhooks,
@@ -162,6 +162,118 @@ async function readBody(request: Request, max: number): Promise<Uint8Array | nul
 
 const NOOP = async (): Promise<void> => undefined;
 
+/** The most keys in one bulk store call. */
+const BULK_CHUNK_KEYS = 500;
+
+type BulkDedupeStore = DedupeStore &
+  Required<Pick<DedupeStore, "claimMany" | "commitMany" | "releaseMany">>;
+
+function hasBulkMethods(store: DedupeStore): store is BulkDedupeStore {
+  return (
+    typeof store.claimMany === "function" &&
+    typeof store.commitMany === "function" &&
+    typeof store.releaseMany === "function"
+  );
+}
+
+/** One event with a distinct key. `boundKey` is set only for a body-bound adapter. */
+interface DedupeEntry {
+  event: NormalizedEvent;
+  key: string;
+  boundKey: string | undefined;
+}
+
+/** Splits a list into chunks of at most `size` items. */
+function chunked<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+/**
+ * Dedupes the entries with the bulk store methods. The result is the same as the loop
+ * in `handleWebhook`, but the store gets one claim call for each chunk of keys.
+ */
+async function bulkDedupe(
+  store: BulkDedupeStore,
+  entries: readonly DedupeEntry[],
+  options: { leaseMs: number; ttlMs: number; now: () => number },
+): Promise<WebhookOutcome> {
+  // Both keys of one event go in the same chunk.
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  for (const entry of entries) {
+    const keys = entry.boundKey === undefined ? [entry.key] : [entry.key, entry.boundKey];
+    if (current.length + keys.length > BULK_CHUNK_KEYS) {
+      chunks.push(current);
+      current = [];
+    }
+    current.push(...keys);
+  }
+  if (current.length > 0) chunks.push(current);
+
+  // Each claimed key keeps its lease id, so a release or a commit touches only this
+  // request's lease and never a newer claim of the same key.
+  const claimed: DedupeReleaseInput[] = [];
+  const releaseAll = async (): Promise<void> => {
+    const leases = claimed.splice(0);
+    await Promise.all(chunked(leases, BULK_CHUNK_KEYS).map((chunk) => store.releaseMany(chunk)));
+  };
+  const outcomes = new Map<string, DedupeClaimOutcome["status"]>();
+  try {
+    for (const keys of chunks) {
+      const results = await store.claimMany({ keys, leaseMs: options.leaseMs, now: options.now() });
+      keys.forEach((key, i) => {
+        const outcome = results[i];
+        if (!outcome) throw new Error("claimMany returned fewer outcomes than keys.");
+        outcomes.set(key, outcome.status);
+        if (outcome.status === "new") claimed.push({ key, leaseId: outcome.leaseId });
+      });
+    }
+  } catch (error) {
+    // A failed claimMany claimed no key. Free the leases of the earlier chunks.
+    await releaseAll().catch(() => undefined);
+    throw error;
+  }
+
+  const events: NormalizedEvent[] = [];
+  let refusal: WebhookRejection | undefined;
+  for (const entry of entries) {
+    const primary = outcomes.get(entry.key);
+    const bound = entry.boundKey === undefined ? undefined : outcomes.get(entry.boundKey);
+    if (bound === "new" && primary !== "new") {
+      // Another body holds or used this key.
+      refusal = "bad_signature";
+      break;
+    }
+    if (primary === "in_flight" || bound === "in_flight") {
+      refusal = "in_flight";
+      break;
+    }
+    if (primary === "new" && (bound === undefined || bound === "new")) events.push(entry.event);
+  }
+  if (refusal !== undefined) {
+    await releaseAll();
+    return refuse(refusal);
+  }
+  return {
+    ok: true,
+    events,
+    async ack() {
+      const leases = claimed.splice(0);
+      const at = options.now();
+      // One failed statement rolls back the commits of its chunk. A commit that another
+      // lease holds returns false. That newer holder commits it.
+      await Promise.all(
+        chunked(leases, BULK_CHUNK_KEYS).map((chunk) =>
+          store.commitMany({ leases: chunk, ttlMs: options.ttlMs, now: at }),
+        ),
+      );
+    },
+    release: releaseAll,
+  };
+}
+
 /**
  * Verifies a provider webhook, dedupes its events, and returns them in the normalized
  * shape.
@@ -171,7 +283,9 @@ const NOOP = async (): Promise<void> => undefined;
  * 2. The adapter verifies the signature over the raw bytes.
  * 3. Only after a valid signature, each event key is claimed with a lease. A duplicate is
  *    left out. When another request holds a key, the result is `in_flight` (409), and
- *    the keys of this request are released.
+ *    the keys of this request are released. When the store has `claimMany`, `commitMany`,
+ *    and `releaseMany`, the router claims, commits, and releases the keys in chunks of
+ *    500. A failed statement then rolls back the whole commit of its chunk.
  * 4. For an adapter with `bodyBoundKeys`, each key is also claimed with the SHA-256 of the
  *    body. A key that another body holds or used is refused as `bad_signature`.
  *
@@ -242,6 +356,22 @@ export function handleWebhook(
     const parsed = hooks.parse(body, request.headers);
     if (!dedupe) return { ok: true, events: parsed, ack: NOOP, release: NOOP };
 
+    const fingerprint = bodyBound ? sha256Hex(body) : undefined;
+    if (hasBulkMethods(dedupe)) {
+      // One body can repeat a key. The first copy stands for all of them.
+      const entries: DedupeEntry[] = [];
+      const seen = new Set<string>();
+      for (const event of parsed) {
+        const key = `${event.provider}:${endpointId}:${event.eventKey}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        // The second key binds the event key to this body.
+        const boundKey = fingerprint === undefined ? undefined : `${key}#${fingerprint}`;
+        entries.push({ event, key, boundKey });
+      }
+      return bulkDedupe(dedupe, entries, { leaseMs, ttlMs, now });
+    }
+
     // Each claimed key keeps its lease id, so a release or a commit touches only this
     // request's lease and never a newer claim of the same key.
     const claimed: { key: string; leaseId: string }[] = [];
@@ -251,7 +381,6 @@ export function handleWebhook(
     };
     const events: NormalizedEvent[] = [];
     const seen = new Set<string>();
-    const fingerprint = bodyBound ? sha256Hex(body) : undefined;
     let busy = false;
     let otherBody = false;
     try {

@@ -111,9 +111,9 @@ describe("D1 queries for one webhook request", () => {
 
   for (const [events, queries] of [
     [1, 2],
-    [10, 20],
-    [120, 240],
-    [1200, 2400],
+    [10, 2],
+    [120, 2],
+    [1200, 6],
   ] as const) {
     it(`a toSend body with ${events} events costs ${queries} queries`, async () => {
       const result = await handleWebhook(await toSendRequest(events), {
@@ -129,7 +129,7 @@ describe("D1 queries for one webhook request", () => {
     });
   }
 
-  it("a Mailgun body with 1 event costs 4 queries", async () => {
+  it("a Mailgun body with 1 event costs 2 queries", async () => {
     const sample = await signMailgunWebhook({
       body: utf8(mailgunEvent("failed", { severity: "permanent", reason: "bounce" })),
       secret: MAILGUN_FIXTURE_SECRET,
@@ -149,6 +149,6 @@ describe("D1 queries for one webhook request", () => {
     if (!result.ok) throw new Error(result.rejection);
     expect(result.events).toHaveLength(1);
     await result.ack();
-    expect(counter.count).toBe(4);
+    expect(counter.count).toBe(2);
   });
 });
