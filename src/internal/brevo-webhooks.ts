@@ -22,6 +22,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../core/adapter";
 import type { NormalizedEvent } from "../core/events";
+import { numberField, stringField } from "./json";
 import { checkSharedTokenSecret, generateSharedTokenSecret } from "./shared-token";
 import { decodeJsonBytes, timingSafeEqualText } from "./webhook-bytes";
 
@@ -74,29 +75,19 @@ export async function verifyBrevoWebhook(input: WebhookVerifyInput): Promise<Web
 
 type Fields = Record<string, unknown>;
 
-function text(record: Fields, name: string): string | undefined {
-  const value = record[name];
-  return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
-}
-
-function finite(record: Fields, name: string): number | undefined {
-  const value = record[name];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
 /** The event time in Unix milliseconds: `ts_epoch`, else `ts_event` or `ts` in seconds. */
 function occurredAt(record: Fields): number | undefined {
-  const epoch = finite(record, "ts_epoch");
+  const epoch = numberField(record, "ts_epoch");
   if (epoch !== undefined) return epoch;
-  const seconds = finite(record, "ts_event") ?? finite(record, "ts");
+  const seconds = numberField(record, "ts_event") ?? numberField(record, "ts");
   return seconds === undefined ? undefined : seconds * 1000;
 }
 
 function eventOf(provider: string, record: Fields): NormalizedEvent | null {
-  const rawType = text(record, "event");
+  const rawType = stringField(record, "event");
   if (rawType === undefined) return null;
-  const recipient = text(record, "email");
-  const messageId = text(record, "message-id");
+  const recipient = stringField(record, "email");
+  const messageId = stringField(record, "message-id");
   const at = occurredAt(record);
   const eventKey = [rawType, messageId ?? "", recipient?.toLowerCase() ?? "", at ?? ""].join(":");
   const event: NormalizedEvent = { type: "unknown", provider, eventKey, rawType };
