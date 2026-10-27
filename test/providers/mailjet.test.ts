@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   MAILJET_FIXTURE_SECRET,
   MAILJET_UNAUTHORIZED,
@@ -75,6 +75,19 @@ function message(overrides: Partial<OutgoingMessage> = {}): OutgoingMessage {
     ...overrides,
   };
 }
+
+/** A message of about 9 MB, so two of them go in two requests. */
+const big = (name: string) =>
+  message({
+    to: [`${name}@example.org`],
+    attachments: [
+      {
+        filename: `${name}.bin`,
+        content: "A".repeat(9_000_000),
+        contentType: "application/octet-stream",
+      },
+    ],
+  });
 
 const sentBody = (mock: { calls: CapturedRequest[] }, index = 0) =>
   JSON.parse(mock.calls[index]?.body ?? "{}") as {
@@ -426,6 +439,43 @@ describe("mailjet sendBatch", () => {
     expect(lost?.map((result) => result.status)).toEqual(["unknown", "unknown"]);
   });
 
+  it("makes each message of a batch unknown for a 400 with a body that is not JSON", async () => {
+    const { ctx } = context([answer({ status: 400, body: "<html>Bad Request</html>" })]);
+    const results = await mailjet().sendBatch?.([message(), message()], ctx);
+    for (const result of results ?? []) {
+      expect(result).toMatchObject({ status: "unknown", reason: "provider_error" });
+    }
+    expect(results).toHaveLength(2);
+  });
+
+  it("keeps the status rule for a batch with a global error, and for a 401", async () => {
+    const globalError = {
+      ErrorIdentifier: "06df1144-c6f3-4ca7-8885-7ec5d4344113",
+      ErrorCode: "mj-0002",
+      ErrorMessage: "Malformed JSON, please review the syntax and properties types.",
+      StatusCode: 400,
+    };
+    for (const [response, reason] of [
+      [{ status: 400, body: globalError }, "invalid_message"],
+      [MAILJET_UNAUTHORIZED, "auth"],
+    ] as const) {
+      const { ctx } = context([answer(response)]);
+      const results = await mailjet().sendBatch?.([message(), message()], ctx);
+      expect(results).toHaveLength(2);
+      for (const result of results ?? [])
+        expect(result).toMatchObject({ status: "not_sent", reason });
+    }
+  });
+
+  it("keeps not_sent for one message and a 400 with a body that is not JSON", async () => {
+    const { ctx } = context([answer({ status: 400, body: "<html>Bad Request</html>" })]);
+    expect(await mailjet().send(message(), ctx)).toMatchObject({
+      status: "not_sent",
+      reason: "invalid_message",
+      httpStatus: 400,
+    });
+  });
+
   it("keeps a message that fails local validation in its own not_sent slot", async () => {
     const { mock, ctx } = context([answer(echoSuccess)]);
     const results = await mailjet().sendBatch?.(
@@ -451,21 +501,48 @@ describe("mailjet sendBatch", () => {
 
   it("splits two messages of 9 MB into two requests", async () => {
     const { mock, ctx } = context([answer(echoSuccess)]);
-    const big = (name: string) =>
-      message({
-        to: [`${name}@example.org`],
-        attachments: [
-          {
-            filename: `${name}.bin`,
-            content: "A".repeat(9_000_000),
-            contentType: "application/octet-stream",
-          },
-        ],
-      });
     const results = await mailjet().sendBatch?.([big("a"), big("b")], ctx);
     expect(mock.calls).toHaveLength(2);
     for (const call of mock.calls) expect(utf8(call.body).length).toBeLessThan(15_000_000);
     expect(results?.map((result) => result.status)).toEqual(["sent", "sent"]);
+  });
+
+  it("sends no more groups after a timeout, and makes them unknown", async () => {
+    const mock = mockFetch([
+      { label: "send", method: "POST", url: SEND_URL, response: "timeout", times: 1 },
+      answer(echoSuccess),
+    ]);
+    const { ctx } = context([]);
+    const results = await mailjet().sendBatch?.([big("a"), big("b")], {
+      ...ctx,
+      fetch: mock.fetch,
+    });
+    expect(mock.calls).toHaveLength(1);
+    expect(results?.map((result) => result.status)).toEqual(["unknown", "unknown"]);
+    expect(results?.[1]).toMatchObject({ reason: "timeout", provider: "mailjet" });
+  });
+
+  it("sends no more groups when the shared deadline has passed", async () => {
+    const start = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      const mock = mockFetch([
+        answer((request) => {
+          clock.mockReturnValue(start + 5_000);
+          return echoSuccess(request);
+        }),
+      ]);
+      const { ctx } = context([]);
+      const results = await mailjet().sendBatch?.([big("a"), big("b")], {
+        ...ctx,
+        fetch: mock.fetch,
+      });
+      expect(mock.calls).toHaveLength(1);
+      expect(results?.map((result) => result.status)).toEqual(["sent", "unknown"]);
+      expect(results?.[1]).toMatchObject({ reason: "timeout" });
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("refuses more than 50 messages as a programmer error", async () => {

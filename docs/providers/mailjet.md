@@ -79,6 +79,10 @@ When the body has no `Messages` array, the HTTP status decides:
 | 500, 502, 503, 504 | `unknown/provider_error` |
 | Timeout or network error | `unknown` |
 
+A request with two or more messages and no `Messages` array is `unknown/provider_error` for each message, because some of them may have sent. A global error object with an `ErrorCode` such as `mj-0002`, a 401, a 403, and a 429 still use the table above.
+
+All requests of one `send` or `sendBatch` call share one deadline of `timeoutMs`. After a timeout or a network error, mailswitch sends no more requests. Each message of the remaining requests is then `unknown`. When no time is left before a request, its messages are `unknown/timeout`.
+
 A 401 for wrong keys has an HTML body. mailswitch reads a body only as JSON, and it never copies a body into a result. A result message holds the `StatusCode` and the `ErrorCode`, for example `send-0008`, and never the `ErrorMessage`.
 
 No Mailjet document states that a 5xx sent nothing. So every 5xx is `unknown`. Do not retry and do not fall back after `unknown`.

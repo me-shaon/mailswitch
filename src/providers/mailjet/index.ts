@@ -17,6 +17,12 @@
 // - With no `Messages` array, the HTTP status decides, with the status map. A 2xx with no
 //   `Messages` array is `unknown`. A 401 has an HTML body. The adapter reads the body only
 //   as JSON and never copies it.
+// - A request of two or more messages with no `Messages` array is `unknown` for each one,
+//   because some of them may have sent. A global error object (an `ErrorCode` such as
+//   `mj-0002`), a 401, a 403, and a 429 still go by the status map.
+// - All requests of one call share one deadline of `timeoutMs`. After a timeout or a
+//   network error, or when no time is left, the remaining groups are `unknown` and the
+//   adapter sends nothing more.
 
 import {
   defineProvider,
@@ -25,7 +31,7 @@ import {
   type SendContext,
   type VerifyResult,
 } from "../../core/adapter";
-import { classifyResponse } from "../../core/classify";
+import { classifyResponse, classifyThrown } from "../../core/classify";
 import { validateMessage } from "../../core/message";
 import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "../../core/types";
 import { basicAuthorization, utf8ByteLength } from "../../internal/encoding";
@@ -183,27 +189,41 @@ export function mailjet(options: MailjetOptions = {}): MailjetAdapter {
     };
   }
 
-  /** Sends one request of `parts` (encoded `Messages` entries). One result per part. */
-  async function post(parts: readonly string[], ctx: SendContext): Promise<SendResult[]> {
+  /**
+   * Sends one request of `parts` (encoded `Messages` entries). One result per part.
+   * `lost` is set after a timeout or a network error.
+   */
+  async function post(
+    parts: readonly string[],
+    ctx: SendContext,
+    timeoutMs: number,
+  ): Promise<{ list: SendResult[]; lost?: UnknownResult }> {
     const body = `{"Messages":[${parts.join(",")}]${sandbox ? ',"SandboxMode":true' : ""}}`;
     const call = await callProvider({
       url: `${base}/v3.1/send`,
       headers: headers(ctx),
       body,
-      timeoutMs: ctx.timeoutMs,
+      timeoutMs,
       fetch: ctx.fetch,
     });
-    if (!call.ok) return parts.map(() => withProvider(call.result, PROVIDER));
+    if (!call.ok) {
+      const lost = withProvider(call.result, PROVIDER);
+      return { list: parts.map(() => lost), lost };
+    }
     const { response } = call;
     const json = asRecord(await readJson(response));
     const items = json?.Messages;
     if (Array.isArray(items)) {
-      return parts.map((_, index) => entryResult(items[index], response.status, ctx.now));
+      return {
+        list: parts.map((_, index) => entryResult(items[index], response.status, ctx.now)),
+      };
     }
-    const outcome: SendResult = response.ok
-      ? unknownEntry(response.status)
-      : classifyFailure(response, mailjetMeta.statusMap, ctx.now, PROVIDER);
-    return parts.map(() => outcome);
+    const global = typeof json?.ErrorCode === "string" && ERROR_CODE.test(json.ErrorCode);
+    const outcome: SendResult =
+      response.ok || (parts.length > 1 && !global && ![401, 403, 429].includes(response.status))
+        ? unknownEntry(response.status)
+        : classifyFailure(response, mailjetMeta.statusMap, ctx.now, PROVIDER);
+    return { list: parts.map(() => outcome) };
   }
 
   /**
@@ -245,8 +265,23 @@ export function mailjet(options: MailjetOptions = {}): MailjetAdapter {
       group.parts.push(part);
       group.bytes += 1 + bytes;
     });
+    // One deadline for all requests of this call.
+    const deadline = Date.now() + ctx.timeoutMs;
+    let lost: UnknownResult | undefined;
     for (const item of groups) {
-      const list = await post(item.parts, ctx);
+      const left = deadline - Date.now();
+      if (lost === undefined && left <= 0) {
+        lost = withProvider(classifyThrown(undefined, { timedOut: true }), PROVIDER);
+      }
+      let list: SendResult[];
+      if (lost === undefined) {
+        const posted = await post(item.parts, ctx, left);
+        list = posted.list;
+        lost = posted.lost;
+      } else {
+        const result = lost;
+        list = item.parts.map(() => result);
+      }
       item.slots.forEach((slot, position) => {
         results[slot] = list[position];
       });

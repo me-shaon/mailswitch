@@ -211,7 +211,7 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 
 `rawType` is the `event` field. `recipient` is `rcpt`. `providerMessageId` is `email_id`, the id of the send answer. `occurredAt` is `time` in milliseconds. mailswitch reads `time` as a date text or as a Unix time.
 
-The event key is the `id` field, the unique id of the webhook event. When an event has no `id`, the key is `<event>:<email_id>:<rcpt>:<time>`, with the address in lowercase. When one request holds the same key twice, mailswitch keeps one event.
+The event key is `<id>:<event>:<email_id>:<rcpt>:<time>`, with the address in lowercase. A missing field is empty. The SMTP2GO docs call `id` the id of the webhook, so mailswitch does not use `id` alone. When one request holds the same key twice, mailswitch keeps one event.
 
 ## Links
 

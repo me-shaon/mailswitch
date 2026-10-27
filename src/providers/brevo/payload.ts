@@ -11,6 +11,14 @@ export const BREVO_IDEMPOTENCY_HEADER = "idempotencyKey";
 /** The body header that turns on sandbox mode. Brevo then checks the request and sends no email. */
 export const BREVO_SANDBOX_HEADER = "X-Sib-Sandbox";
 
+/** The reserved name of a custom header, in lowercase, or undefined. The adapter owns these names. */
+export function reservedHeader(message: OutgoingMessage): string | undefined {
+  const reserved = [BREVO_IDEMPOTENCY_HEADER.toLowerCase(), BREVO_SANDBOX_HEADER.toLowerCase()];
+  return Object.keys(message.headers ?? {})
+    .map((name) => name.toLowerCase())
+    .find((name) => reserved.includes(name));
+}
+
 /** True when an attachment has a `contentId`. Brevo has no inline-image field. */
 export function hasInlineAttachment(message: OutgoingMessage): boolean {
   return message.attachments?.some((item) => item.contentId !== undefined) === true;

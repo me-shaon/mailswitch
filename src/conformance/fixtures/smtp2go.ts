@@ -15,6 +15,9 @@ import type { ConformanceFixture, WebhookSample } from "../types";
 const BASE = SMTP2GO_REGIONS.global;
 const NOW = Date.parse("2026-10-27T12:00:00.000Z");
 const EMAIL_ID = "1u0SwL-B9zBpi9ffUq-JAB2";
+/** The event key of a sample event: `id`, `event`, `email_id`, `rcpt`, and `time`. */
+const sampleKey = (id: string, event: string) =>
+  `${id}:${event}:${EMAIL_ID}:ana@example.org:2026-10-27T11:59:30Z`;
 /** The webhook secret of the fixture. It protects nothing. */
 export const SMTP2GO_FIXTURE_SECRET = "test-smtp2go-webhook-secret-not-real";
 /** A made-up API key in the documented format. */
@@ -199,7 +202,7 @@ export function smtp2goFixture(): ConformanceFixture {
               rawType: "delivered",
               recipient: "ana@example.org",
               providerMessageId: EMAIL_ID,
-              eventKey: "b1c2d3e4f5a6-delivered",
+              eventKey: sampleKey("b1c2d3e4f5a6-delivered", "delivered"),
               occurredAt: Date.parse("2026-10-27T11:59:30Z"),
             },
           ],
@@ -209,14 +212,26 @@ export function smtp2goFixture(): ConformanceFixture {
           body: JSON.stringify(
             smtp2goEvent("bounce", { bounce: "hard", context: "550 5.1.1 user unknown" }),
           ),
-          expected: [{ type: "bounced", bounce: "hard", eventKey: "b1c2d3e4f5a6-bounce" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "hard",
+              eventKey: sampleKey("b1c2d3e4f5a6-bounce", "bounce"),
+            },
+          ],
         },
         {
           label: "soft bounce",
           body: JSON.stringify(
             smtp2goEvent("bounce", { id: "c2d3e4f5a6b7-bounce", bounce: "soft" }),
           ),
-          expected: [{ type: "bounced", bounce: "soft", eventKey: "c2d3e4f5a6b7-bounce" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              eventKey: sampleKey("c2d3e4f5a6b7-bounce", "bounce"),
+            },
+          ],
         },
         {
           label: "spam complaint",
@@ -226,7 +241,9 @@ export function smtp2goFixture(): ConformanceFixture {
         {
           label: "an event that mailswitch does not map",
           body: JSON.stringify(smtp2goEvent("open", { "user-agent": "Mail/1.0" })),
-          expected: [{ type: "unknown", rawType: "open", eventKey: "b1c2d3e4f5a6-open" }],
+          expected: [
+            { type: "unknown", rawType: "open", eventKey: sampleKey("b1c2d3e4f5a6-open", "open") },
+          ],
         },
       ],
     },

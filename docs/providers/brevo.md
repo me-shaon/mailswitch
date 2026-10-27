@@ -62,6 +62,8 @@ Limits:
 
 Brevo takes an idempotency key as a UUID in the `headers` object of the body. mailswitch makes the UUID from `idempotencyKey`. It hashes the key with SHA-256 and formats the first 16 bytes as a version 8 UUID. The same key always gives the same UUID, so a retry sends the same bytes.
 
+The adapter owns two body header names: `idempotencyKey` and `X-Sib-Sandbox`. A message with a custom header of one of these names, in any case, gets `not_sent/invalid_message` before any request.
+
 Brevo keeps a key for 30 minutes. The mailswitch idempotency store keeps a sent record for 7 days. Set an idempotency store in the mailer. Without one, `createMailer` logs a warning, because a keyed retry after 30 minutes can send a second email.
 
 ### Delivery status
@@ -74,6 +76,7 @@ Brevo keeps a key for 30 minutes. The mailswitch idempotency store keeps a sent 
 | 400 with `duplicate_parameter` or `duplicate_request`, on a send without a key | `not_sent/invalid_message` |
 | 400 with `not_enough_credits` | `not_sent/credits` |
 | 400 with `unauthorized`, `permission_denied`, or `account_under_validation` | `not_sent/auth` |
+| 400 with no error code that mailswitch can read, on a send with a key | `unknown/provider_error` |
 | Any other 400 | `not_sent/invalid_message` |
 | 401, 403 | `not_sent/auth` |
 | 402 | `not_sent/credits` |

@@ -11,6 +11,8 @@
 // - The adapter derives the UUID from the mailswitch key, so a retry sends the same bytes.
 // - On a send with a key, `duplicate_parameter` and `duplicate_request` are `unknown`,
 //   because the earlier request may have sent. Without a key they stay `not_sent`.
+// - On a send with a key, a 400 with no code that mailswitch can read is also `unknown`.
+// - A custom header named `idempotencyKey` or `X-Sib-Sandbox`, in any case, is refused.
 // - The 30-minute window is shorter than the mailswitch store window, so keep a store.
 //
 // Webhooks: the Brevo bearer-token check of `src/internal/brevo-webhooks.ts`. The token
@@ -42,7 +44,7 @@ import {
 } from "../../internal/http";
 import { uuidFromKey } from "../../internal/uuid";
 import { brevoMeta } from "./meta";
-import { brevoPayload, hasInlineAttachment } from "./payload";
+import { brevoPayload, hasInlineAttachment, reservedHeader } from "./payload";
 
 export {
   BREVO_MIN_HEX_TOKEN_LENGTH,
@@ -110,6 +112,15 @@ function refine(
       reason: "idempotency_conflict",
       message: `Brevo answered with HTTP ${result.httpStatus}: the idempotency key is in use. The earlier request may have sent.`,
       ...(result.httpStatus === undefined ? {} : { httpStatus: result.httpStatus }),
+    };
+  }
+  // A keyed 400 with no code that mailswitch can read may hide a lost duplicate answer.
+  if (keyed && code === "" && result.httpStatus === 400) {
+    return {
+      status: "unknown",
+      reason: "provider_error",
+      message: "Brevo answered with HTTP 400 and no error code that mailswitch can read.",
+      httpStatus: 400,
     };
   }
   const reason = Object.hasOwn(CODE_REASONS, code) ? CODE_REASONS[code] : undefined;
@@ -196,6 +207,16 @@ export function brevo(options: BrevoOptions = {}): BrevoAdapter {
           status: "not_sent",
           reason: "unsupported",
           message: "Brevo has no inline attachments. Remove the contentId of each attachment.",
+        },
+        PROVIDER,
+      );
+    }
+    if (reservedHeader(message) !== undefined) {
+      return withProvider(
+        {
+          status: "not_sent",
+          reason: "invalid_message",
+          message: "The headers idempotencyKey and X-Sib-Sandbox are reserved for mailswitch.",
         },
         PROVIDER,
       );

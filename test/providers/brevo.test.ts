@@ -277,6 +277,38 @@ describe("brevo send", () => {
     expect(mock.calls).toHaveLength(0);
   });
 
+  it("refuses a custom idempotencyKey or X-Sib-Sandbox header before any request", async () => {
+    for (const name of ["idempotencyKey", "X-Sib-Sandbox", "IDEMPOTENCYKEY", "x-sib-sandbox"]) {
+      const { mock, ctx } = context([accepted()]);
+      const result = await brevo().send(message({ headers: { [name]: "drop" } }), ctx);
+      expect(result).toMatchObject({
+        status: "not_sent",
+        reason: "invalid_message",
+        provider: "brevo",
+      });
+      expect(mock.calls).toHaveLength(0);
+    }
+  });
+
+  it("is unknown for a keyed 400 with a body that is not JSON", async () => {
+    const { ctx } = context([exchange(SEND_URL, 400, "<html>bad</html>")]);
+    expect(await brevo().send(message({ idempotencyKey: "invoice-42" }), ctx)).toMatchObject({
+      status: "unknown",
+      reason: "provider_error",
+      httpStatus: 400,
+      provider: "brevo",
+    });
+  });
+
+  it("is not_sent/invalid_message for an unkeyed 400 with a body that is not JSON", async () => {
+    const { ctx } = context([exchange(SEND_URL, 400, "<html>bad</html>")]);
+    expect(await brevo().send(message(), ctx)).toMatchObject({
+      status: "not_sent",
+      reason: "invalid_message",
+      httpStatus: 400,
+    });
+  });
+
   it("refuses more than 99 recipients before any request", async () => {
     const { mock, ctx } = context([accepted()]);
     const to = Array.from({ length: 100 }, (_, i) => `r${i}@example.org`);

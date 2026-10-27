@@ -387,7 +387,8 @@ describe("smtp2go webhooks", () => {
         type: "bounced",
         bounce: "soft",
         provider: "smtp2go",
-        eventKey: "b1c2d3e4f5a6-bounce",
+        eventKey:
+          "b1c2d3e4f5a6-bounce:bounce:1u0SwL-B9zBpi9ffUq-JAB2:ana@example.org:2026-10-27T11:59:30Z",
         rawType: "bounce",
         recipient: "ana@example.org",
         providerMessageId: "1u0SwL-B9zBpi9ffUq-JAB2",
@@ -464,7 +465,24 @@ describe("smtp2go webhooks", () => {
     expect(parseSmtp2goEvents("smtp2go", utf8("event=delivered"))).toEqual([]);
   });
 
-  it("builds a fallback key with no id, and reads a Unix time", () => {
+  it("adds the event fields to an id that two events share", () => {
+    const text = JSON.stringify([
+      smtp2goEvent("delivered", { id: "hook-1" }),
+      smtp2goEvent("bounce", { id: "hook-1" }),
+      smtp2goEvent("delivered", { id: "hook-1", rcpt: "ben@example.org" }),
+      smtp2goEvent("delivered", { id: "hook-1" }),
+    ]);
+    const keys = parseSmtp2goEvents("smtp2go", utf8(text)).map((event) => event.eventKey);
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(3);
+    const again = parseSmtp2goEvents(
+      "smtp2go",
+      utf8(JSON.stringify(smtp2goEvent("delivered", { id: "hook-1" }))),
+    );
+    expect(again[0]?.eventKey).toBe(keys[0]);
+  });
+
+  it("builds a key with no id, and reads a Unix time", () => {
     const text = JSON.stringify({
       event: "open",
       email_id: "e-1",
@@ -476,7 +494,7 @@ describe("smtp2go webhooks", () => {
         type: "unknown",
         provider: "smtp2go",
         rawType: "open",
-        eventKey: "open:e-1:ana@example.org:1793102394",
+        eventKey: ":open:e-1:ana@example.org:1793102394",
         recipient: "Ana@Example.org",
         providerMessageId: "e-1",
         occurredAt: 1793102394000,
