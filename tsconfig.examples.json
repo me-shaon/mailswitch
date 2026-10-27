@@ -36,6 +36,7 @@
       "mailswitch/mailtrap": ["./src/providers/mailtrap/index.ts"],
       "mailswitch/autosend": ["./src/providers/autosend/index.ts"],
       "mailswitch/scaleway": ["./src/providers/scaleway/index.ts"],
+      "mailswitch/http": ["./src/providers/http/index.ts"],
       "mailswitch/ses": ["./src/providers/ses/index.ts"],
       "mailswitch/mailgun": ["./src/providers/mailgun/index.ts"],
       "mailswitch/cloudflare": ["./src/providers/cloudflare/index.ts"],

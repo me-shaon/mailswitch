@@ -6,6 +6,7 @@ import { ahasendMeta } from "../providers/ahasend/meta";
 import { autosendMeta } from "../providers/autosend/meta";
 import { brevoMeta } from "../providers/brevo/meta";
 import { cloudflareBindingMeta, cloudflareRestMeta } from "../providers/cloudflare/meta";
+import { httpMeta } from "../providers/http/meta";
 import { mailchannelsMeta } from "../providers/mailchannels/meta";
 import { mailersendMeta } from "../providers/mailersend/meta";
 import { mailgunMeta } from "../providers/mailgun/meta";
@@ -44,6 +45,7 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   mailtrapMeta,
   autosendMeta,
   scalewayMeta,
+  httpMeta,
 ]);
 
 /** Returns the meta of a built-in provider, or undefined for an unknown id. */

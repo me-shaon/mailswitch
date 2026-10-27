@@ -28,6 +28,7 @@ const config: UserConfig = defineConfig({
     "providers/mailtrap/index": "src/providers/mailtrap/index.ts",
     "providers/autosend/index": "src/providers/autosend/index.ts",
     "providers/scaleway/index": "src/providers/scaleway/index.ts",
+    "providers/http/index": "src/providers/http/index.ts",
     "providers/ses/index": "src/providers/ses/index.ts",
     "providers/smtp/index": "src/providers/smtp/index.ts",
     "providers/smtp/brevo": "src/providers/smtp/brevo-webhooks.ts",

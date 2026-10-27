@@ -8,7 +8,7 @@
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
-    "limit": "5.15 KB",
+    "limit": "5.51 KB",
     "gzip": true
   },
   {
@@ -105,6 +105,12 @@
     "name": "mailswitch/autosend",
     "path": "dist/providers/autosend/index.js",
     "limit": "8.58 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/http",
+    "path": "dist/providers/http/index.js",
+    "limit": "10.4 KB",
     "gzip": true
   },
   {
