@@ -91,6 +91,8 @@ In the repository, `meta.ts` can import only `../../core/meta`, `../../core/clas
 | `docsUrl` | The provider documentation. It must start with `https://`. |
 | `statusMap` | Sourced overrides of the default status table. Build it with `defineStatusMap`. |
 | `webhooks` | `true` only when the adapter has `webhooks.verify` and `webhooks.parse`. |
+| `webhookSecret` | Set it when `webhooks` is `true`. It describes the value that `handleWebhook` takes as `secret`, so a settings form can show the input. Give a `label` and a `source`. Use `"provider"` when the user copies the value from the provider. Use `"generated"` when the user makes it with a generate helper of the adapter. Put any fixed username or format rule in `hint`. `pattern` is optional. |
+| `defaultDailyCap` | Optional. A positive integer. `createMailer` uses it when an entry has no `dailyCap` and the `dailyCaps` store is set. A preset `defaultDailyCap` takes precedence. The built-in providers leave it out, because free-plan limits change often. |
 | `nativeIdempotency` | `true` only when the provider accepts an idempotency key and drops a repeat. It must equal `capabilities.idempotency`. |
 | `nativeIdempotencyWindowMs` | Optional. How long the provider keeps a key, in milliseconds. It must be a positive integer, and it needs `nativeIdempotency: true`. Set it when the window is shorter than 7 days. `createMailer` then warns when no idempotency store is set. |
 

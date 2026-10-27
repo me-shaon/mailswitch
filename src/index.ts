@@ -38,6 +38,7 @@ export {
   type ProviderMeta,
   type ProviderPreset,
   type ProviderTier,
+  type WebhookSecretMeta,
 } from "./core/meta";
 export {
   createMailer,

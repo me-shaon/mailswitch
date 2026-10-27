@@ -62,5 +62,10 @@ export const mailgunMeta: ProviderMeta = defineProviderMeta({
     404: { status: "not_sent", reason: "auth", source: ERRORS_DOCS },
   }),
   webhooks: true,
+  webhookSecret: {
+    label: "HTTP webhook signing key",
+    source: "provider",
+    hint: "The HTTP webhook signing key of your Mailgun account. It is not the API key.",
+  },
   nativeIdempotency: false,
 });

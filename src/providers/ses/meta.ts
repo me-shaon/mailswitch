@@ -62,5 +62,11 @@ export const sesMeta: ProviderMeta = defineProviderMeta({
   // error type: https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html#API_SendEmail_Errors
   statusMap: defineStatusMap({}),
   webhooks: true,
+  webhookSecret: {
+    label: "Allowed SNS topic ARNs",
+    source: "provider",
+    hint: "The ARN of the SNS topic that gets your SES events. Separate more than one with commas. It is not a secret.",
+    placeholder: "arn:aws:sns:eu-west-1:123456789012:ses-events",
+  },
   nativeIdempotency: false,
 });

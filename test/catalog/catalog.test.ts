@@ -6,6 +6,8 @@ import {
   PROVIDER_IDS,
   type ProviderId,
 } from "../../src/catalog";
+import { AHASEND_FIXTURE_SECRET } from "../../src/conformance/fixtures/ahasend";
+import { RESEND_FIXTURE_SECRET } from "../../src/conformance/fixtures/resend";
 import { classifyResponse, defineStatusMap } from "../../src/core/classify";
 import { defineProviderMeta, type ProviderMeta } from "../../src/core/meta";
 
@@ -140,6 +142,28 @@ describe("catalog", () => {
     }
   });
 
+  it("describes the webhook secret of every provider with webhooks", () => {
+    for (const meta of catalog) {
+      if (meta.webhooks === true) {
+        expect(meta.webhookSecret?.label, meta.id).toBeTruthy();
+      } else {
+        expect(meta.webhookSecret, meta.id).toBeUndefined();
+      }
+    }
+    for (const id of ["postmark", "mailjet", "smtp2go"]) {
+      expect(getProviderMeta(id)?.webhookSecret).toMatchObject({ source: "generated" });
+    }
+    const resend = new RegExp(getProviderMeta("resend")?.webhookSecret?.pattern ?? "");
+    expect(resend.test(RESEND_FIXTURE_SECRET)).toBe(true);
+    expect(resend.test("whsec_%%%%")).toBe(false);
+    const ahasend = new RegExp(getProviderMeta("ahasend")?.webhookSecret?.pattern ?? "");
+    expect(ahasend.test(AHASEND_FIXTURE_SECRET)).toBe(true);
+  });
+
+  it("sets no provider-level daily cap on a built-in provider", () => {
+    for (const meta of catalog) expect(meta.defaultDailyCap, meta.id).toBeUndefined();
+  });
+
   it("imports only meta files", () => {
     const files = Object.keys(sources);
     expect(files).toContain("../../src/catalog/index.ts");
@@ -238,6 +262,37 @@ describe("defineProviderMeta", () => {
       expect(() => defineProviderMeta({ ...native, nativeIdempotencyWindowMs: bad })).toThrow(
         /a positive integer/,
       );
+    }
+  });
+
+  it("checks webhookSecret", () => {
+    const hooks: ProviderMeta = { ...base, webhooks: true };
+    const secret = { label: "Signing secret", source: "provider" as const };
+    expect(defineProviderMeta({ ...hooks, webhookSecret: secret }).webhookSecret).toEqual(secret);
+    expect(() => defineProviderMeta({ ...base, webhookSecret: secret })).toThrow(/needs webhooks/);
+    expect(() => defineProviderMeta({ ...hooks, webhookSecret: { ...secret, label: "" } })).toThrow(
+      /no label/,
+    );
+    expect(() =>
+      defineProviderMeta({ ...hooks, webhookSecret: { ...secret, source: "other" as "provider" } }),
+    ).toThrow(/source/);
+    expect(() =>
+      defineProviderMeta({ ...hooks, webhookSecret: { ...secret, pattern: "(" } }),
+    ).toThrow(/pattern of the webhookSecret/);
+  });
+
+  it("checks defaultDailyCap on the meta and on a preset", () => {
+    expect(defineProviderMeta({ ...base, defaultDailyCap: 100 }).defaultDailyCap).toBe(100);
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      expect(() => defineProviderMeta({ ...base, defaultDailyCap: bad })).toThrow(
+        /defaultDailyCap of the provider/,
+      );
+      expect(() =>
+        defineProviderMeta({
+          ...base,
+          presets: [{ id: "p", name: "P", fixed: {}, defaultDailyCap: bad }],
+        }),
+      ).toThrow(/defaultDailyCap of preset "p"/);
     }
   });
 

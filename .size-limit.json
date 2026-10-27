@@ -8,7 +8,7 @@
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
-    "limit": "5.51 KB",
+    "limit": "6.11 KB",
     "gzip": true
   },
   {
@@ -38,13 +38,13 @@
   {
     "name": "mailswitch/mailgun",
     "path": "dist/providers/mailgun/index.js",
-    "limit": "8.2 KB",
+    "limit": "8.44 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/postmark",
     "path": "dist/providers/postmark/index.js",
-    "limit": "8 KB",
+    "limit": "8.21 KB",
     "gzip": true
   },
   {
@@ -56,19 +56,19 @@
   {
     "name": "mailswitch/mailersend",
     "path": "dist/providers/mailersend/index.js",
-    "limit": "8 KB",
+    "limit": "8.1 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/mailjet",
     "path": "dist/providers/mailjet/index.js",
-    "limit": "8.47 KB",
+    "limit": "8.65 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/smtp2go",
     "path": "dist/providers/smtp2go/index.js",
-    "limit": "8.39 KB",
+    "limit": "8.44 KB",
     "gzip": true
   },
   {
@@ -86,7 +86,7 @@
   {
     "name": "mailswitch/mailchannels",
     "path": "dist/providers/mailchannels/index.js",
-    "limit": "8.3 KB",
+    "limit": "8.41 KB",
     "gzip": true
   },
   {
@@ -104,13 +104,13 @@
   {
     "name": "mailswitch/autosend",
     "path": "dist/providers/autosend/index.js",
-    "limit": "8.58 KB",
+    "limit": "8.62 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/http",
     "path": "dist/providers/http/index.js",
-    "limit": "10.4 KB",
+    "limit": "10.54 KB",
     "gzip": true
   },
   {
@@ -122,7 +122,7 @@
   {
     "name": "mailswitch/ses",
     "path": "dist/providers/ses/index.js",
-    "limit": "10.1 KB",
+    "limit": "10.36 KB",
     "gzip": true
   },
   {

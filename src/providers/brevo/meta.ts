@@ -49,6 +49,11 @@ export const brevoMeta: ProviderMeta = defineProviderMeta({
   // from the body code. Brevo documents no 5xx, so every 5xx stays unknown.
   statusMap: defineStatusMap({}),
   webhooks: true,
+  webhookSecret: {
+    label: "Webhook token",
+    source: "generated",
+    hint: "Make it with generateBrevoWebhookToken(). Set it as the bearer token of the Brevo webhook.",
+  },
   nativeIdempotency: true,
   // "The TTL for idempotencyKey is 30 minutes."
   nativeIdempotencyWindowMs: 1_800_000,

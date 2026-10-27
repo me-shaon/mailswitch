@@ -22,7 +22,13 @@ import { smtp2goMeta } from "../providers/smtp2go/meta";
 import { toSendMeta } from "../providers/tosend/meta";
 import { zeptomailMeta } from "../providers/zeptomail/meta";
 
-export type { CredentialField, ProviderMeta, ProviderPreset, ProviderTier } from "../core/meta";
+export type {
+  CredentialField,
+  ProviderMeta,
+  ProviderPreset,
+  ProviderTier,
+  WebhookSecretMeta,
+} from "../core/meta";
 
 /** The id of a built-in provider. */
 export type ProviderId =

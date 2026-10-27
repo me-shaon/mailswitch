@@ -52,5 +52,10 @@ export const smtp2goMeta: ProviderMeta = defineProviderMeta({
     402: { status: "not_sent", reason: "rejected", source: RESPONSE_CODES },
   }),
   webhooks: true,
+  webhookSecret: {
+    label: "Webhook secret",
+    source: "generated",
+    hint: "Make it with generateSmtp2goWebhookSecret(), and give SMTP2GO the value of smtp2goWebhookAuth().",
+  },
   nativeIdempotency: false,
 });

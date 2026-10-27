@@ -51,5 +51,10 @@ export const postmarkMeta: ProviderMeta = defineProviderMeta({
   // adapter refines the reason of a 422 with the Postmark ErrorCode.
   statusMap: defineStatusMap({}),
   webhooks: true,
+  webhookSecret: {
+    label: "Webhook secret",
+    source: "generated",
+    hint: "Make it with generatePostmarkWebhookSecret(). Enter it as the Basic auth password of the Postmark webhook.",
+  },
   nativeIdempotency: false,
 });

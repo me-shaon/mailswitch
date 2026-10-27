@@ -46,5 +46,10 @@ export const sendgridMeta: ProviderMeta = defineProviderMeta({
   // statement that the message did not go out, so every 5xx stays unknown.
   statusMap: defineStatusMap({}),
   webhooks: true,
+  webhookSecret: {
+    label: "Verification key",
+    source: "provider",
+    hint: "The public verification key of the signed Event Webhook in SendGrid. It starts with MFkw.",
+  },
   nativeIdempotency: false,
 });

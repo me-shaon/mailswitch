@@ -35,5 +35,10 @@ export const toSendMeta: ProviderMeta = defineProviderMeta({
   // A 403 means bad credentials or no credits, by the body text. The default (auth) stays.
   statusMap: defineStatusMap({}),
   webhooks: true,
+  webhookSecret: {
+    label: "Webhook secret",
+    source: "provider",
+    hint: "The secret that you set on the webhook in toSend. Use a long random value.",
+  },
   nativeIdempotency: false,
 });

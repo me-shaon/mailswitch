@@ -49,7 +49,7 @@ export interface MailerProvider {
   preset?: string;
   /**
    * The most sends in a rolling 24 hours. It needs the `dailyCaps` store. It defaults to
-   * the `defaultDailyCap` of the preset when a `dailyCaps` store is set.
+   * the `defaultDailyCap` of the preset, then of the meta, when a `dailyCaps` store is set.
    */
   dailyCap?: number;
   /**
@@ -202,7 +202,9 @@ function prepareEntries(options: MailerOptions): Entry[] {
       defaulted: parsed.defaulted,
       scope: item.scope ?? id,
     };
-    const presetCap = adapter.meta.presets?.find((p) => p.id === item.preset)?.defaultDailyCap;
+    const presetCap =
+      adapter.meta.presets?.find((p) => p.id === item.preset)?.defaultDailyCap ??
+      adapter.meta.defaultDailyCap;
     if (item.dailyCap !== undefined && !options.dailyCaps) {
       throw new TypeError(`createMailer: provider "${id}" has a dailyCap but no dailyCaps store.`);
     }

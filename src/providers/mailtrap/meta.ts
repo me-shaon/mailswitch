@@ -47,5 +47,10 @@ export const mailtrapMeta: ProviderMeta = defineProviderMeta({
   // stays unknown, because no doc states that the message did not go out.
   statusMap: defineStatusMap({}),
   webhooks: true,
+  webhookSecret: {
+    label: "Signing secret",
+    source: "provider",
+    hint: "The signing secret of the webhook in Mailtrap. Set the payload format to JSON.",
+  },
   nativeIdempotency: false,
 });

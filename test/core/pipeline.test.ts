@@ -422,6 +422,31 @@ describe("createMailer: daily caps", () => {
     expect((await mailer.send(message())).status).toBe("sent");
     expect(await mailer.send(message())).toMatchObject({ reason: "daily_cap" });
   });
+
+  it("uses the meta default daily cap, and a preset cap takes precedence", async () => {
+    const meta = defineProviderMeta({
+      ...fakeMeta("metacap"),
+      defaultDailyCap: 1,
+      presets: [{ id: "big", name: "Big", fixed: {}, defaultDailyCap: 2 }],
+    });
+    const adapter = defineProvider({ ...fakeProvider({ id: "metacap" }), meta });
+    const make = (preset?: string) =>
+      createMailer({
+        providers: [{ adapter, credentials: { apiKey: "fk_a" }, ...(preset ? { preset } : {}) }],
+        dailyCaps: new MemoryDailyCapStore(),
+        now: () => T0,
+      });
+    const plain = make();
+    expect((await plain.send(message())).status).toBe("sent");
+    expect(await plain.send(message())).toMatchObject({ reason: "daily_cap" });
+    const big = make("big");
+    expect((await big.send(message())).status).toBe("sent");
+    expect((await big.send(message())).status).toBe("sent");
+    expect(await big.send(message())).toMatchObject({ reason: "daily_cap" });
+    const unstored = createMailer({ providers: [{ adapter, credentials: { apiKey: "fk_a" } }] });
+    expect((await unstored.send(message())).status).toBe("sent");
+    expect((await unstored.send(message())).status).toBe("sent");
+  });
 });
 
 describe("createMailer: capability check", () => {

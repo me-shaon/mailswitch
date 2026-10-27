@@ -214,6 +214,7 @@ Bind both classes in `wrangler.jsonc`:
 A self-hosted app can let its owner pick a provider and enter the keys in a form.
 
 - `mailswitch/catalog` exports `catalog` and `getProviderMeta(id)`. Each entry holds the name, tier, capabilities, and credential fields. The catalog imports no adapter code.
+- A provider with webhooks has `webhookSecret` in its meta. It gives the label, the hint, and the source of the webhook secret input. The source is `"provider"` when the owner copies the value from the provider. It is `"generated"` when your app makes the value with the generate helper of the adapter.
 - `parseCredentials(meta, input)` checks the form input against the credential fields. Errors name the field and the rule, never the value.
 - `createSendContext({ credentials })` builds the context of a direct adapter call. It uses the global `fetch`, a 15-second timeout, and the current time, unless you give others. Give `connect` for SMTP.
 - `adapter.verify(ctx)` checks the credentials with a call that sends no email.

@@ -48,5 +48,10 @@ export const mailchannelsMeta: ProviderMeta = defineProviderMeta({
   // go out, so every 5xx stays unknown. 429 is not documented and keeps the default.
   statusMap: defineStatusMap({}),
   webhooks: true,
+  webhookSecret: {
+    label: "Webhook public key",
+    source: "provider",
+    hint: "The MailChannels public key for the keyid of your webhooks, as base64 or a PEM block.",
+  },
   nativeIdempotency: false,
 });
