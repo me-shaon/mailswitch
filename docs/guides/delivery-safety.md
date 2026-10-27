@@ -90,7 +90,7 @@ This means that the fallback runs less often during network faults. That is the 
 1. **Validation.** A message that breaks a rule returns `not_sent/invalid_message`. No provider runs.
 2. **One idempotency claim.** This step runs only when the mailer has an `idempotency` store and the message has an `idempotencyKey`. A claim that does not proceed returns the store answer from the table above.
 3. **The provider chain.** For each provider, in order:
-   1. The claim heartbeat, when step 2 made a claim. See [Claim heartbeat](#claim-heartbeat).
+   1. The claim heartbeat, when step 2 made a claim. The first provider skips this step. See [Claim heartbeat](#claim-heartbeat).
    2. The capability check.
    3. The daily cap reserve, when the provider has a cap.
    4. The rate limit, when the provider has a rate.
@@ -182,6 +182,8 @@ Each claim writes a random claim ID. The final record is written only where the 
 ### Claim heartbeat
 
 Before each provider call, mailswitch calls `IdempotencyStore.touch`. The call sets `updatedAt` to the current time, and it writes the attempt that ended since the last call. It applies only where the claim ID matches and the state is still `pending`.
+
+In `send`, the first provider call has no heartbeat. The claim has just set `updatedAt`, so a heartbeat would change nothing. `sendBatch` calls `touch` before each provider call, including the first.
 
 - The stale check measures from `updatedAt`, not from the claim time. A long `sendBatch` therefore keeps the claims of its later messages current.
 - When `touch` returns `false`, the claim is lost. For example, a retry found it stale and an operator released the key. The message then makes no further provider call. It gets `unknown/stale_pending`, and mailswitch writes no further record for it. The logger gets a warning.

@@ -81,18 +81,18 @@ describe("D1 queries for one send", () => {
     idempotencyKey: "budget",
   };
 
-  it("a keyed send through one provider with a daily cap costs 4 queries", async () => {
+  it("a keyed send through one provider with a daily cap costs 3 queries", async () => {
     const { mail, primary } = mailer(["sent"]);
     expect(await mail.send(message)).toMatchObject({ status: "sent", provider: "a" });
     expect(primary.sends).toHaveLength(1);
-    expect(counter.count).toBe(4);
+    expect(counter.count).toBe(3);
   });
 
-  it("a keyed send with a not_sent primary and one fallback costs 7 queries", async () => {
+  it("a keyed send with a not_sent primary and one fallback costs 6 queries", async () => {
     const { mail, backup } = mailer(["not_sent"]);
     expect(await mail.send(message)).toMatchObject({ status: "sent", provider: "b" });
     expect(backup.sends).toHaveLength(1);
-    expect(counter.count).toBe(7);
+    expect(counter.count).toBe(6);
   });
 });
 
