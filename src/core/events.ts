@@ -4,15 +4,24 @@
 /**
  * The kinds of normalized events. A type that mailswitch does not map is `unknown`.
  *
+ * - `unsubscribed`: the recipient opted out of all mail from the sender. Stop sending to
+ *   the address. An opt-out from one group or list stays `unknown`.
+ *
  * A minor release can add a type. Give each `switch` on this type a `default` case.
  */
-export type NormalizedEventType = "bounced" | "complained" | "delivered" | "unknown";
+export type NormalizedEventType =
+  | "bounced"
+  | "complained"
+  | "delivered"
+  | "unsubscribed"
+  | "unknown";
 
 /** Every normalized event type, in a fixed order. */
 export const NORMALIZED_EVENT_TYPES: readonly NormalizedEventType[] = [
   "bounced",
   "complained",
   "delivered",
+  "unsubscribed",
   "unknown",
 ];
 
