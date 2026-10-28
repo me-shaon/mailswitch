@@ -776,6 +776,23 @@ describe("sendBatch: bulk path", () => {
     expect(primary.batches).toHaveLength(0);
   });
 
+  it("gives store_error only to the message whose claimMany outcome is malformed", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider();
+    const m = capped([primary.adapter], { idempotency: stores.idempotency });
+    stores.idempotency.claimMany.mockImplementationOnce(async (inputs) => {
+      const outcomes = await stores.memory.claimMany(inputs);
+      return outcomes.map((outcome, i) => (i === 1 ? ({ status: "bogus" } as never) : outcome));
+    });
+    const results = await m.sendBatch(keyed(["a", "b", "c"]));
+    expect(results.map((r) => (r.status === "not_sent" ? r.reason : r.status))).toEqual([
+      "sent",
+      "store_error",
+      "sent",
+    ]);
+    expect(primary.batches.map((b) => b.map((x) => x.to[0]))).toEqual([["a@x.org", "c@x.org"]]);
+  });
+
   it("gives store_error to the chunk whose touchMany throws and refunds its units", async () => {
     const stores = bulkStores();
     const primary = batchProvider({ batchSize: 2 });
@@ -936,6 +953,72 @@ describe("sendBatch: bulk path", () => {
     expect(sizes(stores.dailyCaps.releaseMany)).toEqual([2]);
     expect(stores.dailyCaps.fill).toHaveBeenCalledTimes(1);
     expect(await stores.caps.used("batcher", T0)).toBe(10);
+  });
+
+  it("keeps the results and still fills the window when releaseMany throws", async () => {
+    const stores = bulkStores();
+    const warn = vi.fn();
+    const primary = batchProvider({
+      outcome: (to) =>
+        (to === "a@x.org"
+          ? NOT_SENT
+          : to === "b@x.org"
+            ? { status: "not_sent", reason: "quota", message: "Daily quota." }
+            : undefined) as never,
+    });
+    const m = capped([{ adapter: primary.adapter, dailyCap: 10 }], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+      logger: { warn },
+    });
+    stores.dailyCaps.releaseMany.mockRejectedValueOnce(new Error("D1 down"));
+    const results = await m.sendBatch(keyed(["a", "b", "c"]));
+    expect(results.map((r) => (r.status === "not_sent" ? r.reason : r.status))).toEqual([
+      "rejected",
+      "quota",
+      "sent",
+    ]);
+    expect(sizes(stores.dailyCaps.releaseMany)).toEqual([2]);
+    const capWarnings = warn.mock.calls.filter(
+      (call) => call[0] === "mailswitch: the daily cap store failed to refund or fill.",
+    );
+    expect(capWarnings).toHaveLength(1);
+    // The fill runs after the failed refund.
+    expect(stores.dailyCaps.fill).toHaveBeenCalledTimes(1);
+    expect(await stores.caps.used("batcher", T0)).toBe(10);
+  });
+
+  it.each([
+    [
+      "throws",
+      (stores: ReturnType<typeof bulkStores>) => {
+        stores.idempotency.finishMany.mockRejectedValueOnce(new Error("D1 down"));
+      },
+    ],
+    [
+      "returns a list of the wrong length",
+      (stores: ReturnType<typeof bulkStores>) => {
+        stores.idempotency.finishMany.mockResolvedValueOnce([true]);
+      },
+    ],
+  ])("keeps every sent result when finishMany %s", async (_, patch) => {
+    const stores = bulkStores();
+    const warn = vi.fn();
+    const primary = batchProvider();
+    const m = capped([primary.adapter], { idempotency: stores.idempotency, logger: { warn } });
+    patch(stores);
+    const results = await m.sendBatch(keyed(["a", "b"]));
+    expect(results.map((r) => r.status)).toEqual(["sent", "sent"]);
+    expect(stores.idempotency.finish).not.toHaveBeenCalled();
+    // One warning per message. The records stay pending, so a retry cannot send twice.
+    expect(warn.mock.calls.map((call) => call[0])).toEqual([
+      "mailswitch: the store failed to write the final record.",
+      "mailswitch: the store failed to write the final record.",
+    ]);
+    expect(warn.mock.calls[0]?.[1]).toMatchObject({ provider: "batcher", status: "sent" });
+    for (const name of ["a", "b"]) {
+      expect((await stores.memory.get(`${NAMESPACE}:k-${name}`))?.state).toBe("pending");
+    }
   });
 
   it("sends a not_sent item through the fallback on the per-message path", async () => {

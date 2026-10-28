@@ -178,7 +178,7 @@ export interface PipelineSteps {
   prepare(message: OutgoingMessage): Promise<SendResult | Prepared>;
   /** The claim of one prepared message on the per-message path. It never throws. */
   claim(prepared: Prepared): Promise<SendResult | MessageRun>;
-  /** Applies a claim outcome to a prepared message. */
+  /** Applies a claim outcome to a prepared message. A malformed outcome gives `store_error`. */
   claimed(prepared: Prepared, outcome: IdempotencyClaimOutcome): SendResult | MessageRun;
   /** The idempotency store when `sendBatch` can use its bulk methods. */
   bulkClaims(): BulkIdempotencyStore | undefined;
@@ -583,8 +583,13 @@ export function createMailer(options: MailerOptions): Mailer {
   function claimed(prepared: Prepared, outcome: IdempotencyClaimOutcome): SendResult | MessageRun {
     const { run, claim } = prepared;
     if (!claim) return run;
-    const begin = claimResult(outcome, claim.key, claim.claimId, claim.payloadHash);
-    if (!begin.proceed) return begin.result;
+    // A malformed outcome from a custom store throws here. It is a store failure.
+    try {
+      const begin = claimResult(outcome, claim.key, claim.claimId, claim.payloadHash);
+      if (!begin.proceed) return begin.result;
+    } catch (error) {
+      return storeError(error);
+    }
     run.claim = { key: claim.key, claimId: claim.claimId };
     return run;
   }

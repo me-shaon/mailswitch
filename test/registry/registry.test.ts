@@ -261,6 +261,18 @@ describe("createAdapter", () => {
     };
     expect(typeof types).toBe("function");
   });
+
+  it("types a dynamic ProviderId with no casts", () => {
+    // The checks run in the type checker. The function never runs.
+    const types = (saved: ProviderId, options?: RegistryOptions<ProviderId>): void => {
+      expectTypeOf(createAdapter(saved)).resolves.toExtend<ProviderAdapter>();
+      expectTypeOf(createAdapter(saved, options)).resolves.toExtend<ProviderAdapter>();
+      expectTypeOf(createAdapter(saved, {})).resolves.toExtend<ProviderAdapter>();
+      const stored: Record<string, unknown> = {};
+      void createAdapter(saved, stored);
+    };
+    expect(typeof types).toBe("function");
+  });
 });
 
 describe("REGISTRY_CREDENTIAL_KEYS", () => {
