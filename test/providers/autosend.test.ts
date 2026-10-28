@@ -460,7 +460,9 @@ describe("autosend webhooks", () => {
       ["email.deferred", {}, { type: "unknown" }],
       ["email.opened", {}, { type: "unknown" }],
       ["email.clicked", {}, { type: "unknown" }],
-      ["email.unsubscribed", {}, { type: "unknown" }],
+      ["email.unsubscribed", {}, { type: "unsubscribed" }],
+      ["email.group_unsubscribed", {}, { type: "unknown" }],
+      ["email.group_resubscribed", {}, { type: "unknown" }],
       ["contact.created", {}, { type: "unknown" }],
     ];
     for (const [rawType, data, expected] of cases) {
@@ -577,4 +579,33 @@ describe("autosend webhooks", () => {
     await first.ack();
     expect(await send("delivery-2")).toMatchObject({ ok: true, events: [] });
   });
+});
+
+describe("autosend unsubscribe", () => {
+  it("maps email.unsubscribed to unsubscribed with the message id and no recipient", () => {
+    const body = autosendEvent("email.unsubscribed", { to: undefined });
+    const events = parseAutosendEvents("autosend", utf8(body));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      rawType: "email.unsubscribed",
+      providerMessageId: AUTOSEND_FIXTURE_EMAIL_ID,
+    });
+    expect(events[0]?.recipient).toBeUndefined();
+  });
+
+  it("sets no message id when the body has no emailId", () => {
+    const body = autosendEvent("email.unsubscribed", { to: undefined, emailId: undefined });
+    const events = parseAutosendEvents("autosend", utf8(body));
+    expect(events[0]?.type).toBe("unsubscribed");
+    expect(events[0]?.providerMessageId).toBeUndefined();
+  });
+
+  it.each(["email.group_unsubscribed", "email.group_resubscribed"])(
+    "keeps %s as unknown",
+    (rawType) => {
+      const [event] = parseAutosendEvents("autosend", utf8(autosendEvent(rawType)));
+      expect(event).toMatchObject({ type: "unknown", rawType });
+    },
+  );
 });

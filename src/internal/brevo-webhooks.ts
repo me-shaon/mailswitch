@@ -42,6 +42,7 @@ export const BREVO_WEBHOOK_EVENTS: readonly string[] = [
   "softBounce",
   "invalid",
   "spam",
+  "unsubscribed",
 ];
 /** The most events that one request can hold. Brevo batches events only when you ask. */
 const MAX_EVENTS = 100;
@@ -98,6 +99,7 @@ function eventOf(provider: string, record: Fields): NormalizedEvent | null {
   const event: NormalizedEvent = { type: "unknown", provider, eventKey, rawType };
   if (rawType === "delivered") event.type = "delivered";
   else if (rawType === "spam") event.type = "complained";
+  else if (rawType === "unsubscribed") event.type = "unsubscribed";
   else if (rawType === "hard_bounce" || rawType === "invalid_email") {
     event.type = "bounced";
     event.bounce = "hard";

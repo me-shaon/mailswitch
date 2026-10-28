@@ -141,6 +141,7 @@ const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> 
       "postmarkBounce",
       "postmarkDelivery",
       "postmarkSpamComplaint",
+      "postmarkSubscriptionChange",
       "resendEvent",
       "sendgridEvent",
       "sesFixtureSigner",

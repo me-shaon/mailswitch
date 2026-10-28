@@ -166,18 +166,35 @@ function eventId(body: string, record: Fields): string | undefined {
 }
 
 /**
+ * True when a SubscriptionChange shows that the recipient opted out with the unsubscribe
+ * link. A hard bounce, a spam complaint, or a change by the sender is not an unsubscribe.
+ */
+function recipientUnsubscribed(record: Fields): boolean {
+  return (
+    record.SuppressSending === true &&
+    text(record, "SuppressionReason") === "ManualSuppression" &&
+    text(record, "Origin") === "Recipient"
+  );
+}
+
+/**
  * Parses a verified Postmark body. One body holds one event.
  *
  * - `Bounce` maps to `bounced`, hard or soft by the bounce type. A bounce type that is
  *   neither, such as `AutoResponder`, gives `unknown`.
- * - `SpamComplaint` maps to `complained`. `Delivery` maps to `delivered`. Every other
- *   record type gives `unknown`.
+ * - `SpamComplaint` maps to `complained`. `Delivery` maps to `delivered`.
+ * - `SubscriptionChange` maps to `unsubscribed` only when the recipient used the
+ *   unsubscribe link: `SuppressSending` is true, `SuppressionReason` is
+ *   `ManualSuppression`, and `Origin` is `Recipient`. Every other change gives `unknown`.
+ * - Every other record type gives `unknown`.
  * - `rawType` is the `RecordType`.
  * - The event key is `RecordType:ID` for a record with an ID (Bounce, SpamComplaint).
  *   A Delivery has no ID: its key is `Delivery:MessageID:recipient`, because Postmark
  *   reports one delivery for each recipient of a message. Any other record without an
- *   ID (Open, Click, SubscriptionChange) gets `RecordType:MessageID:recipient:time`, and
- *   a Click adds its link. These fields stay the same across retries of one request.
+ *   ID (Open, Click, SubscriptionChange) gets `RecordType:MessageID:recipient:time`. A
+ *   Click adds its link. A SubscriptionChange adds `SuppressSending`, so a reactivation
+ *   at the same time gets a different key. These fields stay the same across retries of
+ *   one request.
  *   mailswitch does not hash the body here: a synchronous SHA-256 would double the
  *   size of this subpath for event types that mailswitch does not map.
  */
@@ -196,7 +213,9 @@ export function parsePostmarkEvents(provider: string, body: Uint8Array): Normali
       ? "delivered"
       : rawType === "SpamComplaint"
         ? "complained"
-        : "unknown";
+        : rawType === "SubscriptionChange" && recipientUnsubscribed(record)
+          ? "unsubscribed"
+          : "unknown";
   const recipient = text(record, "Email") ?? text(record, "Recipient");
   const messageId = text(record, "MessageID");
   const time =
@@ -207,6 +226,9 @@ export function parsePostmarkEvents(provider: string, body: Uint8Array): Normali
   const id = eventId(raw, record);
   const parts = [rawType, messageId, recipient?.toLowerCase()];
   if (rawType !== "Delivery") parts.push(time, text(record, "OriginalLink"));
+  if (rawType === "SubscriptionChange" && typeof record.SuppressSending === "boolean") {
+    parts.push(String(record.SuppressSending));
+  }
   const eventKey =
     id === undefined ? parts.filter((part) => part !== undefined).join(":") : `${rawType}:${id}`;
   const event: NormalizedEvent = { type, provider, eventKey, rawType };

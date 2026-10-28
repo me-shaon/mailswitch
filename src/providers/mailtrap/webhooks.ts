@@ -26,6 +26,7 @@ const TYPES: Readonly<Record<string, NormalizedEventType>> = {
   bounce: "bounced",
   "soft bounce": "bounced",
   spam: "complained",
+  unsubscribe: "unsubscribed",
 };
 
 /** The `Mailtrap-Signature` value of a raw body: the hex HMAC-SHA256 with the secret. */
@@ -65,8 +66,8 @@ export async function verifyMailtrapWebhook(
  * is not an object is skipped.
  *
  * - `delivery` maps to `delivered`, `bounce` to `bounced` hard, `soft bounce` to `bounced`
- *   soft, and `spam` to `complained`. Every other event, for example `reject`,
- *   `suspension`, `unsubscribe`, `open`, and `click`, gives `unknown`.
+ *   soft, `spam` to `complained`, and `unsubscribe` to `unsubscribed`. Every other event,
+ *   for example `reject`, `suspension`, `open`, and `click`, gives `unknown`.
  * - `rawType` is the `event` value. The event key is `event_id`. An entry without it gets
  *   the SHA-256 of the raw body and the entry index.
  * - `providerMessageId` is `message_id`, the id in the send result. `recipient` is `email`.

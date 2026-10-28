@@ -254,6 +254,19 @@ export function smtp2goFixture(): ConformanceFixture {
           expected: [{ type: "complained", rawType: "spam" }],
         },
         {
+          label: "unsubscribe",
+          body: JSON.stringify(smtp2goEvent("unsubscribe")),
+          expected: [
+            {
+              type: "unsubscribed",
+              rawType: "unsubscribe",
+              recipient: "ana@example.org",
+              providerMessageId: EMAIL_ID,
+              eventKey: sampleKey("b1c2d3e4f5a6-unsubscribe", "unsubscribe"),
+            },
+          ],
+        },
+        {
           label: "an event that mailswitch does not map",
           body: JSON.stringify(smtp2goEvent("open", { "user-agent": "Mail/1.0" })),
           expected: [

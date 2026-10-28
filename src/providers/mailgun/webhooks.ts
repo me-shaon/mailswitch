@@ -147,6 +147,7 @@ export function parseMailgunEvents(provider: string, body: Uint8Array): Normaliz
   let mapped: { type: NormalizedEventType; bounce?: "hard" | "soft" } = { type: "unknown" };
   if (rawType === "delivered") mapped = { type: "delivered" };
   else if (rawType === "complained") mapped = { type: "complained" };
+  else if (rawType === "unsubscribed") mapped = { type: "unsubscribed" };
   else if (rawType === "failed") mapped = failed(data);
   const event: NormalizedEvent = { type: mapped.type, provider, eventKey: token, rawType };
   if (mapped.bounce !== undefined) event.bounce = mapped.bounce;

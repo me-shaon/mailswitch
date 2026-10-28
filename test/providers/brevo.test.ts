@@ -469,3 +469,32 @@ describe("brevo webhooks", () => {
     expect(events[0]?.provider).toBe("smtp");
   });
 });
+
+describe("brevo unsubscribe", () => {
+  it("lists unsubscribed in the webhook events to give Brevo", () => {
+    expect(brevoEntry.BREVO_WEBHOOK_EVENTS).toEqual([
+      "delivered",
+      "hardBounce",
+      "softBounce",
+      "invalid",
+      "spam",
+      "unsubscribed",
+    ]);
+  });
+
+  it("maps an unsubscribed event to unsubscribed for the API and SMTP presets", () => {
+    const body = utf8(JSON.stringify(brevoEvent("unsubscribed", "gus@example.org")));
+    const api = brevo().webhooks?.parse(body, new Headers()) ?? [];
+    const relay = smtpBrevoEntry.brevoWebhooks().parse(body, new Headers());
+    for (const events of [api, relay]) {
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: "unsubscribed",
+        recipient: "gus@example.org",
+        providerMessageId: "<202610261159.12345678901@smtp-relay.mailin.fr>",
+        rawType: "unsubscribed",
+      });
+      expect(events[0]?.bounce).toBeUndefined();
+    }
+  });
+});

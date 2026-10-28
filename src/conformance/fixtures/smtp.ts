@@ -146,6 +146,19 @@ export function smtpFixture(): SmtpConformanceFixture {
           expected: [{ type: "complained", recipient: "dan@example.org" }],
         },
         {
+          label: "unsubscribe",
+          body: JSON.stringify(brevoEvent("unsubscribed", "gus@example.org")),
+          expected: [
+            {
+              type: "unsubscribed",
+              recipient: "gus@example.org",
+              providerMessageId: BREVO_MESSAGE_ID,
+              rawType: "unsubscribed",
+              eventKey: KEY("unsubscribed", "gus@example.org"),
+            },
+          ],
+        },
+        {
           label: "opened (not mapped)",
           body: JSON.stringify(brevoEvent("opened", "eve@example.org")),
           expected: [{ type: "unknown", rawType: "opened" }],

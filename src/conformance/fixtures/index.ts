@@ -28,9 +28,11 @@ export {
 } from "./mailtrap";
 export {
   POSTMARK_FIXTURE_SECRET,
+  type PostmarkSubscriptionChangeOptions,
   postmarkBounce,
   postmarkDelivery,
   postmarkSpamComplaint,
+  postmarkSubscriptionChange,
   signPostmarkWebhook,
 } from "./postmark";
 export { RESEND_FIXTURE_SECRET, resendEvent, signResendWebhook } from "./resend";

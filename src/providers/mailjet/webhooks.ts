@@ -129,6 +129,8 @@ const MESSAGE_ID = /"MessageID"\s*:\s*(\d+)/g;
  * Parses a verified Mailjet body: one event object, or a list when grouping is on. An
  * entry with no event name is skipped. A repeated event key is kept once.
  *
+ * - `sent` maps to `delivered`, `bounce` to `bounced`, `spam` to `complained`, and
+ *   `unsub` to `unsubscribed`. Every other event gives `unknown`.
  * - `rawType` is the `event` field. `occurredAt` is `time`, in Unix seconds.
  * - `providerMessageId` is `Message_GUID`, else the `MessageID` digits.
  * - `MessageID` is a 64-bit integer, beyond the safe range of a JS number. The parser
@@ -173,6 +175,7 @@ export function parseMailjetEvents(provider: string, body: Uint8Array): Normaliz
     const event: NormalizedEvent = { type: "unknown", provider, eventKey, rawType };
     if (rawType === "sent") event.type = "delivered";
     else if (rawType === "spam") event.type = "complained";
+    else if (rawType === "unsub") event.type = "unsubscribed";
     else if (rawType === "bounce") {
       event.type = "bounced";
       event.bounce = item.hard_bounce === true ? "hard" : "soft";

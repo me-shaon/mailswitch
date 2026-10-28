@@ -7,6 +7,7 @@
 // https://postmarkapp.com/developer/webhooks/bounce-webhook
 // https://postmarkapp.com/developer/webhooks/delivery-webhook
 // https://postmarkapp.com/developer/webhooks/spam-complaint-webhook
+// https://postmarkapp.com/developer/webhooks/subscription-change-webhook
 
 import { POSTMARK_API_BASE, postmarkWebhookAuthorization } from "../../providers/postmark/index";
 import type { ConformanceFixture, WebhookSample } from "../types";
@@ -104,6 +105,42 @@ export function postmarkSpamComplaint(email: string, messageId: string = MESSAGE
     Inactive: true,
     CanActivate: false,
     Subject: "Test subject",
+  });
+}
+
+/** The fields of a Postmark subscription change that a test can set. */
+export interface PostmarkSubscriptionChangeOptions {
+  /** True when Postmark stops sending to the address. Defaults to true. */
+  suppressSending?: boolean;
+  /** `HardBounce`, `SpamComplaint`, or `ManualSuppression`. Defaults to `ManualSuppression`. */
+  suppressionReason?: string;
+  /** `Recipient`, `Customer`, or `Admin`. Defaults to `Recipient`. */
+  origin?: string;
+  messageId?: string;
+  changedAt?: string;
+}
+
+/**
+ * A Postmark subscription change webhook body. The defaults describe a recipient who
+ * used the unsubscribe link.
+ */
+export function postmarkSubscriptionChange(
+  recipient: string,
+  options: PostmarkSubscriptionChangeOptions = {},
+): string {
+  const suppress = options.suppressSending ?? true;
+  return JSON.stringify({
+    RecordType: "SubscriptionChange",
+    MessageID: options.messageId ?? MESSAGE_ID,
+    ServerID: 23,
+    MessageStream: "outbound",
+    ChangedAt: options.changedAt ?? "2026-10-26T12:00:05Z",
+    Recipient: recipient,
+    Origin: options.origin ?? "Recipient",
+    SuppressSending: suppress,
+    SuppressionReason: suppress ? (options.suppressionReason ?? "ManualSuppression") : null,
+    Tag: "welcome-email",
+    Metadata: { example: "value" },
   });
 }
 
@@ -260,6 +297,19 @@ export function postmarkFixture(): ConformanceFixture {
               providerMessageId: MESSAGE_ID,
               rawType: "SpamComplaint",
               eventKey: "SpamComplaint:42",
+            },
+          ],
+        },
+        {
+          label: "unsubscribe",
+          body: postmarkSubscriptionChange("ana@example.org"),
+          expected: [
+            {
+              type: "unsubscribed",
+              recipient: "ana@example.org",
+              providerMessageId: MESSAGE_ID,
+              rawType: "SubscriptionChange",
+              eventKey: `SubscriptionChange:${MESSAGE_ID}:ana@example.org:2026-10-26T12:00:05Z:true`,
             },
           ],
         },

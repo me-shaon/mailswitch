@@ -195,6 +195,19 @@ export function mailtrapFixture(): ConformanceFixture {
           expected: [{ type: "complained", rawType: "spam" }],
         },
         {
+          label: "unsubscribe",
+          body: mailtrapEvents(mailtrapEvent("unsubscribe", { email: "cy@example.org" })),
+          expected: [
+            {
+              type: "unsubscribed",
+              rawType: "unsubscribe",
+              recipient: "cy@example.org",
+              providerMessageId: MAILTRAP_FIXTURE_MESSAGE_ID,
+              eventKey: "mailtrap-event-unsubscribe-0001",
+            },
+          ],
+        },
+        {
           label: "an event that mailswitch does not map",
           body: mailtrapEvents(mailtrapEvent("reject", { reason: "suppressed" })),
           expected: [

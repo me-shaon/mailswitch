@@ -473,6 +473,7 @@ describe("ahasend webhooks", () => {
       ["message.bounced", { type: "bounced" }],
       ["message.transient_error", { type: "bounced", bounce: "soft" }],
       ["message.complained", { type: "complained" }],
+      ["message.unsubscribed", { type: "unsubscribed" }],
       ["message.failed", { type: "unknown" }],
     ];
     for (const [rawType, expected] of cases) {
@@ -542,5 +543,31 @@ describe("ahasend bounce detail", () => {
     );
     expect(events[0]?.type).toBe("delivered");
     expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+});
+
+describe("ahasend unsubscribe", () => {
+  const parse = (body: string) => parseAhasendEvents("ahasend", utf8(body), new Headers());
+
+  it("maps message.unsubscribed to unsubscribed with the recipient and message id", () => {
+    const events = parse(ahasendEvent("message.unsubscribed", { recipient: "cy@example.org" }));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      rawType: "message.unsubscribed",
+      recipient: "cy@example.org",
+      providerMessageId: AHASEND_FIXTURE_MESSAGE_ID,
+    });
+    expect(events[0]?.bounce).toBeUndefined();
+  });
+
+  it.each([
+    "contact.unsubscribed",
+    "contact.subscribed",
+    "suppression.created",
+    "suppression.deleted",
+    "message.suppressed",
+  ])("keeps %s as unknown", (rawType) => {
+    expect(parse(ahasendEvent(rawType))[0]).toMatchObject({ type: "unknown", rawType });
   });
 });

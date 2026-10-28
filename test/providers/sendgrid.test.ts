@@ -464,3 +464,25 @@ describe("sendgrid webhooks", () => {
     expect(retry).toMatchObject({ ok: true, events: [] });
   });
 });
+
+describe("sendgrid unsubscribe", () => {
+  const parse = (events: Record<string, unknown>[]) =>
+    sendgrid().webhooks?.parse(utf8(JSON.stringify(events)), new Headers()) ?? [];
+
+  it("maps unsubscribe to unsubscribed with the recipient and message id", () => {
+    const events = parse([sendgridEvent("unsubscribe", { email: "cy@example.org" })]);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      rawType: "unsubscribe",
+      recipient: "cy@example.org",
+      eventKey: "sg-unsubscribe-0001",
+    });
+    expect(events[0]?.providerMessageId).toMatch(/\.filterdrecv-/);
+  });
+
+  it.each(["group_unsubscribe", "group_resubscribe"])("keeps %s as unknown", (rawType) => {
+    const events = parse([sendgridEvent(rawType, { asm_group_id: 10 })]);
+    expect(events[0]).toMatchObject({ type: "unknown", rawType });
+  });
+});

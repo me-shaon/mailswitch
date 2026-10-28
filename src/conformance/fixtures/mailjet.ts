@@ -254,6 +254,27 @@ export function mailjetFixture(): ConformanceFixture {
           ],
         },
         {
+          label: "unsubscribe",
+          body: JSON.stringify(
+            mailjetEvent("unsub", {
+              email: "cy@example.org",
+              mj_list_id: "",
+              ip: "192.0.2.1",
+              geo: "FR",
+              agent: "Mozilla/5.0",
+            }),
+          ),
+          expected: [
+            {
+              type: "unsubscribed",
+              rawType: "unsub",
+              recipient: "cy@example.org",
+              providerMessageId: MESSAGE_UUID,
+              eventKey: "unsub:1234567890123456:cy@example.org:1793102394",
+            },
+          ],
+        },
+        {
           label: "an event that mailswitch does not map",
           body: JSON.stringify(
             mailjetEvent("click", { url: "https://example.com/invoice", ip: "192.0.2.1" }),
