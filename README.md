@@ -104,7 +104,7 @@ Set per-provider send rates and daily caps. Use shared persistent stores so limi
 
 ## Settings-screen tools
 
-Build a “bring your own email provider” form with provider metadata, credential validation, connection checks, test emails, and credential encryption helpers.
+Build a “bring your own email provider” form with provider metadata, credential validation, connection checks, test emails, and credential encryption helpers. `mailswitch/registry` builds the adapter of a saved provider id, so the form needs no factory map.
 
 [Settings-screen example →](docs/guides/usage.md#settings-screen-tools)
 

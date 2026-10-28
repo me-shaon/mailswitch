@@ -122,9 +122,35 @@ The `onAttempt` hook gets a redacted view: the provider ID, the status, the reas
 
 ### Batch store calls and D1 limits
 
-In `sendBatch`, the store calls of different messages run at the same time, at most 8 at once. These are the claims, the cap reserves, the heartbeats, and the final records. The provider calls stay sequential. The results keep the input order. A key that is used twice in one call waits for the first claim, so the second message gets `unknown/in_flight`.
+In `sendBatch`, the provider calls stay sequential, and the results keep the input order. D1 counts one `batch` call as one query, so count store calls, not SQL statements.
 
-Each message still makes its own store calls. D1 counts one `batch` call as one query, so count store calls, not SQL statements. With the D1 stores, a keyed message that goes out on the first try makes these queries:
+#### Bulk store calls
+
+The D1 and memory stores have bulk methods: `claimMany`, `touchMany`, and `finishMany` on the idempotency store, and `reserveMany` and `releaseMany` on the cap store. When a store has them, `sendBatch` makes one store call for each step and for each chunk of up to 100 messages:
+
+1. One `claimMany` for the first copy of each key that passes validation.
+2. One `reserveMany` for the primary provider, when it has a daily cap. The cap grants units to the first messages in input order and refuses the rest with `daily_cap`.
+3. Before each provider batch call, one `touchMany` for the messages of that call.
+4. After each provider batch call, one `releaseMany` that refunds the `not_sent` results and the messages that stopped before the call.
+5. One `finishMany` for the messages that need no fallback, before the fallbacks run. Then one more for the fallback messages.
+
+The fallbacks, the messages that the batch endpoint refuses, and later copies of a repeated key use the per-message path. The idempotency store and the cap store are checked on their own, so a D1 idempotency store works with a Durable Object cap store.
+
+| Keyed `sendBatch` with a daily cap on the primary | D1 queries |
+|---|---|
+| 10 messages, all `sent` | 4 |
+| 100 messages, all `sent` | 4 |
+| 250 messages, provider batch size 500, all `sent` | 12 |
+| 10 messages, 2 `not_sent`, no fallback | 5 |
+| 10 messages, 2 `not_sent`, each sent by a fallback with no cap | 8 |
+
+A store failure in a bulk call stops every message of its chunk. Before the provider call, these messages get `not_sent/store_error`. After the provider call, they keep the result of their last attempt. A D1 batch can commit and then lose its response. Then the claims of that chunk stay `pending` until they go stale. A retry of such a key gets `unknown/stale_pending` and needs a manual `release`, although nothing was sent.
+
+A subclass of a built-in store that overrides `claim`, `touch`, `finish`, `reserve`, or `release` keeps the per-message path, unless it also overrides the matching bulk method. So a subclass from 1.0 keeps its behavior.
+
+#### Per-message store calls
+
+A store without the bulk methods, such as the Durable Object idempotency store, makes these calls for each keyed message. At most 8 run at the same time.
 
 | Step | D1 queries | When |
 |---|---|---|
@@ -134,9 +160,9 @@ Each message still makes its own store calls. D1 counts one `batch` call as one 
 | Final record | 1 | The message has a claim. |
 | Cap refund | 1, or 2 after a `quota` answer | The provider has a cap and the result is `not_sent`. |
 
-A keyed `send` with a daily cap therefore makes 3 queries. In `sendBatch`, the same message makes 4, because it keeps the first heartbeat. Each fallback attempt adds 1 heartbeat and, when that provider has a cap, 1 reserve.
+A keyed `send` with a daily cap therefore makes 3 queries. On the per-message path, a message in `sendBatch` makes 4, because it keeps the first heartbeat. Each fallback attempt adds 1 heartbeat and, when that provider has a cap, 1 reserve. A key that is used twice in one call waits for the first claim, so the second message gets `unknown/in_flight`.
 
-D1 limits the queries of one Worker invocation: 50 on the Workers Free plan and 1,000 on the Workers Paid plan. Divide the limit by the queries per message to size a batch. For example, on the Free plan, send at most about 12 keyed messages with a cap in one invocation. A batch that goes over the limit fails partway, and its later messages get `not_sent/store_error` or keep a `pending` record. See the [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
+D1 limits the queries of one Worker invocation: 50 on the Workers Free plan and 1,000 on the Workers Paid plan. A batch that goes over the limit fails partway, and its later messages get `not_sent/store_error` or keep a `pending` record. See the [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
 
 ## Fallback
 
