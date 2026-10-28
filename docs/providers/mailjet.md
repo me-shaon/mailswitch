@@ -112,7 +112,7 @@ A secret that is too short is a setup error. The webhook check refuses each requ
 
 1. Make the webhook URL with `mailjetWebhookUrl(endpoint, secret)`. The endpoint must be an https URL.
 2. In the Mailjet app, open **Account settings**, then **Event notifications (webhooks)**.
-3. Enter the URL for the **Sent**, **Bounce**, and **Spam** events. You can add other events. mailswitch gives them the type `unknown`.
+3. Enter the URL for the **Sent**, **Bounce**, **Spam**, and **Unsub** events. You can add other events. mailswitch gives them the type `unknown`.
 4. Turn on **Group events**. Mailjet then sends a list of events in one request (`Version` 2). mailswitch also reads one event object (`Version` 1).
 5. Store the secret as the webhook secret, for example in `MAILJET_WEBHOOK_SECRET`.
 
@@ -180,7 +180,8 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 | `bounce` with `hard_bounce: true` | `bounced`, `hard` |
 | `bounce` with any other `hard_bounce` value | `bounced`, `soft` |
 | `spam` | `complained` |
-| Any other event, for example `blocked`, `open`, `click`, or `unsub` | `unknown` |
+| `unsub` | `unsubscribed` |
+| Any other event, for example `blocked`, `open`, or `click` | `unknown` |
 
 `rawType` is the `event` field. `recipient` is `email`. `occurredAt` is `time` in milliseconds.
 

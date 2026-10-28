@@ -138,7 +138,8 @@ One request holds up to 500 events in `{"events": [...]}`. Each entry gives one 
 | `bounce` | `bounced`, `hard` |
 | `soft bounce` | `bounced`, `soft` |
 | `spam` | `complained` |
-| Any other event, for example `reject`, `suspension`, `unsubscribe`, `open`, or `click` | `unknown` |
+| `unsubscribe` | `unsubscribed` |
+| Any other event, for example `reject`, `suspension`, `open`, or `click` | `unknown` |
 
 `rawType` is the Mailtrap `event` value. The event key is `event_id`, which the signature covers. `providerMessageId` is `message_id`, which is the id in the send result. `recipient` is `email`. `occurredAt` is the Unix `timestamp` in milliseconds. An entry with no `event_id` gets the SHA-256 of the raw body and the entry index as its key. An entry that is not an object is skipped.
 

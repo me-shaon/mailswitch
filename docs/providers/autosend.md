@@ -147,9 +147,11 @@ One request holds one event: `{ type, createdAt, data }`. Some AutoSend pages na
 | `email.bounced` with `bounceType: Transient` | `bounced`, `soft` |
 | `email.bounced` with any other `bounceType` | `bounced`, with no class |
 | `email.spam_reported` | `complained` |
+| `email.unsubscribed` | `unsubscribed` |
+| `email.group_unsubscribed`, `email.group_resubscribed` | `unknown`. These events are about one group, not all mail. |
 | Any other event, for example `email.sent`, `email.deferred`, `email.opened`, or `contact.created` | `unknown` |
 
-`rawType` is the AutoSend type. `providerMessageId` is `data.emailId`, which is the id in the send result. `recipient` is `data.to.email`. `occurredAt` is `createdAt` in Unix milliseconds. When `data.emailId` or `createdAt` is missing, the event key is the SHA-256 of the raw body.
+`rawType` is the AutoSend type. `providerMessageId` is `data.emailId`, which is the id in the send result. `recipient` is `data.to.email`. An `email.unsubscribed` body has no recipient, so `recipient` is not set. Use `providerMessageId` to find the address in your send records. `occurredAt` is `createdAt` in Unix milliseconds. When `data.emailId` or `createdAt` is missing, the event key is the SHA-256 of the raw body.
 
 Read `bounceSubType`, `reason`, and `complaintType` in your own code when you need the details.
 

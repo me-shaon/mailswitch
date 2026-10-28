@@ -80,7 +80,7 @@ SendGrid signs each Event Webhook request with ECDSA P-256 and SHA-256. The sign
 1. In the SendGrid console, open **Settings**, then **Mail Settings**, then **Webhook Settings**, then **Event Webhooks**.
 2. Make a webhook, or open the settings of a webhook.
 3. Enter the HTTPS URL of your endpoint.
-4. Select **Delivered**, **Bounced**, and **Spam Reports**. You can select other events. mailswitch gives them the type `unknown`.
+4. Select **Delivered**, **Bounced**, **Spam Reports**, and **Unsubscribes**. You can select other events. mailswitch gives them the type `unknown`.
 5. Turn on **Signature Verification**. Save the webhook.
 6. Open the webhook again. Copy the **Verification Key**. SendGrid makes the key pair only when you save. The test button does not check the signature before you save.
 7. Store the key as the webhook secret, for example in `SENDGRID_WEBHOOK_PUBLIC_KEY`.
@@ -135,6 +135,8 @@ One request holds a JSON array of events. mailswitch gives one normalized event 
 | `bounce` with `type` `bounce` | `bounced`, `hard` |
 | `bounce` with `type` `blocked` | `bounced`, `soft` |
 | `spamreport` | `complained` |
+| `unsubscribe` | `unsubscribed` |
+| `group_unsubscribe`, `group_resubscribe` | `unknown`. These events are about one unsubscribe group, not all mail. |
 | Any other event, for example `open`, `dropped`, or `deferred` | `unknown` |
 
 `rawType` is the SendGrid `event` value. `recipient` is `email`. `occurredAt` is `timestamp` in milliseconds.

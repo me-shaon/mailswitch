@@ -83,7 +83,7 @@ A secret that is too short is a setup error. The webhook check refuses each requ
 4. Turn on **Basic auth credentials**.
 5. Enter the username. The default is `mailswitch`.
 6. Enter the secret as the password.
-7. Select **Bounce**, **Spam complaint**, and **Delivery**. Save the webhook.
+7. Select **Bounce**, **Spam complaint**, and **Delivery**. To get `unsubscribed` events, also select **Subscription change**. Save the webhook.
 
 ### Handle a webhook
 
@@ -145,11 +145,21 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 | `Bounce` with any other type, for example `AutoResponder` | `unknown` |
 | `SpamComplaint` | `complained` |
 | `Delivery` | `delivered` |
+| `SubscriptionChange` with `SuppressSending: true`, `SuppressionReason: ManualSuppression`, and `Origin: Recipient` | `unsubscribed` |
+| `SubscriptionChange` with any other values | `unknown` |
 | Any other record, for example `Open` | `unknown` |
 
 `rawType` is the Postmark `RecordType`.
 
-The event key is `RecordType:ID`, for example `Bounce:692560173`. mailswitch reads the ID digits from the raw body, because a bounce ID can be larger than a safe JavaScript number. A `Delivery` record has no ID, so its key is `Delivery:<MessageID>:<recipient>`. Postmark reports one delivery for each recipient of a message. Any other record without an ID, for example `Open`, gets `<RecordType>:<MessageID>:<recipient>:<time>`. A `Click` record also adds its link. These fields do not change when Postmark sends the same request again.
+A `SubscriptionChange` is `unsubscribed` only when the recipient used the unsubscribe link. These changes stay `unknown`:
+
+- A reactivation, where `SuppressSending` is false.
+- A suppression after a hard bounce or a spam complaint. Postmark sends the `Bounce` or `SpamComplaint` record for these.
+- A change by you or by Postmark, where `Origin` is `Customer` or `Admin`.
+
+The recipient of a `SubscriptionChange` is `Recipient`.
+
+The event key is `RecordType:ID`, for example `Bounce:692560173`. mailswitch reads the ID digits from the raw body, because a bounce ID can be larger than a safe JavaScript number. A `Delivery` record has no ID, so its key is `Delivery:<MessageID>:<recipient>`. Postmark reports one delivery for each recipient of a message. Any other record without an ID, for example `Open`, gets `<RecordType>:<MessageID>:<recipient>:<time>`. A `Click` record also adds its link. A `SubscriptionChange` record also adds `SuppressSending`, so a reactivation at the same time gets a different key. These fields do not change when Postmark sends the same request again.
 
 ### Bounce detail
 
