@@ -42,6 +42,10 @@
       "types": "./dist/catalog/index.d.ts",
       "import": "./dist/catalog/index.js"
     },
+    "./registry": {
+      "types": "./dist/registry/index.d.ts",
+      "import": "./dist/registry/index.js"
+    },
     "./provider-kit": {
       "types": "./dist/provider-kit/index.d.ts",
       "import": "./dist/provider-kit/index.js"

@@ -12,6 +12,13 @@
     "gzip": true
   },
   {
+    "name": "mailswitch/registry",
+    "path": "dist/registry/index.js",
+    "entry": ["index"],
+    "limit": "1.5 KB",
+    "gzip": true
+  },
+  {
     "name": "mailswitch/provider-kit",
     "path": "dist/provider-kit/index.js",
     "limit": "4 KB",
