@@ -17,6 +17,7 @@
     "paths": {
       "mailswitch": ["./src/index.ts"],
       "mailswitch/catalog": ["./src/catalog/index.ts"],
+      "mailswitch/registry": ["./src/registry/index.ts"],
       "mailswitch/provider-kit": ["./src/provider-kit/index.ts"],
       "mailswitch/webhooks": ["./src/webhooks/index.ts"],
       "mailswitch/crypto": ["./src/crypto/index.ts"],
