@@ -21,8 +21,10 @@ import {
   D1DedupeStore,
   D1IdempotencyStore,
 } from "../../src/stores/d1";
+import type { DailyCapStore, IdempotencyStore } from "../../src/stores/types";
 import { fakeProvider } from "../../src/testing/fake-provider";
 import { handleWebhook } from "../../src/webhooks/index";
+import { batchProvider } from "../fixtures/batch-provider";
 import { type CountingD1, countingD1 } from "./fixtures/counting-d1";
 
 const db = (env as unknown as { DB: D1Database }).DB;
@@ -93,6 +95,115 @@ describe("D1 queries for one send", () => {
     expect(await mail.send(message)).toMatchObject({ status: "sent", provider: "b" });
     expect(backup.sends).toHaveLength(1);
     expect(counter.count).toBe(6);
+  });
+});
+
+describe("D1 queries for one keyed sendBatch with a daily cap", () => {
+  const NOT_SENT = { status: "not_sent", reason: "rejected", message: "Refused." } as const;
+
+  function batchMailer(
+    options: {
+      size?: number;
+      batchSize?: number;
+      failing?: readonly string[];
+      fallback?: boolean;
+      idempotency?: IdempotencyStore;
+      dailyCaps?: DailyCapStore;
+    } = {},
+  ) {
+    const failing = new Set(options.failing ?? []);
+    const primary = batchProvider({
+      batchSize: options.batchSize ?? 100,
+      outcome: (to) => (failing.has(to) ? NOT_SENT : undefined),
+    });
+    const backup = fakeProvider({ id: "b" });
+    const mail = createMailer({
+      providers: [
+        { adapter: primary.adapter, credentials: { apiKey: "fk_a" }, dailyCap: 1000 },
+        ...(options.fallback ? [{ adapter: backup, credentials: { apiKey: "fk_b" } }] : []),
+      ],
+      namespace: "app",
+      idempotency: options.idempotency ?? new D1IdempotencyStore(counter.db),
+      dailyCaps: options.dailyCaps ?? new D1DailyCapStore(counter.db),
+      now: () => NOW,
+    });
+    const messages = Array.from({ length: options.size ?? 10 }, (_, i) => ({
+      from: "billing@example.com",
+      to: [`r${i}@example.org`],
+      subject: `Invoice ${i}`,
+      text: "Body",
+      idempotencyKey: `batch-${i}`,
+    }));
+    return { mail, primary, backup, messages };
+  }
+
+  for (const [size, batchSize, queries] of [
+    [10, 100, 4],
+    [100, 100, 4],
+    [250, 500, 12],
+  ] as const) {
+    it(`${size} messages with batch size ${batchSize}, all sent, cost ${queries} queries`, async () => {
+      const { mail, primary, messages } = batchMailer({ size, batchSize });
+      const results = await mail.sendBatch(messages);
+      expect(results.every((r) => r.status === "sent")).toBe(true);
+      expect(primary.batches.map((b) => b.length)).toEqual([size]);
+      expect(counter.count).toBe(queries);
+    });
+  }
+
+  it("10 messages with 2 not_sent and no fallback cost 5 queries", async () => {
+    const { mail, messages } = batchMailer({ failing: ["r3@example.org", "r7@example.org"] });
+    const results = await mail.sendBatch(messages);
+    expect(results.filter((r) => r.status === "not_sent")).toHaveLength(2);
+    expect(counter.count).toBe(5);
+  });
+
+  it("10 messages with 2 not_sent, each sent by a fallback with no cap, cost 8 queries", async () => {
+    const { mail, backup, messages } = batchMailer({
+      failing: ["r3@example.org", "r7@example.org"],
+      fallback: true,
+    });
+    const results = await mail.sendBatch(messages);
+    expect(results.every((r) => r.status === "sent")).toBe(true);
+    expect(backup.sends).toHaveLength(2);
+    expect(counter.count).toBe(8);
+    const record = await new D1IdempotencyStore(db).get("app:batch-3");
+    expect(record?.state).toBe("sent");
+    expect(record?.attempts.map((a) => a.provider)).toEqual(["batcher", "b"]);
+  });
+
+  it("a D1 idempotency store with a cap store on the per-message path costs 13 queries", async () => {
+    const caps = new D1DailyCapStore(counter.db);
+    const dailyCaps: DailyCapStore = {
+      reserve: (input) => caps.reserve(input),
+      release: (input) => caps.release(input),
+      fill: (input) => caps.fill(input),
+      used: (scope, now) => caps.used(scope, now),
+    };
+    const { mail, messages } = batchMailer({ dailyCaps });
+    const results = await mail.sendBatch(messages);
+    expect(results.every((r) => r.status === "sent")).toBe(true);
+    // 1 claim, 10 reserves, 1 heartbeat, 1 final record call.
+    expect(counter.count).toBe(13);
+    expect(await caps.used("batcher", NOW)).toBe(10);
+  });
+
+  it("a D1 cap store with an idempotency store on the per-message path costs 31 queries", async () => {
+    const store = new D1IdempotencyStore(counter.db);
+    const idempotency: IdempotencyStore = {
+      claim: (input) => store.claim(input),
+      touch: (input) => store.touch(input),
+      finish: (input) => store.finish(input),
+      release: (key, options) => store.release(key, options),
+      get: (key) => store.get(key),
+      purgeExpired: (now) => store.purgeExpired(now),
+    };
+    const { mail, messages } = batchMailer({ idempotency });
+    const results = await mail.sendBatch(messages);
+    expect(results.every((r) => r.status === "sent")).toBe(true);
+    // 10 claims, 1 reserve, 10 heartbeats, 10 final records.
+    expect(counter.count).toBe(31);
+    expect((await new D1IdempotencyStore(db).get("app:batch-9"))?.state).toBe("sent");
   });
 });
 

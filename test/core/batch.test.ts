@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { mockFetch } from "../../src/conformance/mock-fetch";
 import { defineProvider, type ProviderAdapter } from "../../src/core/adapter";
 import { bucketExpiry } from "../../src/core/daily-cap";
-import { defineProviderMeta } from "../../src/core/meta";
 import { createMailer, type MailerOptions, type MailerProvider } from "../../src/core/pipeline";
 import type { OutgoingMessage, SendResult } from "../../src/core/types";
 import { hasBulkDailyCap, hasBulkIdempotency } from "../../src/internal/bulk-methods";
@@ -18,7 +17,8 @@ import type {
   IdempotencyTouchInput,
   RateLimitStore,
 } from "../../src/stores/types";
-import { type FakeOutcome, fakeMeta, fakeProvider } from "../../src/testing/fake-provider";
+import { type FakeOutcome, fakeProvider } from "../../src/testing/fake-provider";
+import { batchProvider } from "../fixtures/batch-provider";
 import { T0 } from "../stores/daily-cap-suite";
 
 const NAMESPACE = "app";
@@ -45,44 +45,6 @@ const UNKNOWN: SendResult = {
   reason: "provider_error",
   message: "Failed after the request.",
 };
-
-/** A batch provider. `outcome` maps a recipient to its batch result. */
-function batchProvider(
-  options: {
-    id?: string;
-    batchSize?: number;
-    outcome?: (to: string) => SendResult | undefined;
-  } = {},
-) {
-  const id = options.id ?? "batcher";
-  const base = fakeMeta(id);
-  const meta = defineProviderMeta({
-    ...base,
-    capabilities: { ...base.capabilities, batchSize: options.batchSize ?? 10 },
-  });
-  const batches: OutgoingMessage[][] = [];
-  const singles: OutgoingMessage[] = [];
-  const result = (m: OutgoingMessage): SendResult => {
-    const to = m.to[0] as string;
-    return options.outcome?.(to) ?? { status: "sent", providerMessageId: `${id}-${to}` };
-  };
-  const adapter: ProviderAdapter = defineProvider({
-    meta,
-    async send(m) {
-      singles.push(m);
-      return result(m);
-    },
-    async sendBatch(list) {
-      batches.push([...list]);
-      return list.map(result);
-    },
-    async verify() {
-      return { ok: true };
-    },
-    webhooks: fakeProvider().webhooks,
-  });
-  return { adapter, batches, singles };
-}
 
 /**
  * A plain store object with only the single methods of a memory store. It keeps the
