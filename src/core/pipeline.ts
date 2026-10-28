@@ -39,6 +39,7 @@ import { capRefusal, checkDailyCap } from "./daily-cap";
 import { allowFallback, type ShouldFallback } from "./fallback";
 import { type AttemptView, errorName, type MailerLogger, safeWarn } from "./hooks";
 import {
+  claimInput,
   claimResult,
   DEFAULT_PENDING_TIMEOUT_MS,
   finishInput,
@@ -47,7 +48,6 @@ import {
   SENT_RETENTION_MS,
 } from "./idempotency";
 import { validateMessage } from "./message";
-import { payloadHash } from "./payload-hash";
 import { checkRate, type RateRule } from "./rate-limit";
 import type { SocketConnect } from "./socket";
 import type { NotSentResult, OutgoingMessage, SendResult, UnknownResult } from "./types";
@@ -184,8 +184,14 @@ export interface PipelineSteps {
   bulkClaims(): BulkIdempotencyStore | undefined;
   /** The daily cap store when `sendBatch` can use its bulk methods. */
   bulkCaps(): BulkDailyCapStore | undefined;
-  /** The rate limit only. A refusal refunds nothing. Only the store can throw. */
-  acquire(entry: Entry): Promise<SendResult | undefined>;
+  /**
+   * The rate limit only. On a refusal or a store failure, `release` runs first. Only the
+   * store can throw.
+   */
+  limit(
+    entry: Entry,
+    release?: (result: SendResult) => Promise<void>,
+  ): Promise<SendResult | undefined>;
   /**
    * Refunds the cap units in `buckets` with `releaseMany` calls of at most 100 inputs,
    * then fills the window when `fill` is true. It never throws.
@@ -460,23 +466,24 @@ export function createMailer(options: MailerOptions): Mailer {
 
   /**
    * Takes one rate limit token. Returns a refusal when the bucket is empty. When the
-   * store throws or refuses, the cap unit of this attempt goes back first.
+   * store throws or refuses, `release` gives the cap unit of this attempt back first.
    */
-  async function limit(entry: Entry, bucketStart?: number): Promise<SendResult | undefined> {
+  async function limit(
+    entry: Entry,
+    release?: (result: SendResult) => Promise<void>,
+  ): Promise<SendResult | undefined> {
     let refusal: SendResult | undefined;
     try {
       refusal = await acquire(entry);
     } catch (error) {
-      if (bucketStart !== undefined) {
-        await refund(entry, bucketStart, {
-          status: "not_sent",
-          reason: "rate_limited",
-          message: "The rate limit store failed.",
-        });
-      }
+      await release?.({
+        status: "not_sent",
+        reason: "rate_limited",
+        message: "The rate limit store failed.",
+      });
       throw error;
     }
-    if (refusal && bucketStart !== undefined) await refund(entry, bucketStart, refusal);
+    if (refusal) await release?.(refusal);
     return refusal;
   }
 
@@ -521,9 +528,9 @@ export function createMailer(options: MailerOptions): Mailer {
       now: clock(),
     });
     if (!reservation.ok) return { refusal: capRefusal(meta.id, reservation.resetAt) };
-    const limited = await limit(entry, reservation.bucketStart);
-    if (limited) return { refusal: limited };
-    return { bucketStart: reservation.bucketStart };
+    const { bucketStart } = reservation;
+    const limited = await limit(entry, (result) => refund(entry, bucketStart, result));
+    return limited ? { refusal: limited } : { bucketStart };
   }
 
   /** One attempt. Only a cap or rate limit store failure can throw. Adapter errors are results. */
@@ -567,12 +574,7 @@ export function createMailer(options: MailerOptions): Mailer {
     const idempotencyKey = message.idempotencyKey;
     if (!idempotency || namespace === undefined || !idempotencyKey) return { run };
     try {
-      const hash = await payloadHash(message);
-      const key = namespacedKey(namespace, idempotencyKey);
-      return {
-        run,
-        claim: { key, payloadHash: hash, claimId: crypto.randomUUID(), pendingTimeoutMs },
-      };
+      return { run, claim: await claimInput(namespace, idempotencyKey, message, pendingTimeoutMs) };
     } catch (error) {
       return storeError(error);
     }
@@ -733,7 +735,7 @@ export function createMailer(options: MailerOptions): Mailer {
     claimed,
     bulkClaims: () => (idempotency && hasBulkIdempotency(idempotency) ? idempotency : undefined),
     bulkCaps: () => (dailyCaps && hasBulkDailyCap(dailyCaps) ? dailyCaps : undefined),
-    acquire,
+    limit,
     releaseAll,
     fallsBack,
     lose,

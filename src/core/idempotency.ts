@@ -1,5 +1,6 @@
 import type {
   IdempotencyAttempt,
+  IdempotencyClaimInput,
   IdempotencyClaimOutcome,
   IdempotencyFinalState,
   IdempotencyFinishInput,
@@ -94,6 +95,22 @@ function storedResult(record: IdempotencyRecord): SendResult {
 }
 
 /**
+ * The claim input of a keyed message, without the time. Internal.
+ *
+ * @throws TypeError when the namespace is invalid.
+ */
+export async function claimInput(
+  namespace: string,
+  idempotencyKey: string,
+  message: OutgoingMessage,
+  pendingTimeoutMs: number,
+): Promise<Omit<IdempotencyClaimInput, "now">> {
+  const key = namespacedKey(namespace, idempotencyKey);
+  const hash = await payloadHash(message);
+  return { key, payloadHash: hash, claimId: crypto.randomUUID(), pendingTimeoutMs };
+}
+
+/**
  * Claims the idempotency key of a message before the provider chain runs.
  *
  * @throws TypeError when the message has no idempotency key or the namespace is invalid.
@@ -108,17 +125,14 @@ export async function beginIdempotency(
   if (typeof idempotencyKey !== "string" || idempotencyKey === "") {
     throw new TypeError("beginIdempotency needs a message with an idempotency key.");
   }
-  const key = namespacedKey(namespace, idempotencyKey);
-  const hash = await payloadHash(message);
-  const claimId = crypto.randomUUID();
-  const outcome = await store.claim({
-    key,
-    payloadHash: hash,
-    claimId,
-    now: options.now ?? Date.now(),
-    pendingTimeoutMs: options.pendingTimeoutMs ?? DEFAULT_PENDING_TIMEOUT_MS,
-  });
-  return claimResult(outcome, key, claimId, hash);
+  const input = await claimInput(
+    namespace,
+    idempotencyKey,
+    message,
+    options.pendingTimeoutMs ?? DEFAULT_PENDING_TIMEOUT_MS,
+  );
+  const outcome = await store.claim({ ...input, now: options.now ?? Date.now() });
+  return claimResult(outcome, input.key, input.claimId, input.payloadHash);
 }
 
 /** Maps the outcome of a claim to a begin result. Internal. */
@@ -207,9 +221,3 @@ export function finishInput(input: FinalizeInput): IdempotencyFinishInput {
     ...(state === "not_sent" ? { expiresAt: now + NOT_SENT_RETENTION_MS } : {}),
   };
 }
-
-/** The guard helpers that the send pipeline uses. */
-export const guardIdempotency: {
-  begin: typeof beginIdempotency;
-  finalize: typeof finalizeIdempotency;
-} = { begin: beginIdempotency, finalize: finalizeIdempotency };

@@ -118,3 +118,33 @@ it("a cap refusal after a D1 claim writes the final state", async () => {
   expect(fake.sends).toHaveLength(0);
   expect((await idempotency.get("app:cap-d1"))?.state).toBe("not_sent");
 });
+
+it("gives the same rows for a grouped releaseMany as for single releases", async () => {
+  const store = await freshStore();
+  for (const scope of ["bulk", "loop"]) {
+    await db
+      .prepare(
+        "INSERT INTO mailswitch_daily_cap (scope, bucket_start, used) VALUES (?1, 1, 2), (?1, 2, 5)",
+      )
+      .bind(scope)
+      .run();
+  }
+  const inputs = (scope: string) =>
+    [1, 1, 1, 2].map((bucketStart) => ({ scope, bucketStart, now: T0 }));
+  await store.releaseMany(inputs("bulk"));
+  for (const input of inputs("loop")) await store.release(input);
+  const rows = async (scope: string) =>
+    (
+      await db
+        .prepare(
+          "SELECT bucket_start, used FROM mailswitch_daily_cap WHERE scope = ?1 ORDER BY bucket_start",
+        )
+        .bind(scope)
+        .all<{ bucket_start: number; used: number }>()
+    ).results;
+  expect(await rows("bulk")).toEqual(await rows("loop"));
+  expect(await rows("bulk")).toEqual([
+    { bucket_start: 1, used: 0 },
+    { bucket_start: 2, used: 4 },
+  ]);
+});

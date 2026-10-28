@@ -246,7 +246,16 @@ export class MemoryDailyCapStore implements DailyCapStore {
   async reserveMany(input: DailyCapReserveManyInput): Promise<DailyCapReservation[]> {
     const count = checkReserveCount(input.count);
     const single = { scope: input.scope, cap: input.cap, now: input.now };
-    return Array.from({ length: count }, () => this.#reserve(single));
+    const out: DailyCapReservation[] = [];
+    for (let i = 0; i < count; i++) {
+      const reservation = this.#reserve(single);
+      out.push(reservation);
+      if (reservation.ok) continue;
+      // A refusal changes nothing, so each later unit gets the same refusal.
+      while (out.length < count) out.push({ ok: false, resetAt: reservation.resetAt });
+      break;
+    }
+    return out;
   }
 
   /** Refunds each input in one synchronous pass. */

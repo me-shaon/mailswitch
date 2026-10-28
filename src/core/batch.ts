@@ -44,7 +44,7 @@ import { chunks } from "../internal/chunks";
 import type { IdempotencyClaimOutcome } from "../stores/types";
 import { checkCapabilities } from "./capabilities";
 import { capRefusal } from "./daily-cap";
-import type { Entry, MessageRun, PipelineSteps, Prepared } from "./pipeline";
+import type { Entry, Gate, MessageRun, PipelineSteps, Prepared } from "./pipeline";
 import type { Capabilities, OutgoingMessage, SendResult } from "./types";
 
 const UNSAFE_BATCH =
@@ -247,6 +247,16 @@ export function createBatchSender(
     // One cap unit and one rate limit token per message, as for a single send. A refused
     // message skips the batch.
     const gates: (Item | undefined)[] = new Array(batch.length);
+    /** Runs the gate of one item. A refusal is its attempt. A store failure stops it. */
+    const admit = async (index: number, run: MessageRun, gate: () => Promise<Gate>) => {
+      try {
+        const out = await gate();
+        if (out.refusal) await steps.record(run, primary, out.refusal);
+        else gates[index] = { run, bucketStart: out.bucketStart };
+      } catch (error) {
+        steps.fail(run, error);
+      }
+    };
     if (capStore) {
       const id = primary.adapter.meta.id;
       let offset = 0;
@@ -272,37 +282,20 @@ export function createBatchSender(
           );
           continue;
         }
-        await pool(part, async (item, i) => {
-          const reservation = list[i] as (typeof list)[number];
-          if (!reservation.ok) {
-            await steps.record(item.run, primary, capRefusal(id, reservation.resetAt));
-            return;
-          }
-          const gated: Item = { run: item.run, bucketStart: reservation.bucketStart };
-          try {
-            const refusal = await steps.acquire(primary);
-            if (!refusal) {
-              gates[base + i] = gated;
-              return;
-            }
-            await refund(gated, refusal);
-            await steps.record(item.run, primary, refusal);
-          } catch (error) {
-            steps.fail(item.run, error);
-            await refund(gated, item.run.result as SendResult);
-          }
-        });
+        await pool(part, (item, i) =>
+          admit(base + i, item.run, async () => {
+            const reservation = list[i] as (typeof list)[number];
+            if (!reservation.ok) return { refusal: capRefusal(id, reservation.resetAt) };
+            const gated: Item = { run: item.run, bucketStart: reservation.bucketStart };
+            const refusal = await steps.limit(primary, (result) => refund(gated, result));
+            return refusal ? { refusal } : gated;
+          }),
+        );
       }
     } else {
-      await pool(batch, async (item, i) => {
-        try {
-          const gate = await steps.reserve(primary, item.run.message, item.run.encodedBytes);
-          if (gate.refusal) await steps.record(item.run, primary, gate.refusal);
-          else gates[i] = { run: item.run, bucketStart: gate.bucketStart };
-        } catch (error) {
-          steps.fail(item.run, error);
-        }
-      });
+      await pool(batch, (item, i) =>
+        admit(i, item.run, () => steps.reserve(primary, item.run.message, item.run.encodedBytes)),
+      );
     }
     const ready = gates.filter((item) => item !== undefined);
     for (let at = 0; at < ready.length; at += caps.batchSize) {
@@ -310,6 +303,12 @@ export function createBatchSender(
       // or whose store fails, leaves the chunk and gets its cap unit back.
       const slice = ready.slice(at, at + caps.batchSize);
       const keep: boolean[] = slice.map(() => true);
+      /** Takes a message out of the chunk and gives its cap unit back. */
+      const drop = async (i: number): Promise<void> => {
+        const item = slice[i] as Item;
+        keep[i] = false;
+        await refund(item, item.run.result as SendResult);
+      };
       if (claims) {
         const keyed = slice.flatMap((item, i) => (item.run.claim ? [i] : []));
         for (const part of chunks(keyed)) {
@@ -335,17 +334,15 @@ export function createBatchSender(
           }
           for (const [k, i] of part.entries()) {
             if (touched[k]) continue;
-            const item = slice[i] as Item;
-            if (!item.run.done) steps.lose(item.run);
-            keep[i] = false;
-            await refund(item, item.run.result as SendResult);
+            const { run } = slice[i] as Item;
+            if (!run.done) steps.lose(run);
+            await drop(i);
           }
         }
       } else {
         await pool(slice, async (item, i) => {
-          keep[i] = await steps.fence(item.run);
           // `refund` does nothing for a provider with no cap.
-          if (!keep[i]) await refund(item, item.run.result as SendResult);
+          if (!(await steps.fence(item.run))) await drop(i);
         });
       }
       const chunk = slice.filter((_, i) => keep[i]);

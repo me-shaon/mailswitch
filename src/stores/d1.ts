@@ -329,7 +329,7 @@ export class D1DailyCapStore implements DailyCapStore {
   }
 
   async release(input: DailyCapReleaseInput): Promise<void> {
-    await this.#releaseStatement(input).run();
+    await this.#releaseStatement(input.scope, input.bucketStart, 1).run();
   }
 
   /**
@@ -342,10 +342,28 @@ export class D1DailyCapStore implements DailyCapStore {
     return this.#reserveAll(input, count);
   }
 
-  /** Refunds every input in one batch. */
+  /**
+   * Refunds every input in one batch, with one statement for each bucket. A bucket with
+   * `k` inputs drops by `k`, but not below zero, as `k` single releases do.
+   */
   async releaseMany(inputs: readonly DailyCapReleaseInput[]): Promise<void> {
     if (inputs.length === 0) return;
-    await this.#db.batch(inputs.map((input) => this.#releaseStatement(input)));
+    const groups = new Map<string, Map<number, number>>();
+    for (const { scope, bucketStart } of inputs) {
+      let buckets = groups.get(scope);
+      if (!buckets) {
+        buckets = new Map();
+        groups.set(scope, buckets);
+      }
+      buckets.set(bucketStart, (buckets.get(bucketStart) ?? 0) + 1);
+    }
+    const statements: D1StatementLike[] = [];
+    for (const [scope, buckets] of groups) {
+      for (const [bucketStart, count] of buckets) {
+        statements.push(this.#releaseStatement(scope, bucketStart, count));
+      }
+    }
+    await this.#db.batch(statements);
   }
 
   // One batch is one transaction: delete old buckets once, reserve each unit, then read the
@@ -384,13 +402,14 @@ export class D1DailyCapStore implements DailyCapStore {
     });
   }
 
-  #releaseStatement(input: DailyCapReleaseInput): D1StatementLike {
+  /** Takes `count` units from one bucket, but not below zero. */
+  #releaseStatement(scope: string, bucketStart: number, count: number): D1StatementLike {
     return this.#db
       .prepare(
-        `UPDATE ${CAP_TABLE} SET used = used - 1
+        `UPDATE ${CAP_TABLE} SET used = MAX(used - ?3, 0)
          WHERE scope = ?1 AND bucket_start = ?2 AND used > 0`,
       )
-      .bind(input.scope, input.bucketStart);
+      .bind(scope, bucketStart, count);
   }
 
   async fill(input: DailyCapFillInput): Promise<void> {
