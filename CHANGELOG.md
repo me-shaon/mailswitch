@@ -1,5 +1,22 @@
 # mailswitch
 
+## 0.4.0
+
+### Minor Changes
+
+- 5d70564: Add `bounceDetail` to `bounced` events. It holds the provider's reason text and, when the provider sends them as fields, the SMTP code and the enhanced status code. mailswitch removes control and invisible characters from the text and cuts it at 1,000 characters. The text comes from a remote mail server and can hold personal data, so escape it before you show it. The Mailjet and MailChannels field names are not confirmed by the provider docs.
+- 5d70564: Type the catalog ids. `mailswitch/catalog` exports `ProviderId`, `PROVIDER_IDS`, `isProviderId`, and `CatalogEntry`. `getProviderMeta` returns a defined value for a `ProviderId`.
+- 5d70564: Cut the D1 queries of a send and of a webhook. `send` skips the heartbeat before its first provider call, so a keyed send with a daily cap makes 3 queries instead of 4. `DedupeStore` gets the optional methods `claimMany`, `commitMany`, and `releaseMany`. The D1 and memory stores have them. With them, `handleWebhook` makes one claim query and one commit query for each 500 event keys, instead of two queries for each event. A store without them keeps the per-event calls.
+- 5d70564: Export the provider webhook fixtures at `mailswitch/conformance/fixtures`, for app tests. Each provider gives its test secret, a sign helper that takes a time, and event body builders. The names and helper signatures follow semver. The sample bodies follow the provider docs and can change in a minor release.
+- 5d70564: Add `webhookSecret` and `defaultDailyCap` to `ProviderMeta`. Each built-in provider with webhooks now describes its webhook secret: the label, the hint, and the source. `createMailer` uses the meta `defaultDailyCap` after the preset cap. No built-in provider sets it.
+- 5d70564: `parseCredentials` returns the error `{ field: "preset", code: "preset" }` for an unknown preset id. It no longer throws a `RangeError`. `createMailer` still throws a `TypeError` for it.
+- 5d70564: Refuse a weak or malformed webhook secret as the new `invalid_secret` rejection (HTTP 500), instead of a thrown `TypeError`. This applies to the Postmark, Resend, SendGrid, MailChannels, Mailjet, SMTP2GO, and Brevo checks. The `check...Secret` setup helpers still throw. Code with an exhaustive switch on `WebhookRejection` must handle the new value.
+
+### Patch Changes
+
+- 5d70564: Ship the guides, the provider docs, and the changelog in the npm package, so the README links work from `node_modules`.
+- 5d70564: The Postmark, Mailjet, and SMTP2GO webhook secret hints name the Basic auth username, `mailswitch`, and the `webhookUsername` option.
+
 ## 0.3.0
 
 ### Minor Changes
