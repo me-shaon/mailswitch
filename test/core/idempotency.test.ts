@@ -9,12 +9,13 @@ import { payloadHash } from "../../src/core/payload-hash";
 import type { OutgoingMessage } from "../../src/core/types";
 import { bytesToBase64 } from "../../src/internal/encoding";
 import { MemoryIdempotencyStore } from "../../src/stores/memory";
-import { idempotencyStoreSuite } from "../stores/store-suite";
+import { idempotencyBulkSuite, idempotencyStoreSuite } from "../stores/store-suite";
 
 idempotencyStoreSuite("memory", async () => {
   const store = new MemoryIdempotencyStore();
   return { store, rawRow: (key) => store.get(key) };
 });
+idempotencyBulkSuite("memory", async () => ({ store: new MemoryIdempotencyStore() }));
 
 const base: OutgoingMessage = {
   from: "billing@acme.test",

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { hasBulkDailyCap, hasBulkIdempotency } from "../../src/internal/bulk-methods";
+import { D1DailyCapStore, type D1DatabaseLike, D1IdempotencyStore } from "../../src/stores/d1";
+import { MemoryDailyCapStore, MemoryIdempotencyStore } from "../../src/stores/memory";
 import type {
   DailyCapReservation,
+  DailyCapReserveInput,
   DailyCapStore,
   IdempotencyClaimOutcome,
   IdempotencyStore,
+  IdempotencyTouchInput,
 } from "../../src/stores/types";
 
 // A custom store with only the single methods still fits each interface.
@@ -134,6 +138,46 @@ describe("hasBulkIdempotency", () => {
     const store = new BaseIdempotency();
     store.finish = async () => false;
     expect(hasBulkIdempotency(store)).toBe(false);
+  });
+});
+
+describe("bulk detection of the built-in stores", () => {
+  it("is true for the memory and D1 stores", () => {
+    const db = { prepare: () => ({}), batch: async () => [] } as unknown as D1DatabaseLike;
+    expect(hasBulkIdempotency(new MemoryIdempotencyStore())).toBe(true);
+    expect(hasBulkDailyCap(new MemoryDailyCapStore())).toBe(true);
+    expect(hasBulkIdempotency(new D1IdempotencyStore(db))).toBe(true);
+    expect(hasBulkDailyCap(new D1DailyCapStore(db))).toBe(true);
+  });
+
+  it("is false for a subclass of the memory store that overrides touch", () => {
+    class Sub extends MemoryIdempotencyStore {
+      override async touch(input: IdempotencyTouchInput): Promise<boolean> {
+        return super.touch(input);
+      }
+    }
+    expect(hasBulkIdempotency(new Sub())).toBe(false);
+  });
+
+  it("is true for a subclass of the memory store that overrides touch and touchMany", () => {
+    class Sub extends MemoryIdempotencyStore {
+      override async touch(input: IdempotencyTouchInput): Promise<boolean> {
+        return super.touch(input);
+      }
+      override async touchMany(inputs: readonly IdempotencyTouchInput[]): Promise<boolean[]> {
+        return super.touchMany(inputs);
+      }
+    }
+    expect(hasBulkIdempotency(new Sub())).toBe(true);
+  });
+
+  it("is false for a subclass of the memory cap store that overrides reserve", () => {
+    class Sub extends MemoryDailyCapStore {
+      override async reserve(input: DailyCapReserveInput): Promise<DailyCapReservation> {
+        return super.reserve(input);
+      }
+    }
+    expect(hasBulkDailyCap(new Sub())).toBe(false);
   });
 });
 

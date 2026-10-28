@@ -36,3 +36,15 @@ export function checkDailyCap(cap: number, label: string): number {
   }
   return cap;
 }
+
+/**
+ * Checks the `count` of a `reserveMany` call.
+ *
+ * @throws RangeError when the count is not a non-negative safe integer.
+ */
+export function checkReserveCount(count: number): number {
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new RangeError("reserveMany: count must be a non-negative integer.");
+  }
+  return count;
+}

@@ -6,7 +6,16 @@ import {
   SENT_RETENTION_MS,
 } from "../../src/core/idempotency";
 import type { OutgoingMessage, SendResult } from "../../src/core/types";
-import type { IdempotencyAttempt, IdempotencyStore } from "../../src/stores/types";
+import type { BulkIdempotencyStore } from "../../src/internal/bulk-methods";
+import type {
+  IdempotencyAttempt,
+  IdempotencyClaimInput,
+  IdempotencyClaimOutcome,
+  IdempotencyFinishInput,
+  IdempotencyRecord,
+  IdempotencyStore,
+  IdempotencyTouchInput,
+} from "../../src/stores/types";
 
 /** What the suite needs from one store implementation. */
 export interface StoreHarness {
@@ -377,6 +386,210 @@ export function idempotencyStoreSuite(name: string, setup: () => Promise<StoreHa
       expect(row).not.toContain("example.com");
       expect(row).not.toContain(API_KEY);
       expect(row).not.toContain("Invoice 42");
+    });
+  });
+}
+
+/** A small seeded random number generator, so a failure repeats. */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
+    return state / 2 ** 32;
+  };
+}
+
+const HASH = "hash-a";
+const OTHER_HASH = "hash-b";
+/** The time of the bulk calls in the bulk suite. */
+const AT = T0 + 10 * TIMEOUT;
+
+type ClaimState =
+  | "free"
+  | "pending"
+  | "stale"
+  | "sent"
+  | "sent_expired"
+  | "not_sent"
+  | "unknown"
+  | "other_payload";
+const CLAIM_STATES: readonly ClaimState[] = [
+  "free",
+  "pending",
+  "stale",
+  "sent",
+  "sent_expired",
+  "not_sent",
+  "unknown",
+  "other_payload",
+];
+
+/** Puts a key in a state for a claim at `AT`. */
+async function setClaimState(store: IdempotencyStore, key: string, state: ClaimState) {
+  if (state === "free") return;
+  const at = state === "pending" ? AT - 1 : state === "stale" ? AT - TIMEOUT - 1 : T0;
+  const payloadHash = state === "other_payload" ? OTHER_HASH : HASH;
+  const claimId = `setup-${key}`;
+  await store.claim({ key, payloadHash, claimId, now: at, pendingTimeoutMs: TIMEOUT });
+  if (state === "pending" || state === "stale") return;
+  const finalState = state === "sent_expired" || state === "other_payload" ? "sent" : state;
+  await store.finish({
+    key,
+    claimId,
+    state: finalState,
+    attempts: [{ provider: "fake", status: finalState, at }],
+    now: at,
+    expiresAt: state === "sent_expired" ? AT - 1 : AT + SENT_RETENTION_MS,
+  });
+}
+
+/** The parts of a record that do not depend on the key or the claim id. */
+function shape(record: IdempotencyRecord | null | undefined): unknown {
+  if (!record) return null;
+  const { key: _key, claimId: _claimId, ...rest } = record;
+  return rest;
+}
+
+function claimInput(key: string, claimId = `claim-${key}`): IdempotencyClaimInput {
+  return { key, payloadHash: HASH, claimId, now: AT, pendingTimeoutMs: TIMEOUT };
+}
+
+/**
+ * The shared behavior of the optional bulk methods of an `IdempotencyStore`. A store that
+ * implements them must give the same results as its single methods in a loop.
+ */
+export function idempotencyBulkSuite(
+  name: string,
+  setup: () => Promise<{ store: BulkIdempotencyStore }>,
+): void {
+  describe(`${name} idempotency store bulk methods`, () => {
+    it("gives the outcome of claim for each key state, in input order", async () => {
+      const { store } = await setup();
+      for (const state of CLAIM_STATES) await setClaimState(store, state, state);
+      const outcomes = await store.claimMany(CLAIM_STATES.map((state) => claimInput(state)));
+      expect(outcomes.map((outcome) => outcome.kind)).toEqual([
+        "claimed",
+        "pending",
+        "stale",
+        "existing",
+        "claimed",
+        "claimed",
+        "existing",
+        "conflict",
+      ]);
+      for (const state of ["free", "sent_expired", "not_sent"]) {
+        expect(await store.get(state)).toMatchObject({
+          state: "pending",
+          claimId: `claim-${state}`,
+          attempts: [],
+        });
+      }
+      expect((await store.get("stale"))?.state).toBe("unknown");
+    });
+
+    it("throws a TypeError for a repeated key and claims no key", async () => {
+      const { store } = await setup();
+      await expect(
+        store.claimMany([claimInput("a"), claimInput("b"), claimInput("a", "again")]),
+      ).rejects.toThrow(TypeError);
+      expect(await store.get("a")).toBeNull();
+      expect(await store.get("b")).toBeNull();
+    });
+
+    it("touches the current claims and returns false for a lost claim", async () => {
+      const { store } = await setup();
+      await store.claimMany([claimInput("a"), claimInput("b"), claimInput("c")]);
+      // A later claim finds the claim of "b" stale and changes it to unknown.
+      await store.claim({ ...claimInput("b", "newer"), now: AT + TIMEOUT + 1 });
+      const attempt: IdempotencyAttempt = { provider: "fake", status: "not_sent", at: AT + 1 };
+      const touched = await store.touchMany([
+        { key: "a", claimId: "claim-a", now: AT + 1, attempt },
+        { key: "b", claimId: "claim-b", now: AT + 1, attempt },
+        { key: "c", claimId: "claim-c", now: AT + 2 },
+        { key: "missing", claimId: "claim-missing", now: AT + 1 },
+      ]);
+      expect(touched).toEqual([true, false, true, false]);
+      expect(await store.get("a")).toMatchObject({ updatedAt: AT + 1, attempts: [attempt] });
+      expect(await store.get("c")).toMatchObject({ updatedAt: AT + 2, attempts: [] });
+      expect((await store.get("b"))?.attempts).toEqual([]);
+    });
+
+    it("finishes the current claims and returns false for a fenced-out key", async () => {
+      const { store } = await setup();
+      await store.claimMany([claimInput("a"), claimInput("b")]);
+      const attempts: IdempotencyAttempt[] = [{ provider: "fake", status: "sent", at: AT + 1 }];
+      const finished = await store.finishMany([
+        { key: "a", claimId: "claim-a", state: "sent", attempts, now: AT + 1, expiresAt: AT + 9 },
+        { key: "b", claimId: "other", state: "sent", attempts, now: AT + 1, expiresAt: AT + 9 },
+      ]);
+      expect(finished).toEqual([true, false]);
+      expect(await store.get("a")).toMatchObject({ state: "sent", attempts, expiresAt: AT + 9 });
+      expect(await store.get("b")).toMatchObject({ state: "pending", attempts: [] });
+    });
+
+    it("accepts empty lists", async () => {
+      const { store } = await setup();
+      expect(await store.claimMany([])).toEqual([]);
+      expect(await store.touchMany([])).toEqual([]);
+      expect(await store.finishMany([])).toEqual([]);
+    });
+
+    it("gives the same outcomes as the single methods in a loop for random key states", async () => {
+      const { store } = await setup();
+      const random = seeded(20_261_028);
+      const states = Array.from(
+        { length: 40 },
+        () => CLAIM_STATES[Math.floor(random() * CLAIM_STATES.length)] as ClaimState,
+      );
+      for (const [i, state] of states.entries()) {
+        await setClaimState(store, `bulk:${i}`, state);
+        await setClaimState(store, `loop:${i}`, state);
+      }
+      const bulk = await store.claimMany(states.map((_, i) => claimInput(`bulk:${i}`)));
+      const loop: IdempotencyClaimOutcome[] = [];
+      for (const i of states.keys()) loop.push(await store.claim(claimInput(`loop:${i}`)));
+      const view = (outcome: IdempotencyClaimOutcome) =>
+        outcome.kind === "claimed"
+          ? outcome
+          : { kind: outcome.kind, record: shape(outcome.record) };
+      expect(bulk.map(view)).toEqual(loop.map(view));
+      expect(new Set(bulk.map((outcome) => outcome.kind)).size).toBe(5);
+
+      // Touch and finish each key with its own claim id or a wrong one.
+      const owns = states.map(() => random() < 0.7);
+      const claimIdOf = (prefix: string, i: number) =>
+        owns[i] ? `claim-${prefix}:${i}` : "not-the-claim";
+      const attempt: IdempotencyAttempt = { provider: "fake", status: "unknown", at: AT + 1 };
+      const touchInput = (prefix: string, i: number): IdempotencyTouchInput => ({
+        key: `${prefix}:${i}`,
+        claimId: claimIdOf(prefix, i),
+        now: AT + 1,
+        ...(i % 2 === 0 ? { attempt } : {}),
+      });
+      const bulkTouch = await store.touchMany(states.map((_, i) => touchInput("bulk", i)));
+      const loopTouch: boolean[] = [];
+      for (const i of states.keys()) loopTouch.push(await store.touch(touchInput("loop", i)));
+      expect(bulkTouch).toEqual(loopTouch);
+      expect(bulkTouch).toContain(true);
+      expect(bulkTouch).toContain(false);
+
+      const finishInput = (prefix: string, i: number): IdempotencyFinishInput => ({
+        key: `${prefix}:${i}`,
+        claimId: claimIdOf(prefix, i),
+        state: i % 3 === 0 ? "unknown" : "sent",
+        attempts: [attempt],
+        providerMessageId: `msg-${i}`,
+        now: AT + 2,
+        expiresAt: AT + SENT_RETENTION_MS,
+      });
+      const bulkFinish = await store.finishMany(states.map((_, i) => finishInput("bulk", i)));
+      const loopFinish: boolean[] = [];
+      for (const i of states.keys()) loopFinish.push(await store.finish(finishInput("loop", i)));
+      expect(bulkFinish).toEqual(loopFinish);
+
+      for (const i of states.keys()) {
+        expect(shape(await store.get(`bulk:${i}`))).toEqual(shape(await store.get(`loop:${i}`)));
+      }
     });
   });
 }

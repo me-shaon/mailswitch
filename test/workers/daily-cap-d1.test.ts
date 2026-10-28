@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { createMailer } from "../../src/index";
 import { applyD1Schema, D1DailyCapStore, D1IdempotencyStore } from "../../src/stores/d1";
 import { fakeProvider } from "../../src/testing/fake-provider";
-import { dailyCapStoreSuite, T0 } from "../stores/daily-cap-suite";
+import { dailyCapBulkSuite, dailyCapStoreSuite, T0 } from "../stores/daily-cap-suite";
 
 const db = (env as unknown as { DB: D1Database }).DB;
 
@@ -14,6 +14,38 @@ async function freshStore(): Promise<D1DailyCapStore> {
 }
 
 dailyCapStoreSuite("D1", freshStore);
+dailyCapBulkSuite("D1", freshStore);
+
+it("rolls back every unit of a reserveMany call when one statement fails", async () => {
+  const store = await freshStore();
+  // An old bucket shows that the window cleanup rolls back too.
+  await db
+    .prepare("INSERT INTO mailswitch_daily_cap (scope, bucket_start, used) VALUES ('a', 1, 4)")
+    .run();
+  // No reserve can break the CHECK constraint, so a test-only trigger fails the third unit.
+  await db
+    .prepare(
+      `CREATE TRIGGER fail_boom BEFORE UPDATE ON mailswitch_daily_cap
+       WHEN NEW.used >= 3 BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+    )
+    .run();
+  try {
+    await expect(store.reserveMany({ scope: "a", cap: 10, count: 5, now: T0 })).rejects.toThrow(
+      /boom/,
+    );
+  } finally {
+    await db.prepare("DROP TRIGGER fail_boom").run();
+  }
+  const rows = await db
+    .prepare("SELECT bucket_start, used FROM mailswitch_daily_cap WHERE scope = 'a'")
+    .all<{ bucket_start: number; used: number }>();
+  expect(rows.results).toEqual([{ bucket_start: 1, used: 4 }]);
+  const after = await store.reserveMany({ scope: "a", cap: 10, count: 2, now: T0 });
+  expect(after).toEqual([
+    { ok: true, bucketStart: T0 },
+    { ok: true, bucketStart: T0 },
+  ]);
+});
 
 it("refuses a negative bucket count with the CHECK constraint", async () => {
   await applyD1Schema(db);
