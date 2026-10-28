@@ -3,7 +3,7 @@
 // replaces. A subclass of a built-in store that overrides a single method inherits the
 // bulk method of its parent. Without this check, the override would stop running.
 
-import type { DailyCapStore, IdempotencyStore } from "../stores/types";
+import type { DailyCapStore, DedupeStore, IdempotencyStore } from "../stores/types";
 
 /** An `IdempotencyStore` with the three optional bulk methods. */
 export type BulkIdempotencyStore = IdempotencyStore &
@@ -12,6 +12,10 @@ export type BulkIdempotencyStore = IdempotencyStore &
 /** A `DailyCapStore` with the two optional bulk methods. */
 export type BulkDailyCapStore = DailyCapStore &
   Required<Pick<DailyCapStore, "reserveMany" | "releaseMany">>;
+
+/** A `DedupeStore` with the three optional bulk methods. */
+export type BulkDedupeStore = DedupeStore &
+  Required<Pick<DedupeStore, "claimMany" | "commitMany" | "releaseMany">>;
 
 /** The first object in the prototype chain that has `name` as an own property. */
 function ownerOf(value: object, name: string): object | undefined {
@@ -24,15 +28,15 @@ function ownerOf(value: object, name: string): object | undefined {
 }
 
 /**
- * True when `bulk` is a function and comes from the same object in the prototype chain
- * as each name in `singles`.
+ * True when `bulk` and `single` are functions and come from the same object in the
+ * prototype chain.
  */
-function sameOwner(store: object, bulk: string, singles: readonly string[]): boolean {
+function sameOwner(store: object, bulk: string, single: string): boolean {
   const record = store as Record<string, unknown>;
-  if (typeof record[bulk] !== "function") return false;
-  const owner = ownerOf(store, bulk);
-  return singles.every(
-    (single) => typeof record[single] === "function" && ownerOf(store, single) === owner,
+  return (
+    typeof record[bulk] === "function" &&
+    typeof record[single] === "function" &&
+    ownerOf(store, bulk) === ownerOf(store, single)
   );
 }
 
@@ -43,9 +47,9 @@ function sameOwner(store: object, bulk: string, singles: readonly string[]): boo
  */
 export function hasBulkIdempotency(store: IdempotencyStore): store is BulkIdempotencyStore {
   return (
-    sameOwner(store, "claimMany", ["claim"]) &&
-    sameOwner(store, "touchMany", ["touch"]) &&
-    sameOwner(store, "finishMany", ["finish"])
+    sameOwner(store, "claimMany", "claim") &&
+    sameOwner(store, "touchMany", "touch") &&
+    sameOwner(store, "finishMany", "finish")
   );
 }
 
@@ -55,7 +59,18 @@ export function hasBulkIdempotency(store: IdempotencyStore): store is BulkIdempo
  * `release`.
  */
 export function hasBulkDailyCap(store: DailyCapStore): store is BulkDailyCapStore {
+  return sameOwner(store, "reserveMany", "reserve") && sameOwner(store, "releaseMany", "release");
+}
+
+/**
+ * True when `handleWebhook` can use the bulk methods of a dedupe store. Each of
+ * `claimMany`, `commitMany`, and `releaseMany` must come from the same object as `claim`,
+ * `commit`, and `release` in that order.
+ */
+export function hasBulkDedupe(store: DedupeStore): store is BulkDedupeStore {
   return (
-    sameOwner(store, "reserveMany", ["reserve"]) && sameOwner(store, "releaseMany", ["release"])
+    sameOwner(store, "claimMany", "claim") &&
+    sameOwner(store, "commitMany", "commit") &&
+    sameOwner(store, "releaseMany", "release")
   );
 }

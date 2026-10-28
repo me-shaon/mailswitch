@@ -773,6 +773,23 @@ describe("handleWebhook with a bulk dedupe store", () => {
     expect(calls.map((call) => call.method)).toEqual(["claim", "claim", "commit", "commit"]);
   });
 
+  it("uses the loop for a MemoryDedupeStore subclass that overrides claim", async () => {
+    const claimed: string[] = [];
+    class AuditStore extends MemoryDedupeStore {
+      override async claim(input: Parameters<MemoryDedupeStore["claim"]>[0]) {
+        claimed.push(input.key);
+        return super.claim(input);
+      }
+    }
+    const store = new AuditStore();
+    const claimMany = vi.spyOn(store, "claimMany");
+    const body = toSendBody(2);
+    const outcome = accepted(await handleWebhook(await toSendRequest(body), options(store)));
+    expect(outcome.events).toHaveLength(2);
+    expect(claimed).toEqual(await toSendKeys(body));
+    expect(claimMany).not.toHaveBeenCalled();
+  });
+
   it("claims a body with 1,200 events in 3 chunks", async () => {
     const { store, calls } = bulkSpyStore();
     const outcome = accepted(

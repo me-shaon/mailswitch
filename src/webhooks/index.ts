@@ -8,6 +8,8 @@
 
 import type { ProviderAdapter } from "../core/adapter";
 import type { NormalizedEvent, WebhookRejection } from "../core/events";
+import { type BulkDedupeStore, hasBulkDedupe } from "../internal/bulk-methods";
+import { chunks } from "../internal/chunks";
 import { sha256Hex } from "../internal/sha256";
 import type { DedupeClaimOutcome, DedupeReleaseInput, DedupeStore } from "../stores/types";
 
@@ -170,17 +172,6 @@ const NOOP = async (): Promise<void> => undefined;
 /** The most keys in one bulk store call. */
 const BULK_CHUNK_KEYS = 500;
 
-type BulkDedupeStore = DedupeStore &
-  Required<Pick<DedupeStore, "claimMany" | "commitMany" | "releaseMany">>;
-
-function hasBulkMethods(store: DedupeStore): store is BulkDedupeStore {
-  return (
-    typeof store.claimMany === "function" &&
-    typeof store.commitMany === "function" &&
-    typeof store.releaseMany === "function"
-  );
-}
-
 /** One event with a distinct key. `boundKey` is set only for a body-bound adapter. */
 interface DedupeEntry {
   event: NormalizedEvent;
@@ -226,13 +217,6 @@ function decide(
   return primary === "new" && (bound === undefined || bound === "new") ? "emit" : "skip";
 }
 
-/** Splits a list into chunks of at most `size` items. */
-function chunked<T>(items: readonly T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
-  return chunks;
-}
-
 /**
  * Dedupes the entries with the bulk store methods. The result is the same as the loop
  * in `handleWebhook`, but the store gets one claim call for each chunk of keys.
@@ -243,32 +227,32 @@ async function bulkDedupe(
   options: { leaseMs: number; ttlMs: number; now: () => number },
 ): Promise<WebhookOutcome> {
   // Both keys of one event go in the same chunk.
-  const chunks: DedupeEntry[][] = [];
+  const groups: DedupeEntry[][] = [];
   let current: DedupeEntry[] = [];
   let size = 0;
   for (const entry of entries) {
     const weight = entry.boundKey === undefined ? 1 : 2;
     if (size + weight > BULK_CHUNK_KEYS) {
-      chunks.push(current);
+      groups.push(current);
       current = [];
       size = 0;
     }
     current.push(entry);
     size += weight;
   }
-  if (current.length > 0) chunks.push(current);
+  if (current.length > 0) groups.push(current);
 
   // Each claimed key keeps its lease id, so a release or a commit touches only this
   // request's lease and never a newer claim of the same key.
   const claimed: DedupeReleaseInput[] = [];
   const releaseAll = async (): Promise<void> => {
     const leases = claimed.splice(0);
-    await Promise.all(chunked(leases, BULK_CHUNK_KEYS).map((chunk) => store.releaseMany(chunk)));
+    await Promise.all(chunks(leases, BULK_CHUNK_KEYS).map((chunk) => store.releaseMany(chunk)));
   };
   const events: NormalizedEvent[] = [];
   let refusal: WebhookRejection | undefined;
   try {
-    for (const chunk of chunks) {
+    for (const chunk of groups) {
       const keys = chunk.flatMap((entry) =>
         entry.boundKey === undefined ? [entry.key] : [entry.key, entry.boundKey],
       );
@@ -310,7 +294,7 @@ async function bulkDedupe(
       // One failed statement rolls back the commits of its chunk. A commit that another
       // lease holds returns false. That newer holder commits it.
       await Promise.all(
-        chunked(leases, BULK_CHUNK_KEYS).map((chunk) =>
+        chunks(leases, BULK_CHUNK_KEYS).map((chunk) =>
           store.commitMany({ leases: chunk, ttlMs: options.ttlMs, now: at }),
         ),
       );
@@ -403,7 +387,7 @@ export function handleWebhook(
 
     const fingerprint = bodyBound ? sha256Hex(body) : undefined;
     const entries = dedupeEntries(parsed, endpointId, fingerprint);
-    if (hasBulkMethods(dedupe)) return bulkDedupe(dedupe, entries, { leaseMs, ttlMs, now });
+    if (hasBulkDedupe(dedupe)) return bulkDedupe(dedupe, entries, { leaseMs, ttlMs, now });
 
     // Each claimed key keeps its lease id, so a release or a commit touches only this
     // request's lease and never a newer claim of the same key.
