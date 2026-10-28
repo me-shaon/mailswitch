@@ -1,5 +1,17 @@
 # mailswitch
 
+## 1.0.0
+
+### Major Changes
+
+- e794bae: Release 1.0. The public API is now stable and follows semantic versioning. A minor release can add a value to the `NormalizedEventType`, `WebhookRejection`, and `FailureReason` unions, so give each `switch` on them a `default` case. `DeliveryStatus` stays `sent`, `not_sent`, or `unknown`. The package now describes itself as a transactional email library that sends through any provider.
+  
+  Code that handles `NormalizedEventType` with an exhaustive `switch` must handle the new `unsubscribed` type.
+
+### Minor Changes
+
+- e794bae: Add the `unsubscribed` event type. It means that the recipient opted out of all mail from the sender. Mailgun, Postmark, Brevo, MailerSend, Mailjet, SMTP2GO, SendGrid, MailChannels, AhaSend, Mailtrap, and AutoSend map their unsubscribe events to it. An opt-out from one group or contact list stays `unknown`. Resend, toSend, and Amazon SES send no unsubscribe event for transactional email. The AutoSend event has no recipient, and the MailerSend, MailChannels, and AhaSend payloads are not confirmed by the provider docs.
+
 ## 0.4.0
 
 ### Minor Changes
