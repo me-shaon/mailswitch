@@ -2,13 +2,20 @@
   {
     "name": "core (mailswitch)",
     "path": "dist/index.js",
-    "limit": "9 KB",
+    "limit": "9.88 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/catalog",
     "path": "dist/catalog/index.js",
     "limit": "6.11 KB",
+    "gzip": true
+  },
+  {
+    "name": "mailswitch/registry",
+    "path": "dist/registry/index.js",
+    "entry": ["index"],
+    "limit": "1.5 KB",
     "gzip": true
   },
   {

@@ -6,6 +6,7 @@ const config: UserConfig = defineConfig({
   entry: {
     index: "src/index.ts",
     "catalog/index": "src/catalog/index.ts",
+    "registry/index": "src/registry/index.ts",
     "provider-kit/index": "src/provider-kit/index.ts",
     "webhooks/index": "src/webhooks/index.ts",
     "crypto/index": "src/crypto/index.ts",

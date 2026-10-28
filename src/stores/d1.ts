@@ -1,13 +1,14 @@
 // D1 stores. D1 has a single writer and runs a batch as one transaction, so a conditional
 // write is atomic. This file uses a structural D1 type, so it imports no Workers module.
 
-import { bucketExpiry, bucketStartOf, windowFloor } from "../core/daily-cap";
+import { bucketExpiry, bucketStartOf, checkReserveCount, windowFloor } from "../core/daily-cap";
 import { assertDistinctKeys } from "../internal/distinct-keys";
 import type {
   DailyCapFillInput,
   DailyCapReleaseInput,
   DailyCapReservation,
   DailyCapReserveInput,
+  DailyCapReserveManyInput,
   DailyCapStore,
   DedupeClaimInput,
   DedupeClaimManyInput,
@@ -31,6 +32,7 @@ export type {
   DailyCapReleaseInput,
   DailyCapReservation,
   DailyCapReserveInput,
+  DailyCapReserveManyInput,
   DailyCapStore,
   DedupeClaimInput,
   DedupeClaimManyInput,
@@ -158,11 +160,49 @@ export class D1IdempotencyStore implements IdempotencyStore {
   }
 
   async claim(input: IdempotencyClaimInput): Promise<IdempotencyClaimOutcome> {
-    const { key, payloadHash, claimId, now, pendingTimeoutMs } = input;
+    const [outcome] = await this.#claimAll([input]);
+    if (!outcome) throw new Error("D1IdempotencyStore could not read the claimed row.");
+    return outcome;
+  }
+
+  async touch(input: IdempotencyTouchInput): Promise<boolean> {
+    return changes(await this.#touchStatement(input).run()) === 1;
+  }
+
+  async finish(input: IdempotencyFinishInput): Promise<boolean> {
+    return changes(await this.#finishStatement(input).run()) === 1;
+  }
+
+  /**
+   * Claims every key in one batch. D1 runs a batch as one transaction, so a failed
+   * statement rolls back the claims of every key in the call.
+   */
+  async claimMany(inputs: readonly IdempotencyClaimInput[]): Promise<IdempotencyClaimOutcome[]> {
+    assertDistinctKeys(inputs.map((input) => input.key));
+    if (inputs.length === 0) return [];
+    return this.#claimAll(inputs);
+  }
+
+  /** Touches every claim in one batch. A failed statement rolls back every touch. */
+  async touchMany(inputs: readonly IdempotencyTouchInput[]): Promise<boolean[]> {
+    if (inputs.length === 0) return [];
+    const results = await this.#db.batch(inputs.map((input) => this.#touchStatement(input)));
+    return inputs.map((_, i) => changes(results[i]) === 1);
+  }
+
+  /** Writes every final state in one batch. A failed statement rolls back every write. */
+  async finishMany(inputs: readonly IdempotencyFinishInput[]): Promise<boolean[]> {
+    if (inputs.length === 0) return [];
+    const results = await this.#db.batch(inputs.map((input) => this.#finishStatement(input)));
+    return inputs.map((_, i) => changes(results[i]) === 1);
+  }
+
+  // Each key has 4 statements in one batch, and one batch is one transaction: insert a new
+  // claim, re-claim a free key, convert a stale claim, then read the row. Only one of the
+  // three writes can apply for each key.
+  async #claimAll(inputs: readonly IdempotencyClaimInput[]): Promise<IdempotencyClaimOutcome[]> {
     const db = this.#db;
-    // One batch is one transaction: insert a new claim, re-claim a free key, convert a
-    // stale claim, then read the row. Only one of the three writes can apply.
-    const results = await db.batch<Row>([
+    const statements = inputs.flatMap(({ key, payloadHash, claimId, now, pendingTimeoutMs }) => [
       db
         .prepare(
           `INSERT INTO ${TABLE} (key, payload_hash, state, claim_id, attempts, claimed_at, updated_at)
@@ -186,34 +226,35 @@ export class D1IdempotencyStore implements IdempotencyStore {
         .bind(key, now, now - pendingTimeoutMs),
       db.prepare(`SELECT * FROM ${TABLE} WHERE key = ?1`).bind(key),
     ]);
-    const row = results[3]?.results?.[0];
-    if (!row) throw new Error("D1IdempotencyStore could not read the claimed row.");
-    const record = toRecord(row);
-    if (record.claimId === claimId && record.state === "pending") return { kind: "claimed" };
-    if (record.payloadHash !== payloadHash) return { kind: "conflict", record };
-    if (changes(results[2]) === 1) return { kind: "stale", record };
-    if (record.state === "pending") return { kind: "pending", record };
-    return { kind: "existing", record };
+    const results = await db.batch<Row>(statements);
+    return inputs.map(({ payloadHash, claimId }, i): IdempotencyClaimOutcome => {
+      const row = results[i * 4 + 3]?.results?.[0];
+      if (!row) throw new Error("D1IdempotencyStore could not read the claimed row.");
+      const record = toRecord(row);
+      if (record.claimId === claimId && record.state === "pending") return { kind: "claimed" };
+      if (record.payloadHash !== payloadHash) return { kind: "conflict", record };
+      if (changes(results[i * 4 + 2]) === 1) return { kind: "stale", record };
+      if (record.state === "pending") return { kind: "pending", record };
+      return { kind: "existing", record };
+    });
   }
 
-  async touch(input: IdempotencyTouchInput): Promise<boolean> {
-    // One conditional UPDATE: the heartbeat and the optional attempt apply together.
+  // One conditional UPDATE: the heartbeat and the optional attempt apply together.
+  #touchStatement(input: IdempotencyTouchInput): D1StatementLike {
     const attempt = input.attempt ? JSON.stringify(input.attempt) : null;
-    const result = await this.#db
+    return this.#db
       .prepare(
         `UPDATE ${TABLE} SET updated_at = ?4,
            attempts = CASE WHEN ?3 IS NULL THEN attempts ELSE json_insert(attempts, '$[#]', json(?3)) END
          WHERE ${FENCE}`,
       )
-      .bind(input.key, input.claimId, attempt, input.now)
-      .run();
-    return changes(result) === 1;
+      .bind(input.key, input.claimId, attempt, input.now);
   }
 
-  async finish(input: IdempotencyFinishInput): Promise<boolean> {
+  #finishStatement(input: IdempotencyFinishInput): D1StatementLike {
     // Only `sent` and `not_sent` records expire. An `unknown` record stays until a release.
     const expiresAt = input.state === "unknown" ? null : (input.expiresAt ?? null);
-    const result = await this.#db
+    return this.#db
       .prepare(
         `UPDATE ${TABLE} SET state = ?3, attempts = ?4,
            provider_message_id = COALESCE(?5, provider_message_id), updated_at = ?6, expires_at = ?7
@@ -227,9 +268,7 @@ export class D1IdempotencyStore implements IdempotencyStore {
         input.providerMessageId ?? null,
         input.now,
         expiresAt,
-      )
-      .run();
-    return changes(result) === 1;
+      );
   }
 
   async release(key: string, options: { expectedState: "unknown" }): Promise<boolean> {
@@ -284,16 +323,57 @@ export class D1DailyCapStore implements DailyCapStore {
   }
 
   async reserve(input: DailyCapReserveInput): Promise<DailyCapReservation> {
+    const [reservation] = await this.#reserveAll(input, 1);
+    if (!reservation) throw new Error("D1DailyCapStore could not read the reservation.");
+    return reservation;
+  }
+
+  async release(input: DailyCapReleaseInput): Promise<void> {
+    await this.#releaseStatement(input.scope, input.bucketStart, 1).run();
+  }
+
+  /**
+   * Reserves `count` units in one batch. Each insert sees the earlier inserts of the same
+   * transaction, so the grant stops at the cap. A failed statement rolls back every unit.
+   */
+  async reserveMany(input: DailyCapReserveManyInput): Promise<DailyCapReservation[]> {
+    const count = checkReserveCount(input.count);
+    if (count === 0) return [];
+    return this.#reserveAll(input, count);
+  }
+
+  /**
+   * Refunds every input in one batch, with one statement for each bucket. A bucket with
+   * `k` inputs drops by `k`, but not below zero, as `k` single releases do.
+   */
+  async releaseMany(inputs: readonly DailyCapReleaseInput[]): Promise<void> {
+    if (inputs.length === 0) return;
+    const groups = new Map<string, Map<number, number>>();
+    for (const { scope, bucketStart } of inputs) {
+      let buckets = groups.get(scope);
+      if (!buckets) {
+        buckets = new Map();
+        groups.set(scope, buckets);
+      }
+      buckets.set(bucketStart, (buckets.get(bucketStart) ?? 0) + 1);
+    }
+    const statements: D1StatementLike[] = [];
+    for (const [scope, buckets] of groups) {
+      for (const [bucketStart, count] of buckets) {
+        statements.push(this.#releaseStatement(scope, bucketStart, count));
+      }
+    }
+    await this.#db.batch(statements);
+  }
+
+  // One batch is one transaction: delete old buckets once, reserve each unit, then read the
+  // oldest bucket in the window once for the reset time. A reserve inserts no row when the
+  // window is full, so the conflict update runs only when there is room.
+  async #reserveAll(input: DailyCapReserveInput, count: number): Promise<DailyCapReservation[]> {
     const db = this.#db;
     const start = bucketStartOf(input.now);
     const floor = windowFloor(input.now);
-    // One batch is one transaction: delete old buckets, reserve, then read the oldest
-    // bucket in the window for the reset time. The reserve inserts no row when the
-    // window is full, so the conflict update runs only when there is room.
-    const results = await db.batch<{ used?: number; oldest?: number | null }>([
-      db
-        .prepare(`DELETE FROM ${CAP_TABLE} WHERE scope = ?1 AND bucket_start <= ?2`)
-        .bind(input.scope, floor),
+    const reserve = (): D1StatementLike =>
       db
         .prepare(
           `INSERT INTO ${CAP_TABLE} (scope, bucket_start, used)
@@ -301,7 +381,12 @@ export class D1DailyCapStore implements DailyCapStore {
            ON CONFLICT(scope, bucket_start) DO UPDATE SET used = used + 1
            RETURNING used`,
         )
-        .bind(input.scope, start, floor, input.cap),
+        .bind(input.scope, start, floor, input.cap);
+    const results = await db.batch<{ used?: number; oldest?: number | null }>([
+      db
+        .prepare(`DELETE FROM ${CAP_TABLE} WHERE scope = ?1 AND bucket_start <= ?2`)
+        .bind(input.scope, floor),
+      ...Array.from({ length: count }, reserve),
       db
         .prepare(
           `SELECT MIN(bucket_start) AS oldest FROM ${CAP_TABLE}
@@ -309,19 +394,22 @@ export class D1DailyCapStore implements DailyCapStore {
         )
         .bind(input.scope, floor),
     ]);
-    if ((results[1]?.results?.length ?? 0) > 0) return { ok: true, bucketStart: start };
-    const oldest = results[2]?.results?.[0]?.oldest;
-    return { ok: false, resetAt: bucketExpiry(typeof oldest === "number" ? oldest : start) };
+    const oldest = results[count + 1]?.results?.[0]?.oldest;
+    const resetAt = bucketExpiry(typeof oldest === "number" ? oldest : start);
+    return Array.from({ length: count }, (_, i): DailyCapReservation => {
+      if ((results[i + 1]?.results?.length ?? 0) > 0) return { ok: true, bucketStart: start };
+      return { ok: false, resetAt };
+    });
   }
 
-  async release(input: DailyCapReleaseInput): Promise<void> {
-    await this.#db
+  /** Takes `count` units from one bucket, but not below zero. */
+  #releaseStatement(scope: string, bucketStart: number, count: number): D1StatementLike {
+    return this.#db
       .prepare(
-        `UPDATE ${CAP_TABLE} SET used = used - 1
+        `UPDATE ${CAP_TABLE} SET used = MAX(used - ?3, 0)
          WHERE scope = ?1 AND bucket_start = ?2 AND used > 0`,
       )
-      .bind(input.scope, input.bucketStart)
-      .run();
+      .bind(scope, bucketStart, count);
   }
 
   async fill(input: DailyCapFillInput): Promise<void> {

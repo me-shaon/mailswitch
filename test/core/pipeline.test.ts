@@ -885,6 +885,23 @@ describe("createMailer: store failures", () => {
     expect(a.sends).toHaveLength(0);
   });
 
+  it("returns not_sent/store_error when the claim returns a malformed outcome", async () => {
+    const idempotency = new MemoryIdempotencyStore();
+    idempotency.claim = async () => undefined as never;
+    const a = fakeProvider({ id: "a" });
+    const mailer = createMailer({
+      providers: [{ adapter: a, credentials: { apiKey: "fk_a" } }],
+      namespace: NAMESPACE,
+      idempotency,
+      logger: { warn: () => {} },
+    });
+    expect(await mailer.send(message({ idempotencyKey: "bad" }))).toMatchObject({
+      status: "not_sent",
+      reason: "store_error",
+    });
+    expect(a.sends).toHaveLength(0);
+  });
+
   it("keeps the provider result when a store fails before the fallback", async () => {
     const idempotency = new MemoryIdempotencyStore();
     const touch = idempotency.touch.bind(idempotency);

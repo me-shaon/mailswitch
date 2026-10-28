@@ -7,9 +7,10 @@ import {
   windowFloor,
 } from "../../src/core/daily-cap";
 import { MemoryDailyCapStore } from "../../src/stores/memory";
-import { dailyCapStoreSuite, T0 } from "../stores/daily-cap-suite";
+import { dailyCapBulkSuite, dailyCapStoreSuite, T0 } from "../stores/daily-cap-suite";
 
 dailyCapStoreSuite("memory", async () => new MemoryDailyCapStore());
+dailyCapBulkSuite("memory", async () => new MemoryDailyCapStore());
 
 describe("daily cap math", () => {
   it("puts a time in its 5-minute bucket", () => {

@@ -1,6 +1,9 @@
 import type {
   IdempotencyAttempt,
+  IdempotencyClaimInput,
+  IdempotencyClaimOutcome,
   IdempotencyFinalState,
+  IdempotencyFinishInput,
   IdempotencyRecord,
   IdempotencyStore,
 } from "../stores/types";
@@ -92,6 +95,22 @@ function storedResult(record: IdempotencyRecord): SendResult {
 }
 
 /**
+ * The claim input of a keyed message, without the time. Internal.
+ *
+ * @throws TypeError when the namespace is invalid.
+ */
+export async function claimInput(
+  namespace: string,
+  idempotencyKey: string,
+  message: OutgoingMessage,
+  pendingTimeoutMs: number,
+): Promise<Omit<IdempotencyClaimInput, "now">> {
+  const key = namespacedKey(namespace, idempotencyKey);
+  const hash = await payloadHash(message);
+  return { key, payloadHash: hash, claimId: crypto.randomUUID(), pendingTimeoutMs };
+}
+
+/**
  * Claims the idempotency key of a message before the provider chain runs.
  *
  * @throws TypeError when the message has no idempotency key or the namespace is invalid.
@@ -106,16 +125,23 @@ export async function beginIdempotency(
   if (typeof idempotencyKey !== "string" || idempotencyKey === "") {
     throw new TypeError("beginIdempotency needs a message with an idempotency key.");
   }
-  const key = namespacedKey(namespace, idempotencyKey);
-  const hash = await payloadHash(message);
-  const claimId = crypto.randomUUID();
-  const outcome = await store.claim({
-    key,
-    payloadHash: hash,
-    claimId,
-    now: options.now ?? Date.now(),
-    pendingTimeoutMs: options.pendingTimeoutMs ?? DEFAULT_PENDING_TIMEOUT_MS,
-  });
+  const input = await claimInput(
+    namespace,
+    idempotencyKey,
+    message,
+    options.pendingTimeoutMs ?? DEFAULT_PENDING_TIMEOUT_MS,
+  );
+  const outcome = await store.claim({ ...input, now: options.now ?? Date.now() });
+  return claimResult(outcome, input.key, input.claimId, input.payloadHash);
+}
+
+/** Maps the outcome of a claim to a begin result. Internal. */
+export function claimResult(
+  outcome: IdempotencyClaimOutcome,
+  key: string,
+  claimId: string,
+  hash: string,
+): BeginResult {
   switch (outcome.kind) {
     case "claimed":
       return { proceed: true, key, claimId, payloadHash: hash };
@@ -173,9 +199,16 @@ export async function finalizeIdempotency(
   store: IdempotencyStore,
   input: FinalizeInput,
 ): Promise<{ applied: boolean; state: IdempotencyFinalState }> {
+  const finish = finishInput(input);
+  const applied = await store.finish(finish);
+  return { applied, state: finish.state };
+}
+
+/** The store input of the final record for a claim. Internal. */
+export function finishInput(input: FinalizeInput): IdempotencyFinishInput {
   const now = input.now ?? Date.now();
   const state = finalState(input.attempts);
-  const applied = await store.finish({
+  return {
     key: input.key,
     claimId: input.claimId,
     state,
@@ -186,12 +219,5 @@ export async function finalizeIdempotency(
     now,
     ...(state === "sent" ? { expiresAt: now + SENT_RETENTION_MS } : {}),
     ...(state === "not_sent" ? { expiresAt: now + NOT_SENT_RETENTION_MS } : {}),
-  });
-  return { applied, state };
+  };
 }
-
-/** The guard helpers that the send pipeline uses. */
-export const guardIdempotency: {
-  begin: typeof beginIdempotency;
-  finalize: typeof finalizeIdempotency;
-} = { begin: beginIdempotency, finalize: finalizeIdempotency };

@@ -10,13 +10,24 @@
 //
 // A store failure never throws out of `send` or `sendBatch`. It stops the message. The
 // message keeps the result of its last attempt, or gets `not_sent/store_error` when it had
-// none. A final record that fails to write leaves the claim `pending`. It goes stale later,
-// which is the safe direction.
+// none. On the bulk path of `sendBatch`, a failed bulk call stops every message of its
+// store chunk. A final record that fails to write leaves the claim `pending`. It goes
+// stale later, which is the safe direction.
 
+import {
+  type BulkDailyCapStore,
+  type BulkIdempotencyStore,
+  hasBulkDailyCap,
+  hasBulkIdempotency,
+} from "../internal/bulk-methods";
+import { chunks } from "../internal/chunks";
 import { DEFAULT_TIMEOUT_MS, type FetchLike } from "../internal/http";
 import type {
   DailyCapStore,
   IdempotencyAttempt,
+  IdempotencyClaimInput,
+  IdempotencyClaimOutcome,
+  IdempotencyFinishInput,
   IdempotencyStore,
   RateLimitStore,
 } from "../stores/types";
@@ -24,13 +35,14 @@ import type { ProviderAdapter, ProviderCredentials, SendContext } from "./adapte
 import { createBatchSender } from "./batch";
 import { checkCapabilities } from "./capabilities";
 import { checkCredentials } from "./credentials";
-import { checkDailyCap } from "./daily-cap";
+import { capRefusal, checkDailyCap } from "./daily-cap";
 import { allowFallback, type ShouldFallback } from "./fallback";
 import { type AttemptView, errorName, type MailerLogger, safeWarn } from "./hooks";
 import {
-  beginIdempotency,
+  claimInput,
+  claimResult,
   DEFAULT_PENDING_TIMEOUT_MS,
-  finalizeIdempotency,
+  finishInput,
   minPendingTimeout,
   namespacedKey,
   SENT_RETENTION_MS,
@@ -107,7 +119,10 @@ export interface Mailer {
   send(message: OutgoingMessage): Promise<SendResult>;
   /**
    * Sends fully built messages. It returns one result per message, in input order. Each
-   * message runs its own claim. See `createMailer` for the batch rules.
+   * message runs its own claim. With bulk-capable stores, the claims, the first cap
+   * reserves, the heartbeats, the refunds, and the final records use bulk store calls.
+   * Otherwise each message uses the per-message path. See `createMailer` for the batch
+   * rules.
    */
   sendBatch(messages: readonly OutgoingMessage[]): Promise<SendResult[]>;
 }
@@ -140,6 +155,13 @@ export interface MessageRun {
   freshClaim?: boolean;
 }
 
+/** A validated message and its claim input, before any store call. Internal. */
+export interface Prepared {
+  run: MessageRun;
+  /** The claim input without the time. Only for a keyed message with a store. */
+  claim?: Omit<IdempotencyClaimInput, "now">;
+}
+
 /** The outcome of the capability check and the cap reserve. Internal. */
 export interface Gate {
   refusal?: SendResult;
@@ -152,6 +174,40 @@ export interface PipelineSteps {
   entries: readonly Entry[];
   hasStore: boolean;
   start(message: OutgoingMessage): Promise<SendResult | MessageRun>;
+  /** Validation and the claim input, with no store call. */
+  prepare(message: OutgoingMessage): Promise<SendResult | Prepared>;
+  /** The claim of one prepared message on the per-message path. It never throws. */
+  claim(prepared: Prepared): Promise<SendResult | MessageRun>;
+  /** Applies a claim outcome to a prepared message. A malformed outcome gives `store_error`. */
+  claimed(prepared: Prepared, outcome: IdempotencyClaimOutcome): SendResult | MessageRun;
+  /** The idempotency store when `sendBatch` can use its bulk methods. */
+  bulkClaims(): BulkIdempotencyStore | undefined;
+  /** The daily cap store when `sendBatch` can use its bulk methods. */
+  bulkCaps(): BulkDailyCapStore | undefined;
+  /**
+   * The rate limit only. On a refusal or a store failure, `release` runs first. Only the
+   * store can throw.
+   */
+  limit(
+    entry: Entry,
+    release?: (result: SendResult) => Promise<void>,
+  ): Promise<SendResult | undefined>;
+  /**
+   * Refunds the cap units in `buckets` with `releaseMany` calls of at most 100 inputs,
+   * then fills the window when `fill` is true. It never throws.
+   */
+  releaseAll(entry: Entry, buckets: readonly number[], fill: boolean): Promise<void>;
+  /** True when the run goes on to the next provider after its primary attempt. */
+  fallsBack(run: MessageRun): boolean;
+  /** Stops a run whose claim is lost, with `unknown/stale_pending`. */
+  lose(run: MessageRun): void;
+  /** The store input of the final record. The run must hold a claim. */
+  finishInput(run: MessageRun): IdempotencyFinishInput;
+  /** Warns about a final record that did not apply, or that failed (`failed`) with `thrown`. */
+  unfinished(run: MessageRun, failed: boolean, thrown?: unknown): void;
+  /** Warns about a store failure and returns the result for a message with no attempt. */
+  storeError(error: unknown): NotSentResult;
+  now(): number;
   reserve(entry: Entry, message: OutgoingMessage, encodedBytes: number): Promise<Gate>;
   refund(entry: Entry, bucketStart: number, result: SendResult): Promise<void>;
   context(entry: Entry): SendContext;
@@ -283,11 +339,24 @@ function checkResult(result: unknown, provider: string): SendResult {
  * claim is lost, for example after a stale conversion and a release, the message makes
  * no further provider call and gets `unknown/stale_pending`.
  *
+ * `sendBatch` uses the bulk store methods when a store has them (see `IdempotencyStore`
+ * and `DailyCapStore`). It detects the idempotency store and the daily cap store
+ * separately. Each bulk call takes at most 100 inputs, which is one store chunk. The
+ * first valid copy of each key claims with `claimMany`. A later copy claims on the
+ * per-message path. `reserveMany` grants the units of the primary to the first batch
+ * messages in input order. `touchMany` runs before each provider chunk. One
+ * `releaseMany` call refunds the units of a chunk. `finishMany` writes the final records
+ * of the messages with no fallback before the fallbacks run, then the records of the
+ * fallback messages. The fallbacks and the single sends use the per-message path.
+ *
  * A store failure is a result, not an exception, in `send` and in `sendBatch`. The message
  * stops at the failed store call. It keeps the result of its last attempt, or gets
- * `not_sent/store_error` when no attempt ran. Other messages of a batch keep their
- * results. When the final record fails to write, the provider result still comes back
- * and the logger gets a warning.
+ * `not_sent/store_error` when no attempt ran. On the per-message path, other messages of
+ * a batch keep their results. On the bulk path, a bulk call that throws or that returns
+ * a list of the wrong length fails every message of its store chunk. Before a provider
+ * call, each of them gets `not_sent/store_error`. The other store chunks go on. When the
+ * final record fails to write, the provider result still comes back and the logger gets
+ * a warning.
  *
  * @throws TypeError or RangeError for invalid options: no providers, bad credentials, a
  * missing namespace with an idempotency store, or a pending timeout below the floor.
@@ -349,10 +418,37 @@ export function createMailer(options: MailerOptions): Mailer {
         await dailyCaps.fill({ scope: entry.scope, cap: entry.cap, now });
       }
     } catch (error) {
-      safeWarn(logger, "mailswitch: the daily cap store failed to refund or fill.", {
-        provider: entry.adapter.meta.id,
-        error: errorName(error),
-      });
+      capWarn(entry, error);
+    }
+  }
+
+  function capWarn(entry: Entry, error: unknown): void {
+    safeWarn(logger, "mailswitch: the daily cap store failed to refund or fill.", {
+      provider: entry.adapter.meta.id,
+      error: errorName(error),
+    });
+  }
+
+  async function releaseAll(
+    entry: Entry,
+    buckets: readonly number[],
+    fill: boolean,
+  ): Promise<void> {
+    if (!dailyCaps?.releaseMany || entry.cap === undefined) return;
+    const now = clock();
+    const { scope, cap } = entry;
+    for (const part of chunks(buckets)) {
+      try {
+        await dailyCaps.releaseMany(part.map((bucketStart) => ({ scope, bucketStart, now })));
+      } catch (error) {
+        capWarn(entry, error);
+      }
+    }
+    if (!fill) return;
+    try {
+      await dailyCaps.fill({ scope, cap, now });
+    } catch (error) {
+      capWarn(entry, error);
     }
   }
 
@@ -370,40 +466,44 @@ export function createMailer(options: MailerOptions): Mailer {
 
   /**
    * Takes one rate limit token. Returns a refusal when the bucket is empty. When the
-   * store throws or refuses, the cap unit of this attempt goes back first.
+   * store throws or refuses, `release` gives the cap unit of this attempt back first.
    */
-  async function limit(entry: Entry, bucketStart?: number): Promise<SendResult | undefined> {
-    if (!rateLimits || entry.rate === undefined) return undefined;
-    const id = entry.adapter.meta.id;
+  async function limit(
+    entry: Entry,
+    release?: (result: SendResult) => Promise<void>,
+  ): Promise<SendResult | undefined> {
     let refusal: SendResult | undefined;
     try {
-      const grant = await rateLimits.acquire({
-        scope: entry.scope,
-        ratePerSecond: entry.rate.perSecond,
-        burst: entry.rate.burst,
-        now: clock(),
-      });
-      if (!grant.ok) {
-        refusal = {
-          status: "not_sent",
-          reason: "rate_limited",
-          message: "The rate limit of the provider is reached.",
-          retryAfterMs: grant.retryAfterMs,
-          provider: id,
-        };
-      }
+      refusal = await acquire(entry);
     } catch (error) {
-      if (bucketStart !== undefined) {
-        await refund(entry, bucketStart, {
-          status: "not_sent",
-          reason: "rate_limited",
-          message: "The rate limit store failed.",
-        });
-      }
+      await release?.({
+        status: "not_sent",
+        reason: "rate_limited",
+        message: "The rate limit store failed.",
+      });
       throw error;
     }
-    if (refusal && bucketStart !== undefined) await refund(entry, bucketStart, refusal);
+    if (refusal) await release?.(refusal);
     return refusal;
+  }
+
+  /** Takes one rate limit token. Returns a refusal when the bucket is empty. */
+  async function acquire(entry: Entry): Promise<SendResult | undefined> {
+    if (!rateLimits || entry.rate === undefined) return undefined;
+    const grant = await rateLimits.acquire({
+      scope: entry.scope,
+      ratePerSecond: entry.rate.perSecond,
+      burst: entry.rate.burst,
+      now: clock(),
+    });
+    if (grant.ok) return undefined;
+    return {
+      status: "not_sent",
+      reason: "rate_limited",
+      message: "The rate limit of the provider is reached.",
+      retryAfterMs: grant.retryAfterMs,
+      provider: entry.adapter.meta.id,
+    };
   }
 
   /**
@@ -427,20 +527,10 @@ export function createMailer(options: MailerOptions): Mailer {
       cap: entry.cap,
       now: clock(),
     });
-    if (!reservation.ok) {
-      return {
-        refusal: {
-          status: "not_sent",
-          reason: "daily_cap",
-          message: "The daily cap of the provider is reached.",
-          resetAt: reservation.resetAt,
-          provider: meta.id,
-        },
-      };
-    }
-    const limited = await limit(entry, reservation.bucketStart);
-    if (limited) return { refusal: limited };
-    return { bucketStart: reservation.bucketStart };
+    if (!reservation.ok) return { refusal: capRefusal(meta.id, reservation.resetAt) };
+    const { bucketStart } = reservation;
+    const limited = await limit(entry, (result) => refund(entry, bucketStart, result));
+    return limited ? { refusal: limited } : { bucketStart };
   }
 
   /** One attempt. Only a cap or rate limit store failure can throw. Adapter errors are results. */
@@ -476,25 +566,49 @@ export function createMailer(options: MailerOptions): Mailer {
     run.result ??= result;
   }
 
-  /** Validation and the claim. Returns a final result, or the run to go on with. */
-  async function start(message: OutgoingMessage): Promise<SendResult | MessageRun> {
+  /** Validation and the claim input. Returns a final result, or the prepared message. */
+  async function prepare(message: OutgoingMessage): Promise<SendResult | Prepared> {
     const checked = validateMessage(message);
     if (!checked.ok) return checked.result;
     const run: MessageRun = { message, encodedBytes: checked.encodedBytes, attempts: [] };
-    if (idempotency && namespace !== undefined && message.idempotencyKey) {
-      let begin: Awaited<ReturnType<typeof beginIdempotency>>;
-      try {
-        begin = await beginIdempotency(idempotency, namespace, message, {
-          now: clock(),
-          pendingTimeoutMs,
-        });
-      } catch (error) {
-        return storeError(error);
-      }
-      if (!begin.proceed) return begin.result;
-      run.claim = { key: begin.key, claimId: begin.claimId };
+    const idempotencyKey = message.idempotencyKey;
+    if (!idempotency || namespace === undefined || !idempotencyKey) return { run };
+    try {
+      return { run, claim: await claimInput(namespace, idempotencyKey, message, pendingTimeoutMs) };
+    } catch (error) {
+      return storeError(error);
     }
+  }
+
+  function claimed(prepared: Prepared, outcome: IdempotencyClaimOutcome): SendResult | MessageRun {
+    const { run, claim } = prepared;
+    if (!claim) return run;
+    // A malformed outcome from a custom store throws here. It is a store failure.
+    try {
+      const begin = claimResult(outcome, claim.key, claim.claimId, claim.payloadHash);
+      if (!begin.proceed) return begin.result;
+    } catch (error) {
+      return storeError(error);
+    }
+    run.claim = { key: claim.key, claimId: claim.claimId };
     return run;
+  }
+
+  async function claim(prepared: Prepared): Promise<SendResult | MessageRun> {
+    if (!prepared.claim) return prepared.run;
+    let outcome: IdempotencyClaimOutcome;
+    try {
+      outcome = await (idempotency as IdempotencyStore).claim({ ...prepared.claim, now: clock() });
+    } catch (error) {
+      return storeError(error);
+    }
+    return claimed(prepared, outcome);
+  }
+
+  /** Validation and the claim. Returns a final result, or the run to go on with. */
+  async function start(message: OutgoingMessage): Promise<SendResult | MessageRun> {
+    const prepared = await prepare(message);
+    return "run" in prepared ? claim(prepared) : prepared;
   }
 
   /** Appends one attempt to the run and calls the observe hook. */
@@ -512,16 +626,22 @@ export function createMailer(options: MailerOptions): Mailer {
     await observe(view);
   }
 
+  /** True when the run goes on to the next provider after its primary attempt. */
+  function fallsBack(run: MessageRun): boolean {
+    return (
+      !run.done &&
+      entries.length > 1 &&
+      run.result !== undefined &&
+      allowFallback(run.result, shouldFallback, logger)
+    );
+  }
+
   /**
-   * Runs the chain from the entry at `from`. With `from` above 0, the run must hold the
-   * result of the entry before it, and the chain goes on only when fallback allows it.
+   * Runs the chain from the entry at `from`. With `from` above 0, the caller checks
+   * `fallsBack` first.
    */
   async function chain(run: MessageRun, from: number): Promise<void> {
     if (run.done) return;
-    if (from > 0) {
-      if (from >= entries.length) return;
-      if (!allowFallback(run.result as SendResult, shouldFallback, logger)) return;
-    }
     try {
       for (let i = from; i < entries.length; i++) {
         const current = entries[i] as Entry;
@@ -553,6 +673,15 @@ export function createMailer(options: MailerOptions): Mailer {
       fail(run, error);
       return false;
     }
+    lose(run);
+    return false;
+  }
+
+  /**
+   * Stops a run whose claim is lost. It makes no further record: another request may hold
+   * the key now.
+   */
+  function lose(run: MessageRun): void {
     run.claim = undefined;
     run.done = true;
     run.result = {
@@ -560,30 +689,37 @@ export function createMailer(options: MailerOptions): Mailer {
       reason: "stale_pending",
       message: "The claim was lost before the next provider call.",
     };
-    safeWarn(logger, LOST_CLAIM, { provider: last?.provider });
-    return false;
+    safeWarn(logger, LOST_CLAIM, { provider: run.attempts.at(-1)?.provider });
+  }
+
+  function finishFor(run: MessageRun): IdempotencyFinishInput {
+    const final = run.result as SendResult;
+    return finishInput({
+      ...(run.claim as NonNullable<MessageRun["claim"]>),
+      attempts: run.attempts,
+      providerMessageId: final.status === "sent" ? final.providerMessageId : undefined,
+      now: clock(),
+    });
+  }
+
+  function unfinished(run: MessageRun, failed: boolean, thrown?: unknown): void {
+    const final = run.result as SendResult;
+    // After a throw the record stays pending and goes stale later. The result still counts.
+    const text = failed ? "mailswitch: the store failed to write the final record." : LOST_CLAIM;
+    const error = failed ? errorName(thrown) : undefined;
+    safeWarn(logger, text, { provider: final.provider, status: final.status, error });
   }
 
   /** Writes the one final record and returns the result of the last attempt. */
   async function finish(run: MessageRun): Promise<SendResult> {
     const final = run.result as SendResult;
     if (!run.claim) return final;
-    let text = LOST_CLAIM;
-    let error: string | undefined;
     try {
-      const done = await finalizeIdempotency(idempotency as IdempotencyStore, {
-        ...run.claim,
-        attempts: run.attempts,
-        providerMessageId: final.status === "sent" ? final.providerMessageId : undefined,
-        now: clock(),
-      });
-      if (done.applied) return final;
+      if (await (idempotency as IdempotencyStore).finish(finishFor(run))) return final;
+      unfinished(run, false);
     } catch (thrown) {
-      // The record stays pending and goes stale later. The provider result still counts.
-      text = "mailswitch: the store failed to write the final record.";
-      error = errorName(thrown);
+      unfinished(run, true, thrown);
     }
-    safeWarn(logger, text, { provider: final.provider, status: final.status, error });
     return final;
   }
 
@@ -599,6 +735,19 @@ export function createMailer(options: MailerOptions): Mailer {
     entries,
     hasStore: idempotency !== undefined,
     start,
+    prepare,
+    claim,
+    claimed,
+    bulkClaims: () => (idempotency && hasBulkIdempotency(idempotency) ? idempotency : undefined),
+    bulkCaps: () => (dailyCaps && hasBulkDailyCap(dailyCaps) ? dailyCaps : undefined),
+    limit,
+    releaseAll,
+    fallsBack,
+    lose,
+    finishInput: finishFor,
+    unfinished,
+    storeError,
+    now: clock,
     reserve,
     refund,
     context,

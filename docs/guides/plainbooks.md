@@ -282,10 +282,11 @@ D1 allows 50 queries in one Worker invocation on the Workers Free plan, and 1,00
 | Work | D1 queries |
 |---|---|
 | A keyed `send` with a daily cap, sent on the first try | 3 |
+| A keyed `sendBatch` of up to 100 invoices, sent on the first try | 4 |
 | Each fallback attempt with a daily cap | 2 more, plus 1 for a refund after `not_sent` |
 | A webhook request, with the D1 dedupe store | 2 for each 500 event keys |
 
-On the Free plan, run at most about 12 invoice sends in one invocation. Leave room for the job table queries of the loop. See [Batch store calls and D1 limits](delivery-safety.md#batch-store-calls-and-d1-limits) for the per-step counts.
+On the Free plan, run at most about 12 single invoice sends in one invocation, or send the due invoices with one `sendBatch`. Leave room for the job table queries of the loop. See [Batch store calls and D1 limits](delivery-safety.md#batch-store-calls-and-d1-limits) for the per-step counts.
 
 ## Bounces and suppression
 
@@ -324,23 +325,27 @@ Notes:
 
 ## The settings screen
 
-The owner of a PlainBooks install picks the provider and enters the keys in a form. Check the keys and send a test email before you save them. `createSendContext` builds the context of these direct adapter calls, so the form code needs no mailer.
+The owner of a PlainBooks install picks the provider and enters the keys in a form. Check the keys and send a test email before you save them. `createSendContext` builds the context of these direct adapter calls, so the form code needs no mailer. `createAdapter` from `mailswitch/registry` builds the adapter of the saved provider id, so the form needs no factory map.
 
 ```ts
 import { createSendContext, parseCredentials, type SendResult, sendTestEmail } from "mailswitch";
-import { getProviderMeta } from "mailswitch/catalog";
-import { resend } from "mailswitch/resend";
+import { getProviderMeta, isProviderId } from "mailswitch/catalog";
+import { createAdapter } from "mailswitch/registry";
 
 declare const form: Record<string, string>;
+declare const providerId: string;
 declare const ownerEmail: string;
 
-export async function checkResendSettings(): Promise<SendResult | string> {
-  const meta = getProviderMeta("resend");
-  if (!meta) return "Unknown provider.";
+export async function checkProviderSettings(): Promise<SendResult | string> {
+  // The http and cloudflare-binding providers need options that a form cannot hold.
+  if (!isProviderId(providerId) || providerId === "http" || providerId === "cloudflare-binding") {
+    return "Pick a provider.";
+  }
+  const meta = getProviderMeta(providerId);
   const parsed = parseCredentials(meta, form);
   if (!parsed.ok) return `Check these fields: ${parsed.errors.map((e) => e.field).join(", ")}`;
 
-  const adapter = resend();
+  const adapter = await createAdapter(providerId);
   const ctx = createSendContext({ credentials: parsed.values, timeoutMs: 10_000 });
   const check = await adapter.verify(ctx);
   if (!check.ok) return `The provider refused the keys: ${check.reason}`;

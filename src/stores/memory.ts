@@ -1,7 +1,7 @@
 // In-memory stores for tests and single-isolate use. The data lives in one isolate only,
 // so do not use these stores in production: a second isolate does not see the claims.
 
-import { bucketExpiry, bucketStartOf, windowFloor } from "../core/daily-cap";
+import { bucketExpiry, bucketStartOf, checkReserveCount, windowFloor } from "../core/daily-cap";
 import { type TokenBucket, takeToken } from "../core/rate-limit";
 import { assertDistinctKeys } from "../internal/distinct-keys";
 import type {
@@ -9,6 +9,7 @@ import type {
   DailyCapReleaseInput,
   DailyCapReservation,
   DailyCapReserveInput,
+  DailyCapReserveManyInput,
   DailyCapStore,
   DedupeClaimInput,
   DedupeClaimManyInput,
@@ -33,6 +34,7 @@ export type {
   DailyCapReleaseInput,
   DailyCapReservation,
   DailyCapReserveInput,
+  DailyCapReserveManyInput,
   DailyCapStore,
   DedupeClaimInput,
   DedupeClaimManyInput,
@@ -67,6 +69,10 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
   readonly #records = new Map<string, IdempotencyRecord>();
 
   async claim(input: IdempotencyClaimInput): Promise<IdempotencyClaimOutcome> {
+    return this.#claim(input);
+  }
+
+  #claim(input: IdempotencyClaimInput): IdempotencyClaimOutcome {
     const { key, payloadHash, claimId, now, pendingTimeoutMs } = input;
     const current = this.#records.get(key);
     const free =
@@ -104,6 +110,10 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
   }
 
   async touch(input: IdempotencyTouchInput): Promise<boolean> {
+    return this.#touch(input);
+  }
+
+  #touch(input: IdempotencyTouchInput): boolean {
     const record = this.#fenced(input.key, input.claimId);
     if (!record) return false;
     if (input.attempt) record.attempts.push({ ...input.attempt });
@@ -112,6 +122,10 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
   }
 
   async finish(input: IdempotencyFinishInput): Promise<boolean> {
+    return this.#finish(input);
+  }
+
+  #finish(input: IdempotencyFinishInput): boolean {
     const record = this.#fenced(input.key, input.claimId);
     if (!record) return false;
     record.state = input.state;
@@ -123,6 +137,22 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
       record.expiresAt = input.expiresAt;
     }
     return true;
+  }
+
+  /** Claims each key in one synchronous pass, so the call is atomic inside one isolate. */
+  async claimMany(inputs: readonly IdempotencyClaimInput[]): Promise<IdempotencyClaimOutcome[]> {
+    assertDistinctKeys(inputs.map((input) => input.key));
+    return inputs.map((input) => this.#claim(input));
+  }
+
+  /** Touches each claim in one synchronous pass. */
+  async touchMany(inputs: readonly IdempotencyTouchInput[]): Promise<boolean[]> {
+    return inputs.map((input) => this.#touch(input));
+  }
+
+  /** Writes each final state in one synchronous pass. */
+  async finishMany(inputs: readonly IdempotencyFinishInput[]): Promise<boolean[]> {
+    return inputs.map((input) => this.#finish(input));
   }
 
   async release(key: string, options: { expectedState: "unknown" }): Promise<boolean> {
@@ -184,6 +214,10 @@ export class MemoryDailyCapStore implements DailyCapStore {
   }
 
   async reserve(input: DailyCapReserveInput): Promise<DailyCapReservation> {
+    return this.#reserve(input);
+  }
+
+  #reserve(input: DailyCapReserveInput): DailyCapReservation {
     const buckets = this.#buckets(input.scope, input.now);
     if (this.#sum(buckets) >= input.cap) {
       const oldest = Math.min(...buckets.keys());
@@ -195,10 +229,38 @@ export class MemoryDailyCapStore implements DailyCapStore {
   }
 
   async release(input: DailyCapReleaseInput): Promise<void> {
+    this.#release(input);
+  }
+
+  #release(input: DailyCapReleaseInput): void {
     const buckets = this.#buckets(input.scope, input.now);
     const used = buckets.get(input.bucketStart) ?? 0;
     if (used > 1) buckets.set(input.bucketStart, used - 1);
     else buckets.delete(input.bucketStart);
+  }
+
+  /**
+   * Reserves each unit in one synchronous pass, so the call is atomic inside one isolate.
+   * The first units get the room that is left. The others are refused.
+   */
+  async reserveMany(input: DailyCapReserveManyInput): Promise<DailyCapReservation[]> {
+    const count = checkReserveCount(input.count);
+    const single = { scope: input.scope, cap: input.cap, now: input.now };
+    const out: DailyCapReservation[] = [];
+    for (let i = 0; i < count; i++) {
+      const reservation = this.#reserve(single);
+      out.push(reservation);
+      if (reservation.ok) continue;
+      // A refusal changes nothing, so each later unit gets the same refusal.
+      while (out.length < count) out.push({ ok: false, resetAt: reservation.resetAt });
+      break;
+    }
+    return out;
+  }
+
+  /** Refunds each input in one synchronous pass. */
+  async releaseMany(inputs: readonly DailyCapReleaseInput[]): Promise<void> {
+    for (const input of inputs) this.#release(input);
   }
 
   async fill(input: DailyCapFillInput): Promise<void> {
