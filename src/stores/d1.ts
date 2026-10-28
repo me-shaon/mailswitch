@@ -31,6 +31,7 @@ export type {
   DailyCapReleaseInput,
   DailyCapReservation,
   DailyCapReserveInput,
+  DailyCapReserveManyInput,
   DailyCapStore,
   DedupeClaimInput,
   DedupeClaimManyInput,

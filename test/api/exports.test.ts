@@ -3,8 +3,12 @@
 // this test, so every addition to the public API is a deliberate change of this file.
 // Type-only exports have no runtime value, so this list does not cover them.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import pkg from "../../package.json";
+import type { DailyCapReserveManyInput as RootReserveManyInput } from "../../src/index";
+import type { DailyCapReserveManyInput as D1ReserveManyInput } from "../../src/stores/d1";
+import type { DailyCapReserveManyInput as MemoryReserveManyInput } from "../../src/stores/memory";
+import type { DailyCapReserveManyInput } from "../../src/stores/types";
 
 const ENTRIES: Record<string, { load: () => Promise<object>; names: string[] }> = {
   ".": {
@@ -484,4 +488,10 @@ describe("public API", () => {
       expect(names).toEqual([...entry.names].sort());
     });
   }
+
+  it("exports the bulk store input types", () => {
+    expectTypeOf<RootReserveManyInput>().toEqualTypeOf<DailyCapReserveManyInput>();
+    expectTypeOf<D1ReserveManyInput>().toEqualTypeOf<DailyCapReserveManyInput>();
+    expectTypeOf<MemoryReserveManyInput>().toEqualTypeOf<DailyCapReserveManyInput>();
+  });
 });

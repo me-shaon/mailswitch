@@ -114,6 +114,19 @@ export interface IdempotencyFinishInput {
  *
  * Implementations must make `claim` atomic. An eventually consistent store, such as KV,
  * is not safe.
+ *
+ * The bulk methods `claimMany`, `touchMany`, and `finishMany` are optional. `sendBatch`
+ * uses them only when a store has all three, and only when each bulk method comes from
+ * the same object in the prototype chain as the single method that it replaces. Each
+ * bulk method must give the same results as its single method in a loop.
+ *
+ * Rules for each bulk method:
+ * - It returns one result for each input, in input order.
+ * - The call is atomic: it applies all inputs or no input.
+ * - A throw does not prove that no input was applied. The call can commit and then lose
+ *   its response. The caller treats a throw as a failure of every input in the call and
+ *   does not retry the call.
+ * - Callers give at most 100 inputs in one call.
  */
 export interface IdempotencyStore {
   claim(input: IdempotencyClaimInput): Promise<IdempotencyClaimOutcome>;
@@ -138,6 +151,21 @@ export interface IdempotencyStore {
    * `pending` or `unknown` records. Returns the number of deleted records.
    */
   purgeExpired(now: number): Promise<number>;
+  /**
+   * Claims each key as `claim` does. Returns one outcome for each input, in input order.
+   * It throws a TypeError for a repeated key and then claims no key.
+   */
+  claimMany?(inputs: readonly IdempotencyClaimInput[]): Promise<IdempotencyClaimOutcome[]>;
+  /**
+   * Touches each claim as `touch` does. Returns one result for each input, in input
+   * order. False means that the claim of that input is lost.
+   */
+  touchMany?(inputs: readonly IdempotencyTouchInput[]): Promise<boolean[]>;
+  /**
+   * Writes each final state as `finish` does. Returns one result for each input, in input
+   * order. False means that the write of that input did not apply.
+   */
+  finishMany?(inputs: readonly IdempotencyFinishInput[]): Promise<boolean[]>;
 }
 
 /** The input of `DailyCapStore.reserve`. */
@@ -160,6 +188,18 @@ export interface DailyCapReserveInput {
 export type DailyCapReservation =
   | { ok: true; bucketStart: number }
   | { ok: false; resetAt: number };
+
+/** The input of `DailyCapStore.reserveMany`. */
+export interface DailyCapReserveManyInput {
+  /** The cap scope, usually the provider id. One scope is one counter. */
+  scope: string;
+  /** The most units in the rolling 24-hour window. A positive integer. */
+  cap: number;
+  /** The number of units to reserve. A non-negative integer. */
+  count: number;
+  /** Unix milliseconds. */
+  now: number;
+}
 
 /** The input of `DailyCapStore.release`. */
 export interface DailyCapReleaseInput {
@@ -184,6 +224,18 @@ export interface DailyCapFillInput {
  *
  * Implementations must make `reserve` atomic: two parallel calls cannot both take the
  * last unit. A read followed by a write is not safe.
+ *
+ * The bulk methods `reserveMany` and `releaseMany` are optional. `sendBatch` uses them
+ * only when a store has both, and only when each bulk method comes from the same object
+ * in the prototype chain as the single method that it replaces. Each bulk method must
+ * give the same results as its single method in a loop.
+ *
+ * Rules for each bulk method:
+ * - The call is atomic: it applies all units or no unit.
+ * - A throw does not prove that no unit was applied. The call can commit and then lose
+ *   its response. The caller treats a throw as a failure of every unit in the call and
+ *   does not retry the call.
+ * - Callers give at most 100 units or inputs in one call.
  */
 export interface DailyCapStore {
   /** Reserves one unit when the window has room. */
@@ -194,6 +246,15 @@ export interface DailyCapStore {
   fill(input: DailyCapFillInput): Promise<void>;
   /** The units in the window now. For operators and tests. */
   used(scope: string, now: number): Promise<number>;
+  /**
+   * Reserves `count` units as `reserve` does in a loop. Returns one reservation for each
+   * unit, in order. When the window has room for only k units, the first k reservations
+   * are granted and the others are refused with the reset time. All granted units are
+   * in one bucket.
+   */
+  reserveMany?(input: DailyCapReserveManyInput): Promise<DailyCapReservation[]>;
+  /** Refunds each input as `release` does, in input order. */
+  releaseMany?(inputs: readonly DailyCapReleaseInput[]): Promise<void>;
 }
 
 /** The input of `RateLimitStore.acquire`. */
