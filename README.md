@@ -4,7 +4,7 @@
 
 # mailswitch
 
-**Email for Cloudflare Workers. Switch email providers without a code change or a redeploy.**
+**A transactional email library for Cloudflare Workers. Send through any provider, and switch providers without a code change or a redeploy.**
 
 An admin of your app picks the provider on a settings screen: Resend, Postmark, Amazon SES, an SMTP server, or another supported service. Your send code stays the same. mailswitch also gives you the parts of that screen: provider fields, credential checks, test emails, and encrypted key storage.
 
