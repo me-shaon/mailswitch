@@ -93,7 +93,9 @@ export function dailyCapStoreSuite(name: string, make: () => Promise<DailyCapSto
 
     it("gives the last unit to exactly one of 100 parallel reserves", async () => {
       const store = await make();
-      await reserveMany(store, "a", 100, T0, 99);
+      // One fill call sets 99 used units. Sequential reserves here made the test slow
+      // enough to time out on a busy machine.
+      await store.fill({ scope: "a", cap: 99, now: T0 });
       const results = await Promise.all(
         Array.from({ length: 100 }, () => store.reserve({ scope: "a", cap: 100, now: T0 })),
       );
