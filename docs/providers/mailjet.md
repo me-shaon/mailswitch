@@ -180,7 +180,7 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 | `bounce` with `hard_bounce: true` | `bounced`, `hard` |
 | `bounce` with any other `hard_bounce` value | `bounced`, `soft` |
 | `spam` | `complained` |
-| `unsub` | `unsubscribed` |
+| `unsub` | `unsubscribed`, when `mj_list_id` is empty. An `unsub` for one contact list stays `unknown`. |
 | Any other event, for example `blocked`, `open`, or `click` | `unknown` |
 
 `rawType` is the `event` field. `recipient` is `email`. `occurredAt` is `time` in milliseconds.

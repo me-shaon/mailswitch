@@ -125,12 +125,21 @@ function verifier(
 
 const MESSAGE_ID = /"MessageID"\s*:\s*(\d+)/g;
 
+/** True when `mj_list_id` names a contact list. Mailjet sends `""` or `0` for none. */
+function hasListId(value: unknown): boolean {
+  return (
+    (typeof value === "string" && value !== "" && value !== "0") ||
+    (typeof value === "number" && value !== 0)
+  );
+}
+
 /**
  * Parses a verified Mailjet body: one event object, or a list when grouping is on. An
  * entry with no event name is skipped. A repeated event key is kept once.
  *
  * - `sent` maps to `delivered`, `bounce` to `bounced`, `spam` to `complained`, and
- *   `unsub` to `unsubscribed`. Every other event gives `unknown`.
+ *   `unsub` to `unsubscribed`. An `unsub` with a contact list id in `mj_list_id` opts out
+ *   of that list only, so it gives `unknown`. Every other event gives `unknown`.
  * - `rawType` is the `event` field. `occurredAt` is `time`, in Unix seconds.
  * - `providerMessageId` is `Message_GUID`, else the `MessageID` digits.
  * - `MessageID` is a 64-bit integer, beyond the safe range of a JS number. The parser
@@ -175,7 +184,8 @@ export function parseMailjetEvents(provider: string, body: Uint8Array): Normaliz
     const event: NormalizedEvent = { type: "unknown", provider, eventKey, rawType };
     if (rawType === "sent") event.type = "delivered";
     else if (rawType === "spam") event.type = "complained";
-    else if (rawType === "unsub") event.type = "unsubscribed";
+    // An unsub with a list id opts out of one contact list only, so it stays unknown.
+    else if (rawType === "unsub" && !hasListId(item.mj_list_id)) event.type = "unsubscribed";
     else if (rawType === "bounce") {
       event.type = "bounced";
       event.bounce = item.hard_bounce === true ? "hard" : "soft";

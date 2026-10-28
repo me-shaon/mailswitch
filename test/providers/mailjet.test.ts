@@ -754,4 +754,15 @@ describe("mailjet unsubscribe", () => {
     });
     expect(events[0]?.bounce).toBeUndefined();
   });
+
+  it("keeps an unsub from one contact list as unknown", () => {
+    for (const listId of [1234, "1234"]) {
+      const body = utf8(JSON.stringify(mailjetEvent("unsub", { mj_list_id: listId })));
+      expect(mailjet().webhooks.parse(body, new Headers())[0]?.type).toBe("unknown");
+    }
+    for (const listId of ["", 0, "0"]) {
+      const body = utf8(JSON.stringify(mailjetEvent("unsub", { mj_list_id: listId })));
+      expect(mailjet().webhooks.parse(body, new Headers())[0]?.type).toBe("unsubscribed");
+    }
+  });
 });
