@@ -86,13 +86,13 @@ See the [provider comparison and guides](docs/providers/README.md) for imports, 
 
 ## Receive webhooks
 
-Verify incoming webhooks and turn provider-specific events into one format. Use a dedupe store to track handled events, and acknowledge them after processing.
+Verify incoming webhooks and turn provider-specific events into one format. Each event is `bounced`, `complained`, `delivered`, `unsubscribed`, or `unknown`. A bounce carries the provider's reason when the provider sends one. Use a dedupe store to track handled events, and acknowledge them after processing.
 
 [Webhook example and provider retry rules →](docs/guides/usage.md#receive-webhooks)
 
 ## Send a batch
 
-Send fully built messages with `sendBatch()` and get one result per message. Configure an idempotency store and give each message its own key for batch retry protection. Build or render your templates before sending.
+Send fully built messages with `sendBatch()` and get one result per message. Configure an idempotency store and give each message its own key for batch retry protection. With the D1 stores, a keyed batch of up to 100 messages makes about 4 D1 queries in total, so it fits in one Worker invocation on the Free plan. Build or render your templates before sending.
 
 [Batch example →](docs/guides/usage.md#send-a-batch)
 
