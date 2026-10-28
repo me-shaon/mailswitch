@@ -1,5 +1,11 @@
 # mailswitch
 
+## 1.1.1
+
+### Patch Changes
+
+- b911ebc: The README lists the normalized webhook event types and the bounce reason, and gives the D1 query cost of a keyed `sendBatch`.
+
 ## 1.1.0
 
 ### Minor Changes
