@@ -231,6 +231,19 @@ export function ahasendFixture(): ConformanceFixture {
           expected: [{ type: "complained", recipient: "ana@example.org" }],
         },
         {
+          label: "unsubscribe",
+          // The provider docs do not confirm the shape of this payload.
+          body: ahasendEvent("message.unsubscribed", { recipient: "cy@example.org" }),
+          expected: [
+            {
+              type: "unsubscribed",
+              rawType: "message.unsubscribed",
+              recipient: "cy@example.org",
+              providerMessageId: AHASEND_FIXTURE_MESSAGE_ID,
+            },
+          ],
+        },
+        {
           label: "an event type that mailswitch does not map",
           body: ahasendEvent("message.opened"),
           expected: [{ type: "unknown", rawType: "message.opened" }],

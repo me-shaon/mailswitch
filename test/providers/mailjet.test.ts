@@ -669,12 +669,12 @@ describe("mailjet webhooks", () => {
       { time: 1, email: "a@example.org" },
       mailjetEvent("open"),
       mailjetEvent("open"),
-      mailjetEvent("unsub"),
+      mailjetEvent("click"),
     ]);
     const events = parseMailjetEvents("mailjet", utf8(text));
     expect(events.map((event) => [event.type, event.rawType])).toEqual([
       ["unknown", "open"],
-      ["unknown", "unsub"],
+      ["unknown", "click"],
     ]);
     expect(parseMailjetEvents("mailjet", utf8("not json"))).toEqual([]);
   });
@@ -738,5 +738,31 @@ describe("mailjet bounce detail", () => {
   it("gives no detail to a blocked event that carries error", () => {
     const events = parse(mailjetEvent("blocked", { error: "preblocked" }));
     expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+});
+
+describe("mailjet unsubscribe", () => {
+  it("maps unsub to unsubscribed with the recipient and message id", () => {
+    const body = utf8(JSON.stringify(mailjetEvent("unsub", { email: "cy@example.org" })));
+    const events = mailjet().webhooks.parse(body, new Headers());
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      rawType: "unsub",
+      recipient: "cy@example.org",
+      providerMessageId: "1ab23cd4-e567-4901-a345-6789f0ab1c2d",
+    });
+    expect(events[0]?.bounce).toBeUndefined();
+  });
+
+  it("keeps an unsub from one contact list as unknown", () => {
+    for (const listId of [1234, "1234"]) {
+      const body = utf8(JSON.stringify(mailjetEvent("unsub", { mj_list_id: listId })));
+      expect(mailjet().webhooks.parse(body, new Headers())[0]?.type).toBe("unknown");
+    }
+    for (const listId of ["", 0, "0"]) {
+      const body = utf8(JSON.stringify(mailjetEvent("unsub", { mj_list_id: listId })));
+      expect(mailjet().webhooks.parse(body, new Headers())[0]?.type).toBe("unsubscribed");
+    }
   });
 });

@@ -417,7 +417,7 @@ describe("mailtrap webhooks", () => {
       ["spam", { type: "complained" }],
       ["reject", { type: "unknown" }],
       ["suspension", { type: "unknown" }],
-      ["unsubscribe", { type: "unknown" }],
+      ["unsubscribe", { type: "unsubscribed" }],
       ["open", { type: "unknown" }],
       ["click", { type: "unknown" }],
     ];
@@ -471,5 +471,20 @@ describe("mailtrap webhooks", () => {
     expect(first.events).toMatchObject([{ type: "bounced", bounce: "soft" }]);
     await first.ack();
     expect(await send()).toMatchObject({ ok: true, events: [] });
+  });
+});
+
+describe("mailtrap unsubscribe", () => {
+  it("maps unsubscribe to unsubscribed with the recipient and message id", () => {
+    const body = utf8(mailtrapEvents(mailtrapEvent("unsubscribe", { email: "cy@example.org" })));
+    const events = parseMailtrapEvents("mailtrap", body);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      rawType: "unsubscribe",
+      recipient: "cy@example.org",
+      providerMessageId: MAILTRAP_FIXTURE_MESSAGE_ID,
+      eventKey: "mailtrap-event-unsubscribe-0001",
+    });
   });
 });

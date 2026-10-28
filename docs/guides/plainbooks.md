@@ -292,7 +292,7 @@ On the Free plan, run at most about 12 invoice sends in one invocation. Leave ro
 mailswitch turns provider webhooks into normalized events. It does not keep a suppression list. The app owns that list.
 
 1. Add a `suppressed_addresses` table with the address, the reason, and the time.
-2. In the webhook route, add the recipient of each hard bounce and each complaint to the table. Use the handler from the [README](../../README.md#receive-webhooks).
+2. In the webhook route, add the recipient of each hard bounce, each complaint, and each unsubscribe to the table. Use the handler from the [README](../../README.md#receive-webhooks).
 3. Before each send, check the recipients against the table. Do not send to a suppressed address. Mark the job as `failed` with a clear reason.
 4. Let the owner remove an address from the list, for example after a client fixes their mailbox.
 
@@ -303,7 +303,8 @@ declare const env: { DB: D1Database };
 
 export async function suppressFromEvent(event: NormalizedEvent): Promise<void> {
   const hard = event.type === "bounced" && event.bounce === "hard";
-  if (!(hard || event.type === "complained") || !event.recipient) return;
+  const stop = hard || event.type === "complained" || event.type === "unsubscribed";
+  if (!stop || !event.recipient) return;
   await env.DB.prepare(
     "INSERT INTO suppressed_addresses (address, reason, created_at) VALUES (?1, ?2, ?3) ON CONFLICT (address) DO NOTHING",
   )
@@ -317,6 +318,7 @@ Notes:
 - Resend sets `recipient` only when the email had one `to` address. Send each invoice to one address in `to`, and put other people in `cc`.
 - toSend does not retry webhooks. After an outage, check the toSend logs for missed bounces.
 - A soft bounce is temporary. Do not suppress the address for one soft bounce.
+- An `unsubscribed` event means that the recipient opted out of all mail from you. AutoSend sends no recipient with this event, so match `providerMessageId` to your send records to find the address. Resend, toSend, and Amazon SES send no unsubscribe event.
 - `event.bounceDetail` holds the provider's reason when it sends one: `text`, and sometimes `smtpCode` and `enhancedCode`. Show the text to the owner next to the suppressed address. It comes from a remote mail server and can hold the recipient address, so escape it for HTML and do not log it.
 - Call `ack()` only after the suppression rows are written. If the write fails, answer non-2xx without `ack()`.
 

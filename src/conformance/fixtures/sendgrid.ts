@@ -228,6 +228,19 @@ export function sendgridFixture(): ConformanceFixture {
           ],
         },
         {
+          label: "unsubscribe",
+          body: JSON.stringify([sendgridEvent("unsubscribe", { email: "cy@example.org" })]),
+          expected: [
+            {
+              type: "unsubscribed",
+              rawType: "unsubscribe",
+              recipient: "cy@example.org",
+              providerMessageId: SG_MESSAGE_ID,
+              eventKey: "sg-unsubscribe-0001",
+            },
+          ],
+        },
+        {
           label: "an event that mailswitch does not map",
           body: JSON.stringify([sendgridEvent("open", { useragent: "Mozilla/5.0" })]),
           expected: [{ type: "unknown", rawType: "open", eventKey: "sg-open-0001" }],

@@ -4,7 +4,7 @@
 
 # mailswitch
 
-**Email for Cloudflare Workers. Switch email providers without a code change or a redeploy.**
+**A transactional email library for Cloudflare Workers. Send through any provider, and switch providers without a code change or a redeploy.**
 
 An admin of your app picks the provider on a settings screen: Resend, Postmark, Amazon SES, an SMTP server, or another supported service. Your send code stays the same. mailswitch also gives you the parts of that screen: provider fields, credential checks, test emails, and encrypted key storage.
 
@@ -120,6 +120,15 @@ Build a “bring your own email provider” form with provider metadata, credent
 - [Envelopen migration](docs/guides/envelopen.md): move from `@envelopen/providers`.
 - [Example Worker](examples/worker-basic/): send an invoice and receive webhooks.
 - [Add a provider](docs/guides/add-a-provider.md) · [Release guide](docs/guides/releasing.md)
+
+## Versioning
+
+mailswitch follows semantic versioning. A major release can break your code. A minor or a patch release cannot, with one exception:
+
+- A minor release can add a value to these string unions: `NormalizedEventType`, `WebhookRejection`, and `FailureReason`. New providers and new checks need new values. Give each `switch` on these types a `default` case.
+- `DeliveryStatus` is fixed. It is always `sent`, `not_sent`, or `unknown`. Base retry and fallback decisions on the status, not on the reason.
+
+The sample bodies of `mailswitch/conformance/fixtures` follow the provider docs, and a minor release can change them. Their export names and helper signatures follow semantic versioning.
 
 ## License
 

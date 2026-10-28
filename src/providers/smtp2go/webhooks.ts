@@ -135,6 +135,9 @@ function millis(value: unknown): number | undefined {
  * Parses a verified SMTP2GO JSON body: one event object, or a list. An entry with no
  * `event` is skipped. A repeated event key is kept once.
  *
+ * - `delivered` maps to `delivered`, `bounce` to `bounced`, `spam` to `complained`, and
+ *   `unsubscribe` to `unsubscribed`. Every other event, such as `resubscribe`, gives
+ *   `unknown`.
  * - The event key joins `id`, `event`, `email_id`, `rcpt`, and `time`. The docs call `id`
  *   the id of the webhook, so `id` alone can be the same for two events.
  * - `providerMessageId` is `email_id`, the id of the send answer. `recipient` is `rcpt`.
@@ -164,6 +167,7 @@ export function parseSmtp2goEvents(provider: string, body: Uint8Array): Normaliz
     const bounce = text(item, "bounce");
     if (rawType === "delivered") event.type = "delivered";
     else if (rawType === "spam") event.type = "complained";
+    else if (rawType === "unsubscribe") event.type = "unsubscribed";
     else if (rawType === "bounce") {
       event.type = "bounced";
       if (bounce === "hard" || bounce === "soft") event.bounce = bounce;

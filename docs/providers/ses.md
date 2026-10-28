@@ -189,7 +189,9 @@ The adapter keeps each certificate in memory for 24 hours, per certificate URL. 
 | `Bounce` with another `bounceType` | `bounced`, with `bounce: "soft"` |
 | `Complaint` | `complained` |
 | `Complaint` with feedback type `not-spam` | `unknown` |
-| Every other type, for example `Send`, `Reject`, `Open`, or `Click` | `unknown` |
+| Every other type, for example `Send`, `Reject`, `Open`, `Click`, or `Subscription` | `unknown` |
+
+SES sends no unsubscribe event for a transactional message, so the SES adapter never gives `unsubscribed`. The `Subscription` event is about SES subscription management and contact lists. It stays `unknown`.
 
 The adapter reads `eventType` (event publishing) and `notificationType` (identity notifications). One SES event can name more than one recipient. The adapter gives one normalized event for each recipient.
 

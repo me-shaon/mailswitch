@@ -99,7 +99,7 @@ The signature covers no timestamp. mailswitch cannot tell an old request from a 
 1. In the MailerSend app, open **Domains** under **Email**. Click **Manage** next to the sending domain.
 2. In **Webhooks**, click **Add webhook**. Enter a name and the HTTPS URL of your endpoint.
 3. Select the webhook version **V2**. mailswitch also reads the fields of the older payload shape.
-4. Select **activity.delivered**, **activity.soft_bounced**, **activity.hard_bounced**, and **activity.spam_complaint**. You can select other events. mailswitch gives them the type `unknown`.
+4. Select **activity.delivered**, **activity.soft_bounced**, **activity.hard_bounced**, **activity.spam_complaint**, and **activity.unsubscribed**. You can select other events. mailswitch gives them the type `unknown`.
 5. Save the webhook. Open it again and copy its signing secret.
 6. Store the signing secret as the webhook secret, for example in `MAILERSEND_WEBHOOK_SECRET`.
 
@@ -148,6 +148,7 @@ One request holds one event. mailswitch gives one normalized event.
 | `activity.hard_bounced` | `bounced`, `hard` |
 | `activity.soft_bounced` | `bounced`, `soft` |
 | `activity.spam_complaint` | `complained` |
+| `activity.unsubscribed` | `unsubscribed` |
 | Any other type, for example `activity.opened` or `activity.sent` | `unknown` |
 
 The spam complaint example of MailerSend has the type `spam_complaints` in `data.type`. mailswitch reads the top-level `type`. It also accepts `activity.spam_complaints` there.

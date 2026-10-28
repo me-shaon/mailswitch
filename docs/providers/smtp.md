@@ -188,7 +188,7 @@ Brevo sets bearer auth only through its API. Run this command once, with your Br
 curl -X POST https://api.brevo.com/v3/webhooks \
   -H "api-key: YOUR_API_KEY" \
   -H "content-type: application/json" \
-  -d '{"type":"transactional","url":"https://app.example.com/hooks/brevo","events":["delivered","hardBounce","softBounce","invalid","spam"],"auth":{"type":"bearer","token":"YOUR_TOKEN"}}'
+  -d '{"type":"transactional","url":"https://app.example.com/hooks/brevo","events":["delivered","hardBounce","softBounce","invalid","spam","unsubscribed"],"auth":{"type":"bearer","token":"YOUR_TOKEN"}}'
 ```
 
 `BREVO_WEBHOOK_EVENTS` holds the list of events.
@@ -238,6 +238,7 @@ The token does not cover the body. Use HTTPS for the webhook URL, so nobody can 
 | `hard_bounce`, `invalid_email` | `bounced`, `hard` |
 | `soft_bounce` | `bounced`, `soft` |
 | `spam` | `complained` |
+| `unsubscribed` | `unsubscribed` |
 | Any other event, for example `opened` or `blocked` | `unknown` |
 
 `rawType` is the Brevo event name. One request can hold one event, or a list when Brevo batching is on.

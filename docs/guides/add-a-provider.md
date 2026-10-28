@@ -418,7 +418,8 @@ async function verifyWebhook(input: WebhookVerifyInput): Promise<WebhookVerifyRe
 ### Parse rules
 
 - Return one `NormalizedEvent` per provider event. A body can hold more than one event.
-- Map each provider type to `bounced`, `complained`, or `delivered`. Map every other type to `unknown`. Do not drop it, and do not fail.
+- Map each provider type to `bounced`, `complained`, `delivered`, or `unsubscribed`. Map every other type to `unknown`. Do not drop it, and do not fail.
+- Use `unsubscribed` only when the recipient opted out of all mail from the sender. Map an opt-out from one group or list to `unknown`.
 - Set `bounce` to `hard` or `soft` only on a `bounced` event.
 - Set `bounceDetail` only on a `bounced` event, and only from fields that the provider sends. Put the reason text in `text`. Set `smtpCode` and `enhancedCode` only when the provider sends them as their own fields. Do not read codes out of the text. Remove control and invisible characters from the text, and cut it at 1,000 characters. The conformance suite fails an event that breaks these rules.
 - Set `rawType` to the provider type, exactly.

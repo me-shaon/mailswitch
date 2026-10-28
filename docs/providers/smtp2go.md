@@ -133,7 +133,7 @@ A secret that is too short is a setup error. The webhook check refuses each requ
 4. Set the URL to your https endpoint.
 5. Set the output format to **JSON** (`output_format: "json"`). The default is form encoded. mailswitch refuses a form body as `malformed`.
 6. Set `auth_header_type` and `auth_header_value` from step 2.
-7. Select the `delivered`, `bounce`, and `spam` events. You can add other events. mailswitch gives them the type `unknown`.
+7. Select the `delivered`, `bounce`, `spam`, and `unsubscribe` events. You can add other events. mailswitch gives them the type `unknown`.
 
 ```ts
 import { generateSmtp2goWebhookSecret, smtp2goWebhookAuth } from "mailswitch/smtp2go";
@@ -142,7 +142,7 @@ const secret = generateSmtp2goWebhookSecret();
 const body = {
   url: "https://app.example.com/hooks/smtp2go",
   output_format: "json",
-  events: ["delivered", "bounce", "spam"],
+  events: ["delivered", "bounce", "spam", "unsubscribe"],
   ...smtp2goWebhookAuth(secret),
 };
 console.log(JSON.stringify(body));
@@ -207,7 +207,8 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 | `bounce` with `bounce: "soft"` | `bounced`, `soft` |
 | `bounce` with no `hard` or `soft` value | `bounced`, with no bounce class |
 | `spam` | `complained` |
-| Any other event, for example `processed`, `open`, `click`, `unsubscribe`, `resubscribe`, or `reject` | `unknown` |
+| `unsubscribe` | `unsubscribed` |
+| Any other event, for example `processed`, `open`, `click`, `resubscribe`, or `reject` | `unknown` |
 
 `rawType` is the `event` field. `recipient` is `rcpt`. `providerMessageId` is `email_id`, the id of the send answer. `occurredAt` is `time` in milliseconds. mailswitch reads `time` as a date text or as a Unix time.
 

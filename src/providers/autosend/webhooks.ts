@@ -26,6 +26,7 @@ const TYPES: Readonly<Record<string, NormalizedEventType>> = {
   "email.delivered": "delivered",
   "email.bounced": "bounced",
   "email.spam_reported": "complained",
+  "email.unsubscribed": "unsubscribed",
 };
 
 /** The HMAC key of a secret: the trimmed secret as UTF-8. */
@@ -73,12 +74,14 @@ function recipientOf(data: Record<string, unknown> | undefined): string | undefi
  *   neither gives `unknown`. The `X-Webhook-Event` header is never read.
  * - `email.delivered` maps to `delivered`, `email.spam_reported` to `complained`, and
  *   `email.bounced` to `bounced`. `bounceType: Permanent` is hard and `Transient` is soft.
- *   Any other bounce type has no class. Every other event gives `unknown`.
+ *   Any other bounce type has no class. `email.unsubscribed` maps to `unsubscribed`. Every
+ *   other event, such as `email.group_unsubscribed`, gives `unknown`.
  * - The event key is the SHA-256 of the type, `data.emailId`, the lowercase recipient,
  *   and `createdAt`. When `data.emailId` or `createdAt` is missing, the key is the SHA-256
  *   of the raw body. The `X-Webhook-Delivery-Id` header is never read.
  * - `providerMessageId` is `data.emailId`, the id in the send result. `recipient` is
- *   `data.to.email`. `occurredAt` is `createdAt` in Unix milliseconds.
+ *   `data.to.email`. An `email.unsubscribed` body has no recipient, so `recipient` is not
+ *   set. `occurredAt` is `createdAt` in Unix milliseconds.
  */
 export function parseAutosendEvents(provider: string, body: Uint8Array): NormalizedEvent[] {
   const root = asRecord(decodeJsonBytes(body));

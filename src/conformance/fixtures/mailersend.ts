@@ -203,6 +203,25 @@ export function mailersendFixture(): ConformanceFixture {
           expected: [{ type: "complained", rawType: "activity.spam_complaint" }],
         },
         {
+          label: "unsubscribe",
+          body: JSON.stringify(
+            mailersendEvent("activity.unsubscribed", {
+              recipient: "bo@example.org",
+              // The provider docs do not confirm the shape of this payload.
+              meta: { reason: "NO_LONGER_WANT" },
+            }),
+          ),
+          expected: [
+            {
+              type: "unsubscribed",
+              recipient: "bo@example.org",
+              providerMessageId: MESSAGE_ID,
+              rawType: "activity.unsubscribed",
+              eventKey: "act-unsubscribed-0001",
+            },
+          ],
+        },
+        {
           label: "an event that mailswitch does not map",
           body: JSON.stringify(mailersendEvent("activity.opened")),
           expected: [{ type: "unknown", rawType: "activity.opened", eventKey: "act-opened-0001" }],

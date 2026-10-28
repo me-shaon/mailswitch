@@ -157,6 +157,8 @@ Use the full handler from the [README](../../README.md#receive-webhooks): answer
 | `email.complained` | `complained` |
 | Any other type, such as `email.failed` | `unknown`, with the Resend type in `rawType` |
 
+Resend sends no unsubscribe event, so the Resend adapter never gives `unsubscribed`.
+
 `recipient` is set only when the email had exactly one `to` address. `providerMessageId` is the Resend email ID. It matches the `providerMessageId` of the `sent` result.
 
 ### Bounce detail

@@ -6,6 +6,7 @@ import {
   postmarkBounce,
   postmarkDelivery,
   postmarkFixture,
+  postmarkSubscriptionChange,
 } from "../../src/conformance/fixtures/postmark";
 import { mockFetch, type RecordedExchange } from "../../src/conformance/mock-fetch";
 import type { SendContext } from "../../src/core/adapter";
@@ -371,5 +372,46 @@ describe("postmark bounce detail", () => {
 
   it("gives no detail to a delivery", () => {
     expect(parse(postmarkDelivery("ana@example.org"))[0]?.bounceDetail).toBeUndefined();
+  });
+});
+
+describe("postmark unsubscribe", () => {
+  const MESSAGE_ID = "883953f4-6105-42a2-a16a-77a8eac79483";
+
+  const parse = (body: string) => postmark().webhooks?.parse(utf8(body), new Headers()) ?? [];
+
+  it("maps a recipient unsubscribe to unsubscribed", () => {
+    const events = parse(postmarkSubscriptionChange("bo@example.org"));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      recipient: "bo@example.org",
+      providerMessageId: MESSAGE_ID,
+      rawType: "SubscriptionChange",
+      occurredAt: Date.parse("2026-10-26T12:00:05Z"),
+    });
+    expect(events[0]?.bounce).toBeUndefined();
+  });
+
+  it.each([
+    ["a reactivation", { suppressSending: false }],
+    ["a hard bounce suppression", { suppressionReason: "HardBounce" }],
+    ["a spam complaint suppression", { suppressionReason: "SpamComplaint" }],
+    ["a suppression by the customer", { origin: "Customer" }],
+    ["a suppression by an admin", { origin: "Admin" }],
+  ])("keeps %s as unknown", (_label, options) => {
+    const events = parse(postmarkSubscriptionChange("bo@example.org", options));
+    expect(events[0]).toMatchObject({ type: "unknown", rawType: "SubscriptionChange" });
+  });
+
+  it("gives a reactivation at the same time a different event key", () => {
+    const [off] = parse(postmarkSubscriptionChange("bo@example.org"));
+    const [on] = parse(postmarkSubscriptionChange("bo@example.org", { suppressSending: false }));
+    expect(off?.eventKey).toBe(
+      `SubscriptionChange:${MESSAGE_ID}:bo@example.org:2026-10-26T12:00:05Z:true`,
+    );
+    expect(on?.eventKey).toBe(
+      `SubscriptionChange:${MESSAGE_ID}:bo@example.org:2026-10-26T12:00:05Z:false`,
+    );
   });
 });

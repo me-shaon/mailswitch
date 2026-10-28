@@ -1,7 +1,7 @@
 {
   "name": "mailswitch",
   "version": "0.4.0",
-  "description": "Transactional email for Cloudflare Workers, with provider fallback and delivery safety.",
+  "description": "A transactional email library for Cloudflare Workers. Send through any provider, and switch providers without a code change or a redeploy.",
   "license": "MIT",
   "author": "Ahmed Shamim",
   "repository": {

@@ -38,37 +38,37 @@
   {
     "name": "mailswitch/mailgun",
     "path": "dist/providers/mailgun/index.js",
-    "limit": "8.87 KB",
+    "limit": "8.88 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/postmark",
     "path": "dist/providers/postmark/index.js",
-    "limit": "8.6 KB",
+    "limit": "8.68 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/brevo",
     "path": "dist/providers/brevo/index.js",
-    "limit": "8.27 KB",
+    "limit": "8.28 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/mailersend",
     "path": "dist/providers/mailersend/index.js",
-    "limit": "8.52 KB",
+    "limit": "8.53 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/mailjet",
     "path": "dist/providers/mailjet/index.js",
-    "limit": "9.06 KB",
+    "limit": "9.11 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/smtp2go",
     "path": "dist/providers/smtp2go/index.js",
-    "limit": "8.82 KB",
+    "limit": "8.83 KB",
     "gzip": true
   },
   {
@@ -80,31 +80,31 @@
   {
     "name": "mailswitch/sendgrid",
     "path": "dist/providers/sendgrid/index.js",
-    "limit": "8.01 KB",
+    "limit": "8.02 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/mailchannels",
     "path": "dist/providers/mailchannels/index.js",
-    "limit": "8.8 KB",
+    "limit": "8.81 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/ahasend",
     "path": "dist/providers/ahasend/index.js",
-    "limit": "8.41 KB",
+    "limit": "8.42 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/mailtrap",
     "path": "dist/providers/mailtrap/index.js",
-    "limit": "8.33 KB",
+    "limit": "8.34 KB",
     "gzip": true
   },
   {
     "name": "mailswitch/autosend",
     "path": "dist/providers/autosend/index.js",
-    "limit": "9 KB",
+    "limit": "9.01 KB",
     "gzip": true
   },
   {
@@ -134,7 +134,7 @@
   {
     "name": "mailswitch/smtp/brevo",
     "path": "dist/providers/smtp/brevo.js",
-    "limit": "2 KB",
+    "limit": "2.02 KB",
     "gzip": true
   },
   {

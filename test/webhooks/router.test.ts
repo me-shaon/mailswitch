@@ -724,6 +724,27 @@ describe("handleWebhook with a bulk dedupe store", () => {
     expect(again.every((outcome) => outcome.status === "new")).toBe(true);
   });
 
+  it("rejects ack() when one commitMany chunk fails, and keeps the other chunk committed", async () => {
+    const { store, inner } = bulkSpyStore();
+    let commits = 0;
+    const failing: DedupeStore = {
+      ...store,
+      commitMany: (input) => {
+        commits++;
+        if (commits === 2) return Promise.reject(new Error("store down"));
+        return store.commitMany(input);
+      },
+    };
+    const body = toSendBody(600);
+    const outcome = accepted(await handleWebhook(await toSendRequest(body), options(failing)));
+    await expect(outcome.ack()).rejects.toThrow("store down");
+    const keys = await toSendKeys(body);
+    const after = await inner.claimMany({ keys, leaseMs: 1, now: NOW });
+    // The first chunk is committed. The second chunk keeps its lease until it expires.
+    expect(after.slice(0, 500).every((claim) => claim.status === "duplicate")).toBe(true);
+    expect(after.slice(500).every((claim) => claim.status === "in_flight")).toBe(true);
+  });
+
   it("claims no later chunk after a refusal in the first chunk", async () => {
     const { store, calls } = bulkSpyStore();
     accepted(await handleWebhook(await toSendRequest(toSendBody(1)), options(store)));

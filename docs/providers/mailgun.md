@@ -132,8 +132,9 @@ The binding holds while the first request holds its lease or after its keys are 
 | `failed` with severity `temporary` | `bounced`, `soft` |
 | `failed` with reason `old` | `bounced`, `soft` |
 | `failed` with reason `suppress-complaint` | `complained` |
-| `failed` with reason `suppress-unsubscribe` | `unknown` |
+| `failed` with reason `suppress-unsubscribe` | `unknown`. Mailgun did not send the message, because the address unsubscribed before. |
 | `complained` | `complained` |
+| `unsubscribed` | `unsubscribed` |
 | Any other event, for example `opened` | `unknown` |
 
 `providerMessageId` is the `message-id` header without angle brackets. It matches the id in the send result.

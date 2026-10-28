@@ -205,6 +205,18 @@ export function autosendFixture(): ConformanceFixture {
           expected: [{ type: "complained", rawType: "email.spam_reported" }],
         },
         {
+          label: "unsubscribe",
+          // The body has no recipient. `to` is undefined, so JSON.stringify drops it.
+          body: autosendEvent("email.unsubscribed", { to: undefined }),
+          expected: [
+            {
+              type: "unsubscribed",
+              rawType: "email.unsubscribed",
+              providerMessageId: AUTOSEND_FIXTURE_EMAIL_ID,
+            },
+          ],
+        },
+        {
           label: "an event that mailswitch does not map",
           body: autosendEvent("email.opened"),
           expected: [{ type: "unknown", rawType: "email.opened" }],

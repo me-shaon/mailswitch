@@ -538,3 +538,23 @@ describe("smtp2go webhooks", () => {
     expect(await send()).toMatchObject({ ok: true, events: [] });
   });
 });
+
+describe("smtp2go unsubscribe", () => {
+  it("maps unsubscribe to unsubscribed with the recipient and message id", () => {
+    const body = JSON.stringify(smtp2goEvent("unsubscribe", { rcpt: "bo@example.org" }));
+    const events = parseSmtp2goEvents("smtp2go", utf8(body));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      rawType: "unsubscribe",
+      recipient: "bo@example.org",
+      providerMessageId: "1u0SwL-B9zBpi9ffUq-JAB2",
+    });
+  });
+
+  it("keeps resubscribe as unknown", () => {
+    const body = JSON.stringify(smtp2goEvent("resubscribe"));
+    const events = parseSmtp2goEvents("smtp2go", utf8(body));
+    expect(events[0]).toMatchObject({ type: "unknown", rawType: "resubscribe" });
+  });
+});

@@ -129,7 +129,9 @@ One request holds one event: `{ type, webhook_id, timestamp, data }`.
 | `message.bounced` | `bounced`, with no bounce class |
 | `message.transient_error` | `bounced`, `soft` |
 | `message.complained` | `complained` |
-| Any other event, for example `message.failed`, `message.opened`, or `suppression.created` | `unknown` |
+| `message.unsubscribed` | `unsubscribed` |
+| `contact.unsubscribed`, `contact.subscribed`, `message.suppressed`, and every `suppression.*` event | `unknown` |
+| Any other event, for example `message.failed` or `message.opened` | `unknown` |
 
 `rawType` is the AhaSend `type` value. The event key is the `webhook-id` header, which the signature covers. `providerMessageId` is `data.id`, which is the id in the send result. `recipient` is `data.recipient`. `occurredAt` is the body `timestamp` in milliseconds.
 

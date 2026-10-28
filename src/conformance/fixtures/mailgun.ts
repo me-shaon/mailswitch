@@ -240,6 +240,21 @@ export function mailgunFixture(): ConformanceFixture {
           expected: [{ type: "complained", rawType: "failed" }],
         },
         {
+          label: "unsubscribe",
+          body: mailgunEvent("unsubscribed", {
+            ip: "203.0.113.7",
+            "client-info": { "client-type": "browser", "user-agent": "Mozilla/5.0" },
+          }),
+          expected: [
+            {
+              type: "unsubscribed",
+              recipient: "ana@example.org",
+              providerMessageId: MESSAGE_ID,
+              rawType: "unsubscribed",
+            },
+          ],
+        },
+        {
           label: "an event type that mailswitch does not map",
           body: mailgunEvent("opened"),
           expected: [{ type: "unknown", rawType: "opened" }],

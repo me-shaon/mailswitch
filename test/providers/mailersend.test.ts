@@ -372,6 +372,7 @@ describe("mailersend webhooks", () => {
       ["activity.soft_bounced", "bounced", "soft"],
       ["activity.spam_complaint", "complained", undefined],
       ["activity.spam_complaints", "complained", undefined],
+      ["activity.unsubscribed", "unsubscribed", undefined],
       ["activity.opened", "unknown", undefined],
       ["maintenance.start", "unknown", undefined],
     ];
@@ -489,5 +490,42 @@ describe("mailersend webhooks", () => {
     expect(first.events).toMatchObject([{ type: "delivered" }]);
     await first.ack();
     expect(await deliver()).toMatchObject({ ok: true, events: [] });
+  });
+});
+
+describe("mailersend unsubscribe", () => {
+  it("maps activity.unsubscribed to unsubscribed with the recipient and message id", () => {
+    const body = mailersendEvent("activity.unsubscribed", { recipient: "bo@example.org" });
+    const events = mailersend().webhooks?.parse(utf8(JSON.stringify(body)), new Headers()) ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      recipient: "bo@example.org",
+      providerMessageId: "6892766ae78995a317577aa1",
+      rawType: "activity.unsubscribed",
+      eventKey: "act-unsubscribed-0001",
+    });
+  });
+
+  it("reads the recipient and message id from the older nested shape", () => {
+    const body = {
+      type: "activity.unsubscribed",
+      created_at: "2026-10-27T11:59:54.000000Z",
+      data: {
+        id: "act-unsub-0002",
+        type: "unsubscribed",
+        email: {
+          message: { id: "6892766ae78995a317577aa1" },
+          recipient: { email: "cy@example.org" },
+        },
+        morph: { object: "unsubscribe", reason: "NO_LONGER_WANT" },
+      },
+    };
+    const events = mailersend().webhooks?.parse(utf8(JSON.stringify(body)), new Headers()) ?? [];
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      recipient: "cy@example.org",
+      providerMessageId: "6892766ae78995a317577aa1",
+    });
   });
 });

@@ -52,10 +52,15 @@ export interface OutgoingMessage {
  * - `sent`: the provider accepted the message.
  * - `not_sent`: the message did not go out, so a retry or a fallback cannot send a duplicate.
  * - `unknown`: the message may have gone out. Never retry or fall back after `unknown`.
+ *
+ * These three values are fixed. A new status needs a major release.
  */
 export type DeliveryStatus = "sent" | "not_sent" | "unknown";
 
-/** Why a send failed. */
+/**
+ * Why a send failed. A minor release can add a reason. Give each `switch` on this type a
+ * `default` case, and base retry and fallback decisions on `status`, not on the reason.
+ */
 export type FailureReason =
   /** The provider refused the credentials. */
   | "auth"

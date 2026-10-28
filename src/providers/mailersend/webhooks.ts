@@ -27,6 +27,7 @@ const TYPES: Readonly<Record<string, NormalizedEventType>> = {
   "activity.spam_complaint": "complained",
   // The example payload of the spam complaint event uses the plural form.
   "activity.spam_complaints": "complained",
+  "activity.unsubscribed": "unsubscribed",
 };
 
 /** The `Signature` value of a raw body: the hex HMAC-SHA256 with the signing secret. */
@@ -66,8 +67,9 @@ function text(fields: Fields | undefined, name: string): string | undefined {
  * Parses a verified MailerSend body. One body holds one event.
  *
  * - `activity.delivered` maps to `delivered`, `activity.hard_bounced` and
- *   `activity.soft_bounced` to `bounced` hard and soft, and `activity.spam_complaint` to
- *   `complained`. Every other type gives `unknown`.
+ *   `activity.soft_bounced` to `bounced` hard and soft, `activity.spam_complaint` to
+ *   `complained`, and `activity.unsubscribed` to `unsubscribed`. Every other type gives
+ *   `unknown`.
  * - `rawType` is the top-level `type`. The event key is `data.id`. A body without it gets
  *   the SHA-256 of the raw body.
  * - `providerMessageId` is `data.message_id`, or `data.email.message.id` in the older

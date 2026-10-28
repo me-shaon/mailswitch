@@ -80,6 +80,7 @@ function text(record: Fields, name: string): string | undefined {
 const TYPES: Readonly<Record<string, NormalizedEventType>> = {
   delivered: "delivered",
   spamreport: "complained",
+  unsubscribe: "unsubscribed",
 };
 
 /**
@@ -87,8 +88,9 @@ const TYPES: Readonly<Record<string, NormalizedEventType>> = {
  *
  * - `bounce` with `type: "bounce"` is a hard bounce. `bounce` with `type: "blocked"` is a
  *   soft bounce. A bounce with any other type is `unknown`.
- * - `delivered` maps to `delivered`. `spamreport` maps to `complained`. Every other event,
- *   such as `open` or `dropped`, gives `unknown`.
+ * - `delivered` maps to `delivered`. `spamreport` maps to `complained`. `unsubscribe`
+ *   maps to `unsubscribed`. Every other event, such as `open`, `dropped`, or
+ *   `group_unsubscribe`, gives `unknown`.
  * - `rawType` is the `event` value. The event key is `sg_event_id`, which SendGrid gives
  *   for dedupe. An event without it gets `sg_message_id:event:timestamp:email:index`.
  * - `providerMessageId` is `sg_message_id` as SendGrid sends it.

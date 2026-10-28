@@ -154,7 +154,8 @@ One request holds a JSON array of up to 1000 events. mailswitch gives one normal
 | `hard-bounced` | `bounced`, `hard` |
 | `soft-bounced` | `bounced`, `soft` |
 | `complained` | `complained` |
-| Any other event, for example `processed`, `dropped`, `open`, `click`, `unsubscribed`, or `test` | `unknown` |
+| `unsubscribed` | `unsubscribed` |
+| Any other event, for example `processed`, `dropped`, `open`, `click`, or `test` | `unknown` |
 
 `rawType` is the MailChannels `event` value. `occurredAt` is `timestamp` in milliseconds. The `email` field is the sender address, not the recipient. `recipient` comes from the `recipients` list, and mailswitch sets it only when the list holds one address.
 

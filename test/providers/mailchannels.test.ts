@@ -666,3 +666,32 @@ describe("mailchannels bounce detail", () => {
     expect(events[0]?.bounceDetail).toBeUndefined();
   });
 });
+
+describe("mailchannels unsubscribe", () => {
+  const parse = (events: Record<string, unknown>[]) =>
+    mailchannels({ customerHandle: HANDLE }).webhooks?.parse(
+      utf8(JSON.stringify(events)),
+      new Headers(),
+    ) ?? [];
+
+  it("maps unsubscribed to unsubscribed with the recipient from recipients", () => {
+    const events = parse([
+      mailchannelsEvent("unsubscribed", { recipients: [{ email: "cy@example.org" }] }),
+    ]);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      rawType: "unsubscribed",
+      recipient: "cy@example.org",
+    });
+    // The top-level email is the sender. It is never the recipient.
+    expect(events[0]?.recipient).not.toBe("billing@example.com");
+    expect(events[0]?.providerMessageId).toBeUndefined();
+  });
+
+  it("sets no recipient when recipients is missing", () => {
+    const events = parse([mailchannelsEvent("unsubscribed", { recipients: undefined })]);
+    expect(events[0]?.type).toBe("unsubscribed");
+    expect(events[0]?.recipient).toBeUndefined();
+  });
+});

@@ -228,6 +228,21 @@ export function mailchannelsFixture(): ConformanceFixture {
           ],
         },
         {
+          label: "unsubscribe",
+          // The provider docs do not confirm the shape of this payload.
+          body: JSON.stringify([
+            mailchannelsEvent("unsubscribed", { recipients: ["cy@example.org"] }),
+          ]),
+          expected: [
+            {
+              type: "unsubscribed",
+              rawType: "unsubscribed",
+              recipient: "cy@example.org",
+              eventKey: `${REQUEST_ID}:unsubscribed:cy@example.org:1793102340:`,
+            },
+          ],
+        },
+        {
           label: "events that mailswitch does not map",
           body: JSON.stringify([
             mailchannelsEvent("processed"),

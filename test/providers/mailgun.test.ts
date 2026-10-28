@@ -438,3 +438,34 @@ describe("mailgun bounce detail", () => {
     expect((await parseSigned(mailgunEvent("complained")))[0]?.bounceDetail).toBeUndefined();
   });
 });
+
+describe("mailgun unsubscribe", () => {
+  async function parseSigned(body: string) {
+    const sample = await signMailgunWebhook({
+      body: utf8(body),
+      secret: MAILGUN_FIXTURE_SECRET,
+      at: NOW,
+    });
+    return mailgun().webhooks?.parse(sample.body, new Headers(sample.headers)) ?? [];
+  }
+
+  it("maps an unsubscribed event to unsubscribed", async () => {
+    const events = await parseSigned(mailgunEvent("unsubscribed", {}, "bo@example.org"));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "unsubscribed",
+      recipient: "bo@example.org",
+      providerMessageId: "20261026120030.1.4F2A9C@mg.example.com",
+      rawType: "unsubscribed",
+    });
+    expect(events[0]?.bounce).toBeUndefined();
+    expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+
+  it("keeps a drop after an earlier unsubscribe as unknown", async () => {
+    const events = await parseSigned(
+      mailgunEvent("failed", { severity: "permanent", reason: "suppress-unsubscribe" }),
+    );
+    expect(events[0]).toMatchObject({ type: "unknown", rawType: "failed" });
+  });
+});

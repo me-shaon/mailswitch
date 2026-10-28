@@ -229,6 +229,7 @@ const TYPES: Readonly<Record<string, NormalizedEventType>> = {
   "hard-bounced": "bounced",
   "soft-bounced": "bounced",
   complained: "complained",
+  unsubscribed: "unsubscribed",
 };
 
 /** The recipient addresses of an event. An entry is an address or an object with `email`. */
@@ -248,8 +249,9 @@ function recipientsOf(record: Record<string, unknown>): string[] {
  * Parses a verified MailChannels body. One body is a JSON array of up to 1000 events.
  *
  * - `delivered` maps to `delivered`. `hard-bounced` and `soft-bounced` map to `bounced`,
- *   `hard` and `soft`. `complained` maps to `complained`. Every other event, such as
- *   `processed`, `dropped`, `open`, or `test`, gives `unknown`.
+ *   `hard` and `soft`. `complained` maps to `complained`. `unsubscribed` maps to
+ *   `unsubscribed`. Every other event, such as `processed`, `dropped`, `open`, or `test`,
+ *   gives `unknown`.
  * - `email` is the sender, so `recipient` comes from `recipients`, and only when the
  *   event names exactly one recipient.
  * - An event carries `request_id` and no message id, so `providerMessageId` is not set.

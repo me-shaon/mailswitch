@@ -136,7 +136,7 @@ Because toSend does not retry, a non-2xx answer loses that event. When your hand
 | `delivered` | `delivered` |
 | Any other type | `unknown`, with the toSend type in `rawType` |
 
-toSend documents only the bounce and complaint events. It sends no delivery events.
+toSend documents only the bounce and complaint events. It sends no delivery events and no unsubscribe events, so the toSend adapter never gives `unsubscribed`.
 
 ### Bounce detail
 

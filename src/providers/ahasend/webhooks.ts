@@ -97,6 +97,7 @@ const TYPES: Readonly<Record<string, NormalizedEventType>> = {
   "message.bounced": "bounced",
   "message.transient_error": "bounced",
   "message.complained": "complained",
+  "message.unsubscribed": "unsubscribed",
 };
 
 /**
@@ -104,7 +105,9 @@ const TYPES: Readonly<Record<string, NormalizedEventType>> = {
  *
  * - The event key is the signed `webhook-id` header.
  * - `message.bounced` is a bounce with no class. `message.transient_error` is a soft
- *   bounce. Any other unmapped type is `unknown` with its raw type.
+ *   bounce. `message.unsubscribed` is `unsubscribed`. The `contact.*` and `suppression.*`
+ *   types and `message.suppressed` stay `unknown`. Any other unmapped type is `unknown`
+ *   with its raw type.
  * - `providerMessageId` is `data.id`, the id of the send result. `recipient` is
  *   `data.recipient`. `occurredAt` comes from the body `timestamp`.
  */
