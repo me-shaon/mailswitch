@@ -23,8 +23,6 @@ An admin of your app picks the provider on a settings screen: Resend, Postmark, 
 - **Same behavior for every provider:** each send returns `sent`, `not_sent`, or `unknown`. mailswitch never retries an `unknown` send through a backup provider. Webhooks and bounce events have one format.
 - **Built for Workers:** D1 and Durable Object stores, SMTP over `cloudflare:sockets`, and Cloudflare Email Sending. Zero runtime dependencies and no compatibility flags.
 
-> **Stable since 1.0:** mailswitch follows semantic versioning. See [Versioning](#versioning) and the [changelog](CHANGELOG.md).
-
 ## Install
 
 ```sh
