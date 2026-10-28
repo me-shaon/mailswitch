@@ -1,6 +1,8 @@
 import type {
   IdempotencyAttempt,
+  IdempotencyClaimOutcome,
   IdempotencyFinalState,
+  IdempotencyFinishInput,
   IdempotencyRecord,
   IdempotencyStore,
 } from "../stores/types";
@@ -116,6 +118,16 @@ export async function beginIdempotency(
     now: options.now ?? Date.now(),
     pendingTimeoutMs: options.pendingTimeoutMs ?? DEFAULT_PENDING_TIMEOUT_MS,
   });
+  return claimResult(outcome, key, claimId, hash);
+}
+
+/** Maps the outcome of a claim to a begin result. Internal. */
+export function claimResult(
+  outcome: IdempotencyClaimOutcome,
+  key: string,
+  claimId: string,
+  hash: string,
+): BeginResult {
   switch (outcome.kind) {
     case "claimed":
       return { proceed: true, key, claimId, payloadHash: hash };
@@ -173,9 +185,16 @@ export async function finalizeIdempotency(
   store: IdempotencyStore,
   input: FinalizeInput,
 ): Promise<{ applied: boolean; state: IdempotencyFinalState }> {
+  const finish = finishInput(input);
+  const applied = await store.finish(finish);
+  return { applied, state: finish.state };
+}
+
+/** The store input of the final record for a claim. Internal. */
+export function finishInput(input: FinalizeInput): IdempotencyFinishInput {
   const now = input.now ?? Date.now();
   const state = finalState(input.attempts);
-  const applied = await store.finish({
+  return {
     key: input.key,
     claimId: input.claimId,
     state,
@@ -186,8 +205,7 @@ export async function finalizeIdempotency(
     now,
     ...(state === "sent" ? { expiresAt: now + SENT_RETENTION_MS } : {}),
     ...(state === "not_sent" ? { expiresAt: now + NOT_SENT_RETENTION_MS } : {}),
-  });
-  return { applied, state };
+  };
 }
 
 /** The guard helpers that the send pipeline uses. */

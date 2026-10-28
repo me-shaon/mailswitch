@@ -1,12 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import { mockFetch } from "../../src/conformance/mock-fetch";
 import { defineProvider, type ProviderAdapter } from "../../src/core/adapter";
+import { bucketExpiry } from "../../src/core/daily-cap";
 import { defineProviderMeta } from "../../src/core/meta";
-import { createMailer, type MailerOptions } from "../../src/core/pipeline";
+import { createMailer, type MailerOptions, type MailerProvider } from "../../src/core/pipeline";
 import type { OutgoingMessage, SendResult } from "../../src/core/types";
+import { hasBulkDailyCap, hasBulkIdempotency } from "../../src/internal/bulk-methods";
 import { resend } from "../../src/providers/resend/index";
 import { MemoryDailyCapStore, MemoryIdempotencyStore } from "../../src/stores/memory";
-import type { DailyCapStore, IdempotencyStore } from "../../src/stores/types";
+import type {
+  DailyCapReleaseInput,
+  DailyCapReserveManyInput,
+  DailyCapStore,
+  IdempotencyClaimInput,
+  IdempotencyFinishInput,
+  IdempotencyStore,
+  IdempotencyTouchInput,
+  RateLimitStore,
+} from "../../src/stores/types";
 import { type FakeOutcome, fakeMeta, fakeProvider } from "../../src/testing/fake-provider";
 import { T0 } from "../stores/daily-cap-suite";
 
@@ -71,6 +82,31 @@ function batchProvider(
     webhooks: fakeProvider().webhooks,
   });
   return { adapter, batches, singles };
+}
+
+/**
+ * A plain store object with only the single methods of a memory store. It keeps the
+ * per-message path, so a test can patch or spy on a single method.
+ */
+function singleIdempotency(memory = new MemoryIdempotencyStore()): IdempotencyStore {
+  return {
+    claim: (input) => memory.claim(input),
+    touch: (input) => memory.touch(input),
+    finish: (input) => memory.finish(input),
+    release: (key, options) => memory.release(key, options),
+    get: (key) => memory.get(key),
+    purgeExpired: (now) => memory.purgeExpired(now),
+  };
+}
+
+/** A plain daily cap store with only the single methods. It keeps the per-message path. */
+function singleCaps(memory = new MemoryDailyCapStore()): DailyCapStore {
+  return {
+    reserve: (input) => memory.reserve(input),
+    release: (input) => memory.release(input),
+    fill: (input) => memory.fill(input),
+    used: (scope, now) => memory.used(scope, now),
+  };
 }
 
 function mailer(providers: ProviderAdapter[], extra: Partial<MailerOptions> = {}) {
@@ -257,7 +293,8 @@ describe("sendBatch: idempotency", () => {
       outcome: (to) => (to === "b@x.org" ? NOT_SENT : undefined) as never,
     });
     const fallback = fakeProvider({ id: "backup" });
-    const idempotency = new MemoryIdempotencyStore();
+    const idempotency = singleIdempotency();
+    expect(hasBulkIdempotency(idempotency)).toBe(false);
     const finish = vi.spyOn(idempotency, "finish");
     await mailer([primary.adapter, fallback], { namespace: NAMESPACE, idempotency }).sendBatch([
       message("a@x.org", { idempotencyKey: "k-a" }),
@@ -348,10 +385,16 @@ describe("sendBatch: claim heartbeat", () => {
     });
   }
 
-  for (const path of ["batch chunks", "single sends"] as const) {
-    it(`keeps the later claims of a long call pending, not stale (${path})`, async () => {
+  for (const [path, store] of [
+    ["batch chunks", "bulk"],
+    ["batch chunks", "per-message"],
+    ["single sends", "bulk"],
+    ["single sends", "per-message"],
+  ] as const) {
+    it(`keeps the later claims of a long call pending, not stale (${path}, ${store} path)`, async () => {
       const clock = { now: T0 };
-      const idempotency = new MemoryIdempotencyStore();
+      const memory = new MemoryIdempotencyStore();
+      const idempotency = store === "bulk" ? memory : singleIdempotency(memory);
       const probes: SendResult[] = [];
       const last = message("f@x.org", { idempotencyKey: "k-f" });
       const adapter = slowProvider(clock, path === "batch chunks", async (list) => {
@@ -375,7 +418,7 @@ describe("sendBatch: claim heartbeat", () => {
       expect(clock.now - T0).toBeGreaterThan(2000);
       expect(results.map((r) => r.status)).toEqual(Array(6).fill("sent"));
       expect(probes).toEqual([expect.objectContaining({ status: "unknown", reason: "in_flight" })]);
-      expect((await idempotency.get(`${NAMESPACE}:k-f`))?.state).toBe("sent");
+      expect((await memory.get(`${NAMESPACE}:k-f`))?.state).toBe("sent");
     });
   }
 });
@@ -383,7 +426,8 @@ describe("sendBatch: claim heartbeat", () => {
 describe("sendBatch: store failures", () => {
   it("returns every result and warns when the final record fails to write", async () => {
     const warn = vi.fn();
-    const idempotency = new MemoryIdempotencyStore();
+    const idempotency = singleIdempotency();
+    expect(hasBulkIdempotency(idempotency)).toBe(false);
     idempotency.finish = async () => {
       throw new Error("D1 down");
     };
@@ -418,7 +462,9 @@ describe("sendBatch: store failures", () => {
       used: (scope, now) => memory.used(scope, now),
     };
     const primary = batchProvider();
-    const idempotency = new MemoryIdempotencyStore();
+    const idempotency = singleIdempotency();
+    expect(hasBulkIdempotency(idempotency)).toBe(false);
+    expect(hasBulkDailyCap(dailyCaps)).toBe(false);
     const m = createMailer({
       providers: [{ adapter: primary.adapter, credentials: { apiKey: "fk_test" }, dailyCap: 10 }],
       dailyCaps,
@@ -442,8 +488,9 @@ describe("sendBatch: store failures", () => {
   });
 
   it("refunds the cap unit of a message whose heartbeat fails before its chunk", async () => {
-    const dailyCaps = new MemoryDailyCapStore();
-    const idempotency = new MemoryIdempotencyStore();
+    const dailyCaps = singleCaps();
+    const idempotency = singleIdempotency();
+    expect(hasBulkIdempotency(idempotency) || hasBulkDailyCap(dailyCaps)).toBe(false);
     const touch = idempotency.touch.bind(idempotency);
     idempotency.touch = async (input) => {
       if (input.key === `${NAMESPACE}:k-b`) throw new Error("D1 down");
@@ -519,6 +566,7 @@ describe("sendBatch: store concurrency", () => {
     const results = await m.sendBatch(
       names.map((to, i) => message(to, { idempotencyKey: `k-${i}` })),
     );
+    expect(hasBulkIdempotency(idempotency) || hasBulkDailyCap(dailyCaps)).toBe(false);
     expect(stats.max).toBeGreaterThan(1);
     expect(stats.max).toBeLessThanOrEqual(8);
     // One claim, one reserve, one heartbeat, and one final record per message.
@@ -568,5 +616,541 @@ describe("sendBatch: store concurrency", () => {
     expect(results.filter((r) => r.provider === "batcher")).toHaveLength(1);
     expect(results.filter((r) => r.provider === "backup")).toHaveLength(99);
     expect(await caps.used("batcher", T0)).toBe(100);
+  });
+});
+
+describe("sendBatch: bulk path", () => {
+  const LOST = "mailswitch: the claim was no longer current. The record did not change.";
+
+  /** Plain stores with every bulk method over memory stores. Each method is a spy. */
+  function bulkStores() {
+    const memory = new MemoryIdempotencyStore();
+    const caps = new MemoryDailyCapStore();
+    const idempotency = {
+      claim: vi.fn((input: IdempotencyClaimInput) => memory.claim(input)),
+      touch: vi.fn((input: IdempotencyTouchInput) => memory.touch(input)),
+      finish: vi.fn((input: IdempotencyFinishInput) => memory.finish(input)),
+      release: (key: string, options: { expectedState: "unknown" }) => memory.release(key, options),
+      get: (key: string) => memory.get(key),
+      purgeExpired: (now: number) => memory.purgeExpired(now),
+      claimMany: vi.fn((inputs: readonly IdempotencyClaimInput[]) => memory.claimMany(inputs)),
+      touchMany: vi.fn((inputs: readonly IdempotencyTouchInput[]) => memory.touchMany(inputs)),
+      finishMany: vi.fn((inputs: readonly IdempotencyFinishInput[]) => memory.finishMany(inputs)),
+    };
+    const dailyCaps = {
+      reserve: vi.fn((input: Parameters<DailyCapStore["reserve"]>[0]) => caps.reserve(input)),
+      release: vi.fn((input: DailyCapReleaseInput) => caps.release(input)),
+      fill: vi.fn((input: Parameters<DailyCapStore["fill"]>[0]) => caps.fill(input)),
+      used: (scope: string, now: number) => caps.used(scope, now),
+      reserveMany: vi.fn((input: DailyCapReserveManyInput) => caps.reserveMany(input)),
+      releaseMany: vi.fn((inputs: readonly DailyCapReleaseInput[]) => caps.releaseMany(inputs)),
+    };
+    expect(hasBulkIdempotency(idempotency) && hasBulkDailyCap(dailyCaps)).toBe(true);
+    return { memory, caps, idempotency, dailyCaps };
+  }
+
+  type Providers = (ProviderAdapter | Omit<MailerProvider, "credentials">)[];
+
+  function capped(providers: Providers, extra: Partial<MailerOptions> = {}) {
+    return createMailer({
+      providers: providers.map((item) =>
+        "adapter" in item
+          ? { ...item, credentials: { apiKey: "fk_test" } }
+          : { adapter: item, credentials: { apiKey: "fk_test" } },
+      ),
+      namespace: NAMESPACE,
+      now: () => T0,
+      timeoutMs: 1000,
+      logger: { warn: () => {} },
+      ...extra,
+    });
+  }
+
+  const keyed = (names: readonly string[]) =>
+    names.map((name) => message(`${name}@x.org`, { idempotencyKey: `k-${name}` }));
+  const TEN = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+  const sizes = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.map((call) => {
+      const arg = call[0] as readonly unknown[] | { count: number };
+      return Array.isArray(arg) ? arg.length : (arg as { count: number }).count;
+    });
+
+  it("gives a keyed batch of 10 the same results and records as the per-message path", async () => {
+    const outcome = (to: string) =>
+      (to === "c@x.org" ? NOT_SENT : to === "e@x.org" ? UNKNOWN : undefined) as never;
+    const run = async (bulk: boolean) => {
+      const stores = bulkStores();
+      const primary = batchProvider({ outcome });
+      const fallback = fakeProvider({ id: "backup" });
+      const m = capped([{ adapter: primary.adapter, dailyCap: 100 }, fallback], {
+        idempotency: bulk ? stores.idempotency : singleIdempotency(stores.memory),
+        dailyCaps: bulk ? stores.dailyCaps : singleCaps(stores.caps),
+      });
+      const results = await m.sendBatch(keyed(TEN));
+      const records = await Promise.all(
+        TEN.map(async (name) => {
+          const record = await stores.memory.get(`${NAMESPACE}:k-${name}`);
+          return [record?.state, record?.attempts.map((a) => [a.provider, a.status])];
+        }),
+      );
+      return { results, records, used: await stores.caps.used("batcher", T0), stores, primary };
+    };
+    const bulk = await run(true);
+    const single = await run(false);
+    expect(bulk.results).toEqual(single.results);
+    expect(bulk.records).toEqual(single.records);
+    expect(bulk.used).toBe(single.used);
+    expect(bulk.used).toBe(9);
+    expect(bulk.results.map((r) => r.provider)).toEqual([
+      "batcher",
+      "batcher",
+      "backup",
+      "batcher",
+      "batcher",
+      "batcher",
+      "batcher",
+      "batcher",
+      "batcher",
+      "batcher",
+    ]);
+    const { idempotency, dailyCaps } = bulk.stores;
+    expect(idempotency.claimMany).toHaveBeenCalledTimes(1);
+    expect(idempotency.claim).not.toHaveBeenCalled();
+    expect(idempotency.touchMany).toHaveBeenCalledTimes(1);
+    // Only the fallback attempt of c uses the single heartbeat.
+    expect(idempotency.touch).toHaveBeenCalledTimes(1);
+    expect(sizes(idempotency.finishMany)).toEqual([9, 1]);
+    expect(idempotency.finish).not.toHaveBeenCalled();
+    expect(sizes(dailyCaps.reserveMany)).toEqual([10]);
+    expect(dailyCaps.reserve).not.toHaveBeenCalled();
+    expect(sizes(dailyCaps.releaseMany)).toEqual([1]);
+    expect(dailyCaps.release).not.toHaveBeenCalled();
+  });
+
+  it("gives a repeated key in_flight for the same payload and conflict for another payload", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider();
+    const m = capped([primary.adapter], { idempotency: stores.idempotency });
+    const results = await m.sendBatch([
+      message("a@x.org", { idempotencyKey: "dup" }),
+      message("b@x.org", { idempotencyKey: "other" }),
+      message("a@x.org", { idempotencyKey: "dup" }),
+      message("z@x.org", { idempotencyKey: "dup" }),
+    ]);
+    expect(results.map((r) => [r.status, r.status === "unknown" ? r.reason : r.provider])).toEqual([
+      ["sent", "batcher"],
+      ["sent", "batcher"],
+      ["unknown", "in_flight"],
+      ["unknown", "idempotency_conflict"],
+    ]);
+    expect(sizes(stores.idempotency.claimMany)).toEqual([2]);
+    expect(stores.idempotency.claim).toHaveBeenCalledTimes(2);
+    expect(primary.batches[0]?.map((x) => x.to[0])).toEqual(["a@x.org", "b@x.org"]);
+  });
+
+  it("gives a later copy the stored result or a new claim when the first claim did not hold", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider();
+    const m = capped([primary.adapter], { idempotency: stores.idempotency });
+    await m.sendBatch([message("a@x.org", { idempotencyKey: "done" })]);
+    stores.idempotency.claimMany.mockRejectedValueOnce(new Error("D1 down"));
+    const results = await m.sendBatch([
+      message("b@x.org", { idempotencyKey: "fresh" }),
+      message("b@x.org", { idempotencyKey: "fresh" }),
+    ]);
+    // The bulk claim failed, so the copy claims on the per-message path and sends.
+    expect(results.map((r) => r.status)).toEqual(["not_sent", "sent"]);
+    expect(results[0]).toMatchObject({ reason: "store_error" });
+    const again = await m.sendBatch([
+      message("a@x.org", { idempotencyKey: "done" }),
+      message("a@x.org", { idempotencyKey: "done" }),
+    ]);
+    expect(again.map((r) => r.status === "sent" && r.providerMessageId)).toEqual([
+      "batcher-a@x.org",
+      "batcher-a@x.org",
+    ]);
+    expect(primary.batches.map((b) => b.length)).toEqual([1, 1]);
+  });
+
+  it("lets the second copy claim and send when the first copy fails validation", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider();
+    const m = capped([primary.adapter], { idempotency: stores.idempotency });
+    const results = await m.sendBatch([
+      message("bad", { idempotencyKey: "k" }),
+      message("a@x.org", { idempotencyKey: "k" }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["not_sent", "sent"]);
+    expect(results[0]).toMatchObject({ reason: "invalid_message" });
+    expect(sizes(stores.idempotency.claimMany)).toEqual([1]);
+    expect(stores.idempotency.claim).not.toHaveBeenCalled();
+    expect((await stores.memory.get(`${NAMESPACE}:k`))?.state).toBe("sent");
+  });
+
+  it("fails only the store chunk whose claimMany throws", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider({ batchSize: 200 });
+    const m = capped([primary.adapter], { idempotency: stores.idempotency });
+    stores.idempotency.claimMany.mockRejectedValueOnce(new Error("D1 down"));
+    const names = Array.from({ length: 150 }, (_, i) => `m${i}`);
+    const results = await m.sendBatch(keyed(names));
+    expect(results.slice(0, 100).every((r) => r.status === "not_sent")).toBe(true);
+    expect(results[0]).toMatchObject({ reason: "store_error" });
+    expect(results.slice(100).every((r) => r.status === "sent")).toBe(true);
+    expect(primary.batches.map((b) => b.length)).toEqual([50]);
+    expect(primary.batches[0]?.[0]?.to[0]).toBe("m100@x.org");
+  });
+
+  it("counts a claimMany list of the wrong length as a throw", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider();
+    const m = capped([primary.adapter], { idempotency: stores.idempotency });
+    stores.idempotency.claimMany.mockResolvedValueOnce([{ kind: "claimed" }]);
+    const results = await m.sendBatch(keyed(["a", "b"]));
+    expect(results.map((r) => r.status === "not_sent" && r.reason)).toEqual([
+      "store_error",
+      "store_error",
+    ]);
+    expect(primary.batches).toHaveLength(0);
+  });
+
+  it("gives store_error to the chunk whose touchMany throws and refunds its units", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider({ batchSize: 2 });
+    const m = capped([{ adapter: primary.adapter, dailyCap: 10 }], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+    });
+    stores.idempotency.touchMany.mockRejectedValueOnce(new Error("D1 down"));
+    const results = await m.sendBatch(keyed(["a", "b", "c"]));
+    expect(results.map((r) => (r.status === "not_sent" ? r.reason : r.status))).toEqual([
+      "store_error",
+      "store_error",
+      "sent",
+    ]);
+    expect(primary.batches.map((b) => b.map((x) => x.to[0]))).toEqual([["c@x.org"]]);
+    expect(await stores.caps.used("batcher", T0)).toBe(1);
+    expect(sizes(stores.dailyCaps.releaseMany)).toEqual([2]);
+    expect((await stores.memory.get(`${NAMESPACE}:k-a`))?.state).toBe("not_sent");
+  });
+
+  it("gives store_error to the chunk whose reserveMany throws and goes on with the next chunk", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider({ batchSize: 200 });
+    const m = capped([{ adapter: primary.adapter, dailyCap: 1000 }], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+    });
+    stores.dailyCaps.reserveMany.mockRejectedValueOnce(new Error("D1 down"));
+    const results = await m.sendBatch(keyed(Array.from({ length: 120 }, (_, i) => `m${i}`)));
+    expect(results.filter((r) => r.status === "not_sent")).toHaveLength(100);
+    expect(results[99]).toMatchObject({ status: "not_sent", reason: "store_error" });
+    expect(results.slice(100).every((r) => r.status === "sent")).toBe(true);
+    expect(await stores.caps.used("batcher", T0)).toBe(20);
+  });
+
+  it("gives store_error to a granted item whose acquire throws and refunds its unit", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider();
+    let calls = 0;
+    const rateLimits: RateLimitStore = {
+      acquire: async () => {
+        calls++;
+        if (calls === 2) throw new Error("D1 down");
+        return { ok: true };
+      },
+    };
+    const m = capped([{ adapter: primary.adapter, dailyCap: 10, rate: { perSecond: 100 } }], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+      rateLimits,
+    });
+    const results = await m.sendBatch(keyed(["a", "b", "c"]));
+    expect(results.filter((r) => r.status === "sent")).toHaveLength(2);
+    expect(
+      results.filter((r) => r.status === "not_sent" && r.reason === "store_error"),
+    ).toHaveLength(1);
+    expect(primary.batches[0]).toHaveLength(2);
+    expect(await stores.caps.used("batcher", T0)).toBe(2);
+    expect(sizes(stores.dailyCaps.releaseMany)).toEqual([1]);
+  });
+
+  it("refunds the unit of a rate refusal through releaseMany", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider();
+    let calls = 0;
+    const rateLimits: RateLimitStore = {
+      acquire: async () => {
+        calls++;
+        return calls === 3 ? { ok: false, retryAfterMs: 500 } : { ok: true };
+      },
+    };
+    const m = capped([{ adapter: primary.adapter, dailyCap: 10, rate: { perSecond: 100 } }], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+      rateLimits,
+    });
+    const results = await m.sendBatch(keyed(["a", "b", "c", "d"]));
+    expect(results.filter((r) => r.status === "sent")).toHaveLength(3);
+    expect(results.find((r) => r.status === "not_sent")).toMatchObject({
+      reason: "rate_limited",
+      retryAfterMs: 500,
+    });
+    expect(await stores.caps.used("batcher", T0)).toBe(3);
+    expect(sizes(stores.dailyCaps.releaseMany)).toEqual([1]);
+    expect(stores.dailyCaps.release).not.toHaveBeenCalled();
+  });
+
+  it("grants the last 3 units to the first 3 of 5 batch items", async () => {
+    const stores = bulkStores();
+    for (let i = 0; i < 7; i++) await stores.caps.reserve({ scope: "batcher", cap: 10, now: T0 });
+    const primary = batchProvider();
+    const m = capped([{ adapter: primary.adapter, dailyCap: 10 }], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+    });
+    const results = await m.sendBatch(keyed(["a", "b", "c", "d", "e"]));
+    expect(primary.batches[0]?.map((x) => x.to[0])).toEqual(["a@x.org", "b@x.org", "c@x.org"]);
+    expect(results.slice(3)).toEqual([
+      expect.objectContaining({
+        status: "not_sent",
+        reason: "daily_cap",
+        resetAt: bucketExpiry(T0),
+      }),
+      expect.objectContaining({
+        status: "not_sent",
+        reason: "daily_cap",
+        resetAt: bucketExpiry(T0),
+      }),
+    ]);
+    expect(await stores.caps.used("batcher", T0)).toBe(10);
+  });
+
+  it("drops an item whose touchMany result is false, refunds it, and sends the others", async () => {
+    const stores = bulkStores();
+    const warn = vi.fn();
+    const primary = batchProvider();
+    const m = capped([{ adapter: primary.adapter, dailyCap: 10 }], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+      logger: { warn },
+    });
+    // Another request took over the claim of b before the heartbeat.
+    stores.idempotency.touchMany.mockImplementationOnce((inputs) =>
+      stores.memory.touchMany(
+        inputs.map((input) =>
+          input.key === `${NAMESPACE}:k-b` ? { ...input, claimId: "other" } : input,
+        ),
+      ),
+    );
+    const results = await m.sendBatch(keyed(["a", "b", "c"]));
+    expect(results[1]).toMatchObject({ status: "unknown", reason: "stale_pending" });
+    expect(results.filter((r) => r.status === "sent")).toHaveLength(2);
+    expect(primary.batches[0]?.map((x) => x.to[0])).toEqual(["a@x.org", "c@x.org"]);
+    expect(await stores.caps.used("batcher", T0)).toBe(2);
+    expect(warn.mock.calls.filter((call) => call[0] === LOST)).toHaveLength(1);
+    // The lost claim gets no final record.
+    expect(stores.idempotency.finishMany.mock.calls[0]?.[0].map((i) => i.key)).toEqual([
+      `${NAMESPACE}:k-a`,
+      `${NAMESPACE}:k-c`,
+    ]);
+  });
+
+  it("refunds not_sent results through releaseMany and fills the window on quota", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider({
+      outcome: (to) =>
+        (to === "a@x.org"
+          ? NOT_SENT
+          : to === "b@x.org"
+            ? { status: "not_sent", reason: "quota", message: "Daily quota." }
+            : undefined) as never,
+    });
+    const m = capped([{ adapter: primary.adapter, dailyCap: 10 }], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+    });
+    await m.sendBatch(keyed(["a", "b", "c"]));
+    expect(sizes(stores.dailyCaps.releaseMany)).toEqual([2]);
+    expect(stores.dailyCaps.fill).toHaveBeenCalledTimes(1);
+    expect(await stores.caps.used("batcher", T0)).toBe(10);
+  });
+
+  it("sends a not_sent item through the fallback on the per-message path", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider({
+      outcome: (to) => (to === "b@x.org" ? NOT_SENT : undefined) as never,
+    });
+    const fallback = fakeProvider({ id: "backup" });
+    const m = capped([primary.adapter, fallback], { idempotency: stores.idempotency });
+    const results = await m.sendBatch(keyed(["a", "b", "c"]));
+    expect(results.map((r) => r.provider)).toEqual(["batcher", "backup", "batcher"]);
+    expect(stores.idempotency.touch).toHaveBeenCalledTimes(1);
+    expect(
+      stores.idempotency.finishMany.mock.calls.map((call) => call[0].map((i) => i.key)),
+    ).toEqual([[`${NAMESPACE}:k-a`, `${NAMESPACE}:k-c`], [`${NAMESPACE}:k-b`]]);
+    const record = await stores.memory.get(`${NAMESPACE}:k-b`);
+    expect(record?.attempts.map((a) => [a.provider, a.status])).toEqual([
+      ["batcher", "not_sent"],
+      ["backup", "sent"],
+    ]);
+  });
+
+  it("writes the records of sent messages before 12 messages fall back", async () => {
+    const stores = bulkStores();
+    const failing = (to: string) => Number(to.slice(1, to.indexOf("@"))) % 2 === 1;
+    const primary = batchProvider({
+      batchSize: 50,
+      outcome: (to) => (failing(to) ? NOT_SENT : undefined) as never,
+    });
+    const fallback = fakeProvider({ id: "backup" });
+    const m = capped([primary.adapter, fallback], { idempotency: stores.idempotency });
+    // The store budget runs out after the first final record call, during the fallbacks.
+    stores.idempotency.finishMany.mockImplementationOnce(async (inputs) => {
+      stores.idempotency.touch.mockRejectedValue(new Error("too many queries"));
+      stores.idempotency.finishMany.mockRejectedValue(new Error("too many queries"));
+      return stores.memory.finishMany(inputs);
+    });
+    const names = Array.from({ length: 24 }, (_, i) => `m${i}`);
+    const results = await m.sendBatch(keyed(names));
+    expect(results.filter((r) => r.status === "sent")).toHaveLength(12);
+    // The fallbacks stop at the failed heartbeat and keep the primary result.
+    expect(fallback.sends).toHaveLength(0);
+    expect(results.filter((r) => r.status === "not_sent" && r.reason === "rejected")).toHaveLength(
+      12,
+    );
+    for (const [i, name] of names.entries()) {
+      const record = await stores.memory.get(`${NAMESPACE}:k-${name}`);
+      expect(record?.state).toBe(i % 2 === 1 ? "pending" : "sent");
+    }
+  });
+
+  it("warns once per key when finishMany returns false and still returns the result", async () => {
+    const stores = bulkStores();
+    const warn = vi.fn();
+    const primary = batchProvider();
+    const m = capped([primary.adapter], { idempotency: stores.idempotency, logger: { warn } });
+    stores.idempotency.finishMany.mockImplementationOnce((inputs) =>
+      stores.memory.finishMany(
+        inputs.map((input) =>
+          input.key === `${NAMESPACE}:k-a` ? { ...input, claimId: "other" } : input,
+        ),
+      ),
+    );
+    const results = await m.sendBatch(keyed(["a", "b"]));
+    expect(results.map((r) => r.status)).toEqual(["sent", "sent"]);
+    expect(warn.mock.calls.filter((call) => call[0] === LOST)).toHaveLength(1);
+    expect((await stores.memory.get(`${NAMESPACE}:k-a`))?.state).toBe("pending");
+    expect((await stores.memory.get(`${NAMESPACE}:k-b`))?.state).toBe("sent");
+  });
+
+  it("keeps the per-message path for a subclass that overrides touch, and runs the override", async () => {
+    class Tracking extends MemoryIdempotencyStore {
+      touches = 0;
+      override async touch(input: IdempotencyTouchInput): Promise<boolean> {
+        this.touches++;
+        return super.touch(input);
+      }
+    }
+    const idempotency = new Tracking();
+    expect(hasBulkIdempotency(idempotency)).toBe(false);
+    const claimMany = vi.spyOn(MemoryIdempotencyStore.prototype, "claimMany");
+    const touchMany = vi.spyOn(MemoryIdempotencyStore.prototype, "touchMany");
+    try {
+      const primary = batchProvider();
+      const results = await capped([primary.adapter], { idempotency }).sendBatch(
+        keyed(["a", "b", "c"]),
+      );
+      expect(results.map((r) => r.status)).toEqual(["sent", "sent", "sent"]);
+      expect(idempotency.touches).toBe(3);
+      expect(claimMany).not.toHaveBeenCalled();
+      expect(touchMany).not.toHaveBeenCalled();
+    } finally {
+      claimMany.mockRestore();
+      touchMany.mockRestore();
+    }
+  });
+
+  it("uses bulk claims with a cap store that has no bulk methods", async () => {
+    const stores = bulkStores();
+    const dailyCaps = singleCaps(stores.caps);
+    const reserve = vi.spyOn(dailyCaps, "reserve");
+    const release = vi.spyOn(dailyCaps, "release");
+    const primary = batchProvider({
+      outcome: (to) => (to === "b@x.org" ? NOT_SENT : undefined) as never,
+    });
+    const m = capped([{ adapter: primary.adapter, dailyCap: 10 }], {
+      idempotency: stores.idempotency,
+      dailyCaps,
+    });
+    const results = await m.sendBatch(keyed(["a", "b", "c"]));
+    expect(results.map((r) => r.status)).toEqual(["sent", "not_sent", "sent"]);
+    expect(stores.idempotency.claimMany).toHaveBeenCalledTimes(1);
+    expect(stores.idempotency.touchMany).toHaveBeenCalledTimes(1);
+    expect(stores.idempotency.finishMany).toHaveBeenCalledTimes(1);
+    expect(reserve).toHaveBeenCalledTimes(3);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(await stores.caps.used("batcher", T0)).toBe(2);
+    expect((await stores.memory.get(`${NAMESPACE}:k-b`))?.state).toBe("not_sent");
+  });
+
+  it("uses bulk cap calls with an idempotency store that has no bulk methods", async () => {
+    const stores = bulkStores();
+    const idempotency = singleIdempotency(stores.memory);
+    const claim = vi.spyOn(idempotency, "claim");
+    const finish = vi.spyOn(idempotency, "finish");
+    const primary = batchProvider({
+      outcome: (to) => (to === "b@x.org" ? NOT_SENT : undefined) as never,
+    });
+    const m = capped([{ adapter: primary.adapter, dailyCap: 10 }], {
+      idempotency,
+      dailyCaps: stores.dailyCaps,
+    });
+    const results = await m.sendBatch(keyed(["a", "b", "c"]));
+    expect(results.map((r) => r.status)).toEqual(["sent", "not_sent", "sent"]);
+    expect(claim).toHaveBeenCalledTimes(3);
+    expect(finish).toHaveBeenCalledTimes(3);
+    expect(sizes(stores.dailyCaps.reserveMany)).toEqual([3]);
+    expect(sizes(stores.dailyCaps.releaseMany)).toEqual([1]);
+    expect(stores.dailyCaps.reserve).not.toHaveBeenCalled();
+    expect(await stores.caps.used("batcher", T0)).toBe(2);
+    expect((await stores.memory.get(`${NAMESPACE}:k-c`))?.state).toBe("sent");
+  });
+
+  it("skips reserveMany when the primary has no cap", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider();
+    const m = capped([primary.adapter], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+    });
+    const results = await m.sendBatch(keyed(["a", "b"]));
+    expect(results.map((r) => r.status)).toEqual(["sent", "sent"]);
+    expect(stores.dailyCaps.reserveMany).not.toHaveBeenCalled();
+    expect(stores.dailyCaps.reserve).not.toHaveBeenCalled();
+  });
+
+  it("makes 3 store calls for each bulk step with 250 items and a batch size of 500", async () => {
+    const stores = bulkStores();
+    const primary = batchProvider({ batchSize: 500 });
+    const m = capped([{ adapter: primary.adapter, dailyCap: 1000 }], {
+      idempotency: stores.idempotency,
+      dailyCaps: stores.dailyCaps,
+    });
+    const names = Array.from({ length: 250 }, (_, i) => `m${i}`);
+    const results = await m.sendBatch(keyed(names));
+    expect(results.every((r) => r.status === "sent")).toBe(true);
+    expect(primary.batches.map((b) => b.length)).toEqual([250]);
+    for (const spy of [
+      stores.idempotency.claimMany,
+      stores.dailyCaps.reserveMany,
+      stores.idempotency.touchMany,
+      stores.idempotency.finishMany,
+    ]) {
+      expect(sizes(spy)).toEqual([100, 100, 50]);
+    }
+    expect(stores.dailyCaps.releaseMany).not.toHaveBeenCalled();
+    // The claims and the cap units keep the input order.
+    expect(stores.idempotency.claimMany.mock.calls[2]?.[0][0]?.key).toBe(`${NAMESPACE}:k-m200`);
   });
 });
