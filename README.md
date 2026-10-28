@@ -121,6 +121,15 @@ Build a “bring your own email provider” form with provider metadata, credent
 - [Example Worker](examples/worker-basic/): send an invoice and receive webhooks.
 - [Add a provider](docs/guides/add-a-provider.md) · [Release guide](docs/guides/releasing.md)
 
+## Versioning
+
+mailswitch follows semantic versioning. A major release can break your code. A minor or a patch release cannot, with one exception:
+
+- A minor release can add a value to these string unions: `NormalizedEventType`, `WebhookRejection`, and `FailureReason`. New providers and new checks need new values. Give each `switch` on these types a `default` case.
+- `DeliveryStatus` is fixed. It is always `sent`, `not_sent`, or `unknown`. Base retry and fallback decisions on the status, not on the reason.
+
+The sample bodies of `mailswitch/conformance/fixtures` follow the provider docs, and a minor release can change them. Their export names and helper signatures follow semantic versioning.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

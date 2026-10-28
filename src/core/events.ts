@@ -1,7 +1,11 @@
 // Normalized webhook events and the typed reasons for a refused webhook. Every adapter
 // turns its provider's webhook body into these types, so an app handles one shape.
 
-/** The kinds of normalized events. A type that mailswitch does not map is `unknown`. */
+/**
+ * The kinds of normalized events. A type that mailswitch does not map is `unknown`.
+ *
+ * A minor release can add a type. Give each `switch` on this type a `default` case.
+ */
 export type NormalizedEventType = "bounced" | "complained" | "delivered" | "unknown";
 
 /** Every normalized event type, in a fixed order. */
@@ -67,6 +71,9 @@ export interface NormalizedEvent {
  * - `untrusted_topic`: the SNS topic is not in the allowlist.
  * - `invalid_secret`: the configured secret is too short or has the wrong form. This is a
  *   setup error on the receiving side, not a bad request.
+ *
+ * A minor release can add a code. Give each `switch` on this type a `default` case, and use
+ * `REJECTION_STATUS` for the HTTP status of a code.
  */
 export type WebhookRejection =
   | "bad_signature"
