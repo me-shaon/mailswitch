@@ -138,6 +138,14 @@ Because toSend does not retry, a non-2xx answer loses that event. When your hand
 
 toSend documents only the bounce and complaint events. It sends no delivery events.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when toSend sends these fields:
+
+- `text`: `data.reason`.
+
+toSend also puts `reason` on a complaint. mailswitch reads it only for a bounce. The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

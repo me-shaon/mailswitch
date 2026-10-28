@@ -12,7 +12,7 @@ import type { ConformanceFixture, WebhookSample } from "../types";
 const NOW = Date.parse("2026-10-26T12:00:30.000Z");
 const DOMAIN = "mg.example.com";
 const MESSAGE_ID = "20261026120030.1.4F2A9C@mg.example.com";
-/** A test webhook signing key. */
+/** A test webhook signing key. For tests only. Never use it in production config. */
 export const MAILGUN_FIXTURE_SECRET: string = "mailgun-signing-key-0123456789abcdef";
 /** The send URL of the fixture domain in the US region. */
 export const MAILGUN_FIXTURE_SEND_URL: string = `${MAILGUN_REGIONS.us}/v3/${DOMAIN}/messages`;
@@ -155,12 +155,25 @@ export function mailgunFixture(): ConformanceFixture {
           body: mailgunEvent("failed", {
             severity: "permanent",
             reason: "bounce",
-            "delivery-status": { code: 550, message: "5.1.1 The email account does not exist" },
+            "delivery-status": {
+              "attempt-no": 1,
+              code: 550,
+              "enhanced-code": "5.1.1",
+              message: "5.1.1 The email account that you tried to reach does not exist.",
+              description: "",
+              "mx-host": "mx.example.org",
+              "session-seconds": 0.4,
+            },
           }),
           expected: [
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: {
+                text: "5.1.1 The email account that you tried to reach does not exist.",
+                smtpCode: 550,
+                enhancedCode: "5.1.1",
+              },
               recipient: "ana@example.org",
               providerMessageId: MESSAGE_ID,
               rawType: "failed",
@@ -172,10 +185,31 @@ export function mailgunFixture(): ConformanceFixture {
           label: "soft bounce",
           body: mailgunEvent(
             "failed",
-            { severity: "temporary", reason: "generic", "delivery-status": { code: 452 } },
+            {
+              severity: "temporary",
+              reason: "generic",
+              "delivery-status": {
+                "attempt-no": 1,
+                code: 452,
+                "enhanced-code": "4.2.2",
+                message: "4.2.2 The email account that you tried to reach is over quota.",
+                description: "",
+              },
+            },
             "bo@example.org",
           ),
-          expected: [{ type: "bounced", bounce: "soft", recipient: "bo@example.org" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              recipient: "bo@example.org",
+              bounceDetail: {
+                text: "4.2.2 The email account that you tried to reach is over quota.",
+                smtpCode: 452,
+                enhancedCode: "4.2.2",
+              },
+            },
+          ],
         },
         {
           label: "delivered",
@@ -192,7 +226,13 @@ export function mailgunFixture(): ConformanceFixture {
         {
           label: "complaint",
           body: mailgunEvent("complained"),
-          expected: [{ type: "complained", recipient: "ana@example.org", rawType: "complained" }],
+          expected: [
+            {
+              type: "complained",
+              recipient: "ana@example.org",
+              rawType: "complained",
+            },
+          ],
         },
         {
           label: "a drop after an earlier complaint",

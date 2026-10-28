@@ -17,7 +17,10 @@ const NOW = Date.parse("2026-10-27T12:00:00.000Z");
 
 /** The made-up API key of the fixture. */
 export const AUTOSEND_FIXTURE_KEY = "AS_test_not_real";
-/** The made-up webhook secret of the fixture. It protects nothing. */
+/**
+ * The made-up webhook secret of the fixture. It protects nothing.
+ * For tests only. Never use it in production config.
+ */
 export const AUTOSEND_FIXTURE_SECRET = "test-autosend-webhook-secret-not-real";
 /** The email id of the accepted answer. */
 export const AUTOSEND_FIXTURE_EMAIL_ID = "autosend-email-0001";
@@ -171,15 +174,30 @@ export function autosendFixture(): ConformanceFixture {
             bounceSubType: "NoEmail",
             reason: "550 5.1.1 unknown user",
           }),
-          expected: [{ type: "bounced", bounce: "hard", rawType: "email.bounced" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "hard",
+              rawType: "email.bounced",
+              bounceDetail: { text: "550 5.1.1 unknown user" },
+            },
+          ],
         },
         {
           label: "transient bounce",
           body: autosendEvent("email.bounced", {
             bounceType: "Transient",
             bounceSubType: "General",
+            reason: "451 4.3.0 temporary failure",
           }),
-          expected: [{ type: "bounced", bounce: "soft", rawType: "email.bounced" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              rawType: "email.bounced",
+              bounceDetail: { text: "451 4.3.0 temporary failure" },
+            },
+          ],
         },
         {
           label: "spam report",

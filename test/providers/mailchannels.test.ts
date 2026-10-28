@@ -512,23 +512,22 @@ describe("mailchannels webhooks", () => {
     expect(await hooks.verify(input(many))).toEqual({ ok: false, reason: "malformed" });
   });
 
-  it("throws at setup for a key that is not base64, with no key in the message", async () => {
+  it("refuses a key that is not base64 as invalid_secret", async () => {
     const sample = await signed(THREE_EVENTS);
-    const secret = "not a key at all!";
-    const error = await hooks.verify(input(sample, secret)).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(TypeError);
-    expect((error as Error).message).not.toContain(secret);
+    expect(await hooks.verify(input(sample, "not a key at all!"))).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
   });
 
-  it("throws at setup for a PEM block that is not a PUBLIC KEY", async () => {
+  it("refuses a PEM block that is not a PUBLIC KEY as invalid_secret", async () => {
     const sample = await signed(THREE_EVENTS);
     for (const label of ["PRIVATE KEY", "CERTIFICATE"]) {
       const secret = `-----BEGIN ${label}-----\n${PUBLIC_KEY}\n-----END ${label}-----\n`;
-      const error = await hooks.verify(input(sample, secret)).catch((caught: unknown) => caught);
-      expect(error).toEqual(
-        new TypeError("The MailChannels webhook secret is not a base64 public key."),
-      );
-      expect((error as Error).message).not.toContain(PUBLIC_KEY);
+      expect(await hooks.verify(input(sample, secret))).toEqual({
+        ok: false,
+        reason: "invalid_secret",
+      });
     }
   });
 
@@ -636,5 +635,34 @@ describe("mailchannels webhooks", () => {
     expect(first.events).toHaveLength(3);
     await first.ack();
     expect(await deliver()).toMatchObject({ ok: true, events: [] });
+  });
+});
+
+describe("mailchannels bounce detail", () => {
+  const parse = (events: Record<string, unknown>[]) =>
+    mailchannels({ customerHandle: HANDLE }).webhooks?.parse(
+      utf8(JSON.stringify(events)),
+      new Headers(),
+    ) ?? [];
+
+  it("reads reason and status for a hard bounce", () => {
+    const events = parse([
+      mailchannelsEvent("hard-bounced", { reason: "550 unknown recipient", status: "5.1.1" }),
+    ]);
+    expect(events[0]?.bounceDetail).toEqual({
+      text: "550 unknown recipient",
+      enhancedCode: "5.1.1",
+    });
+  });
+
+  it("gives no detail and no error for a bounce with neither field", () => {
+    const events = parse([mailchannelsEvent("soft-bounced")]);
+    expect(events[0]?.type).toBe("bounced");
+    expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+
+  it("gives no detail to a delivery that carries the fields", () => {
+    const events = parse([mailchannelsEvent("delivered", { reason: "250 OK", status: "2.0.0" })]);
+    expect(events[0]?.bounceDetail).toBeUndefined();
   });
 });

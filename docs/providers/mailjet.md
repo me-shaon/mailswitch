@@ -106,7 +106,7 @@ The secret must hold at least 128 bits. mailswitch checks the length:
 
 Do not type a secret by hand. Make it with `generateMailjetWebhookSecret()`, which gives 256 random bits as 43 base64url characters. The base64url characters are safe in a URL.
 
-A secret that is too short is a setup error. The webhook check throws a `TypeError`, and the message does not hold the secret.
+A secret that is too short is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the secret. A weak `previousWebhookSecret` throws a `TypeError` when you create the adapter. The message does not hold the secret.
 
 ### Set up the webhook in Mailjet
 
@@ -187,6 +187,16 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 `providerMessageId` is `Message_GUID`. When an event has no `Message_GUID`, it is the `MessageID` digits. The Mailjet docs do not state that `Message_GUID` equals the `MessageUUID` of the send answer. Check this with your account before you match events to sends.
 
 Mailjet sends no event id. The event key is `<event>:<MessageID>:<email>:<time>`, with the email in lowercase. A `click` event also adds its `url`. These fields do not change when Mailjet sends the same request again. `MessageID` can be larger than a safe JavaScript number, so mailswitch reads its digits from the raw body. When one request holds the same key twice, mailswitch keeps one event.
+
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Mailjet sends these fields:
+
+- `text`: `error`, with `error_related_to` in parentheses when it is present.
+
+The Mailjet docs do not confirm these field names. mailswitch reads them as optional. The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
+To check the field names, put a raw bounce body from Mailjet in `MAILSWITCH_LIVE_MAILJET_BOUNCE_BODY` and run the live smoke test. The test logs which fields are present. It never logs their values.
 
 ## Links
 

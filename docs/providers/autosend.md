@@ -153,6 +153,14 @@ One request holds one event: `{ type, createdAt, data }`. Some AutoSend pages na
 
 Read `bounceSubType`, `reason`, and `complaintType` in your own code when you need the details.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when AutoSend sends these fields:
+
+- `text`: `data.reason`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Live smoke test
 
 The live smoke test runs only when these environment variables are set:

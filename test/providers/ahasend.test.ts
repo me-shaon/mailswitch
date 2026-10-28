@@ -514,3 +514,33 @@ describe("ahasend webhooks", () => {
     expect(await send()).toMatchObject({ ok: true, events: [] });
   });
 });
+
+describe("ahasend bounce detail", () => {
+  const parse = (body: string) => ahasend().webhooks?.parse(utf8(body), new Headers()) ?? [];
+
+  it("leaves out smtpCode when smtp_code is 0", () => {
+    const events = parse(
+      ahasendEvent("message.bounced", {
+        delivery_attempt: {
+          smtp_code: 0,
+          enhanced_status_code: "5.4.4",
+          response: "Domain has no MX records",
+        },
+      }),
+    );
+    expect(events[0]?.bounceDetail).toEqual({
+      text: "Domain has no MX records",
+      enhancedCode: "5.4.4",
+    });
+  });
+
+  it("gives no detail to a delivery, even with a delivery attempt", () => {
+    const events = parse(
+      ahasendEvent("message.delivered", {
+        delivery_attempt: { smtp_code: 250, enhanced_status_code: "2.0.0", response: "250 OK" },
+      }),
+    );
+    expect(events[0]?.type).toBe("delivered");
+    expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+});

@@ -259,6 +259,26 @@ export interface DedupeReleaseInput {
   leaseId: string;
 }
 
+/** The input of `DedupeStore.claimMany`. */
+export interface DedupeClaimManyInput {
+  /** The dedupe keys. Each key must be distinct. */
+  keys: readonly string[];
+  /** How long each lease holds its key without a commit, in milliseconds. */
+  leaseMs: number;
+  /** Unix milliseconds. */
+  now: number;
+}
+
+/** The input of `DedupeStore.commitMany`. */
+export interface DedupeCommitManyInput {
+  /** The leases to commit. Each lease is a key and the lease id that a claim returned. */
+  leases: readonly DedupeReleaseInput[];
+  /** How long each committed key blocks a replay, in milliseconds. */
+  ttlMs: number;
+  /** Unix milliseconds. */
+  now: number;
+}
+
 /**
  * Stores webhook event keys in two phases: a claim with a lease, then a commit with a
  * TTL. A lease that expires without a commit frees the key, so a provider retry delivers
@@ -269,6 +289,10 @@ export interface DedupeReleaseInput {
  * release or commit the key. The newer holder owns it.
  *
  * Implementations must make `claim` atomic: two parallel claims cannot both get `new`.
+ *
+ * The bulk methods `claimMany`, `commitMany`, and `releaseMany` are optional. The webhook
+ * router uses them only when a store has all three. Each bulk method must give the same
+ * result as its single method in a loop.
  */
 export interface DedupeStore {
   /** Takes a lease on a free key, a key whose lease expired, or a key whose TTL passed. */
@@ -285,6 +309,19 @@ export interface DedupeStore {
    * frees a committed key or a key that another lease holds.
    */
   release(input: DedupeReleaseInput): Promise<void>;
+  /**
+   * Claims each key as `claim` does. Returns one outcome for each key, in input order.
+   * The call is atomic: when it throws, it claimed no key. It throws a TypeError for a
+   * repeated key.
+   */
+  claimMany?(input: DedupeClaimManyInput): Promise<DedupeClaimOutcome[]>;
+  /**
+   * Commits each lease as `commit` does. Returns one result for each lease, in input
+   * order. The call is atomic: when it throws, it committed no lease.
+   */
+  commitMany?(input: DedupeCommitManyInput): Promise<boolean[]>;
+  /** Releases each lease as `release` does. */
+  releaseMany?(leases: readonly DedupeReleaseInput[]): Promise<void>;
   /**
    * Deletes committed keys whose TTL passed and leases that expired. Both are free for a
    * new claim already. Returns the number of deleted keys.

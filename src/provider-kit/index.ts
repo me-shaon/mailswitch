@@ -25,13 +25,19 @@ export {
   type StatusMap,
   type StatusOverride,
 } from "../core/classify";
-export type { NormalizedEvent, NormalizedEventType, WebhookRejection } from "../core/events";
+export type {
+  BounceDetail,
+  NormalizedEvent,
+  NormalizedEventType,
+  WebhookRejection,
+} from "../core/events";
 export {
   type CredentialField,
   defineProviderMeta,
   type ProviderMeta,
   type ProviderPreset,
   type ProviderTier,
+  type WebhookSecretMeta,
 } from "../core/meta";
 export {
   base64ToBytes,

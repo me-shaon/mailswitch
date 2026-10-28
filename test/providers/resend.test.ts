@@ -347,14 +347,19 @@ describe("resend webhooks", () => {
     expect(hooks.parse(body, request.headers)).toEqual([]);
   });
 
-  it("throws at setup for a bad whsec_ secret", async () => {
+  it("throws at setup for a bad whsec_ secret, and verify refuses it", async () => {
     expect(() => svixVerifier("whsec_not*base64!")).toThrow(TypeError);
     expect(() => svixVerifier("whsec_")).toThrow(TypeError);
     expect(() => svixVerifier("whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRY")).toThrow(TypeError);
     const request = await input(bounce);
-    expect(() => verifyResendWebhook({ ...request, secret: "whsec_%%%%" })).toThrow(
-      /not a valid whsec_ base64 secret/,
-    );
+    expect(await verifyResendWebhook({ ...request, secret: "whsec_%%%%" })).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
+    expect(await verifyResendWebhook({ ...request, secret: "whsec_" })).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
   });
 
   it("refuses an empty secret without a throw", async () => {

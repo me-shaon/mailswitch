@@ -427,9 +427,12 @@ describe("smtp2go webhooks", () => {
     }
   });
 
-  it("throws for a weak secret, which is a setup error", async () => {
+  it("refuses a weak secret as invalid_secret, which is a setup error", async () => {
     const headers = new Headers({ authorization: "Bearer short" });
-    await expect(verify(headers, utf8("{}"), "short")).rejects.toThrow(TypeError);
+    expect(await verify(headers, utf8("{}"), "short")).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
   });
 
   it("accepts the previous secret during a rotation", async () => {

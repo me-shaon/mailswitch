@@ -12,11 +12,32 @@ export const NORMALIZED_EVENT_TYPES: readonly NormalizedEventType[] = [
   "unknown",
 ];
 
+/**
+ * The reason for a bounce, as the provider sends it. mailswitch removes control and
+ * invisible characters from the text, trims it, and cuts it at 1,000 UTF-16 code units.
+ * It never reads a code out of the text.
+ */
+export interface BounceDetail {
+  /** The reason text from the remote mail server or the provider. */
+  text?: string;
+  /** The SMTP reply code, an integer from 200 to 599. */
+  smtpCode?: number;
+  /** The enhanced status code, for example `5.1.1`. */
+  enhancedCode?: string;
+}
+
 /** One provider event in the shared shape. */
 export interface NormalizedEvent {
   type: NormalizedEventType;
   /** For `bounced` only: `hard` for a permanent failure, `soft` for a temporary one. */
   bounce?: "hard" | "soft";
+  /**
+   * For `bounced` only: the reason that the provider gives for the bounce. It is set only
+   * when the provider sends at least one part. The text comes from a remote mail server
+   * and can hold personal data. mailswitch does not escape markup in it. Escape the text
+   * for your output (HTML, Markdown, or email) before you show it.
+   */
+  bounceDetail?: BounceDetail;
   /** The address that the event is about. */
   recipient?: string;
   /** The id that the provider gave the message at send time. */
@@ -44,6 +65,8 @@ export interface NormalizedEvent {
  * - `replay`: the event key was handled before.
  * - `in_flight`: another request holds a claim for the same event key now.
  * - `untrusted_topic`: the SNS topic is not in the allowlist.
+ * - `invalid_secret`: the configured secret is too short or has the wrong form. This is a
+ *   setup error on the receiving side, not a bad request.
  */
 export type WebhookRejection =
   | "bad_signature"
@@ -53,7 +76,8 @@ export type WebhookRejection =
   | "body_used"
   | "replay"
   | "in_flight"
-  | "untrusted_topic";
+  | "untrusted_topic"
+  | "invalid_secret";
 
 /** Every webhook rejection code, in a fixed order. */
 export const WEBHOOK_REJECTIONS: readonly WebhookRejection[] = [
@@ -65,4 +89,5 @@ export const WEBHOOK_REJECTIONS: readonly WebhookRejection[] = [
   "replay",
   "in_flight",
   "untrusted_topic",
+  "invalid_secret",
 ];

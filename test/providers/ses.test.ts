@@ -719,3 +719,47 @@ describe("ses conformance report", () => {
     ).toEqual(["send.idempotency", "idempotency.conflict", "send.batch"]);
   });
 });
+
+describe("ses bounce detail", () => {
+  // SNS parsing needs the signed envelope fields, so each body is signed first.
+  async function parseSigned(body: string) {
+    const sample = await signSesWebhook({ body: utf8(body), secret: SES_FIXTURE_TOPIC, at: NOW });
+    return ses().webhooks?.parse(sample.body, new Headers(sample.headers)) ?? [];
+  }
+
+  it("pairs each recipient with its own detail when an earlier entry has a bad address", async () => {
+    const body = sesNotification({
+      eventType: "Bounce",
+      bounce: {
+        bounceType: "Permanent",
+        bouncedRecipients: [
+          { emailAddress: 42, status: "5.1.1", diagnosticCode: "smtp; 550 5.1.1 first" },
+          { emailAddress: "bo@example.org", status: "5.1.2", diagnosticCode: "smtp; 550 second" },
+        ],
+      },
+    });
+    const events = await parseSigned(body);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.recipient).toBe("bo@example.org");
+    expect(events[0]?.bounceDetail).toEqual({ text: "smtp; 550 second", enhancedCode: "5.1.2" });
+  });
+
+  it("gives no detail to a recipient without the fields, and none to a complaint", async () => {
+    const bounce = sesNotification({
+      eventType: "Bounce",
+      bounce: { bounceType: "Transient", bouncedRecipients: [{ emailAddress: "ana@example.org" }] },
+    });
+    const complaint = sesNotification({
+      eventType: "Complaint",
+      complaint: {
+        complainedRecipients: [
+          { emailAddress: "ana@example.org", status: "5.1.1", diagnosticCode: "smtp; 550" },
+        ],
+      },
+    });
+    expect((await parseSigned(bounce))[0]?.bounceDetail).toBeUndefined();
+    const events = await parseSigned(complaint);
+    expect(events[0]?.type).toBe("complained");
+    expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+});

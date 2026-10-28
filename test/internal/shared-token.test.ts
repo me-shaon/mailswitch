@@ -101,7 +101,7 @@ describe("shared webhook token", () => {
     expect(await both(headers(`Bearer-x ${SECRET}`), SECRET)).toEqual(malformed);
   });
 
-  it("throws TypeError for a weak secret, and the message holds no secret", async () => {
+  it("refuses a weak secret as invalid_secret, and the setup check throws", async () => {
     const short = "a".repeat(SHARED_TOKEN_MIN_LENGTH - 1).replace(/^a/, "z");
     const shortHex = "a".repeat(SHARED_TOKEN_MIN_HEX_LENGTH - 1);
     expect(short).toHaveLength(21);
@@ -110,10 +110,17 @@ describe("shared webhook token", () => {
     expect(() => checkSharedTokenSecret(shortHex, "Test")).toThrow(TypeError);
     expect(() => checkSharedTokenSecret("a".repeat(32), "Test")).not.toThrow();
     expect(() => checkSharedTokenSecret("z".repeat(22), "Test")).not.toThrow();
-    await expect(both(headers(`Bearer ${short}`), short)).rejects.toThrow(
+    expect(() => checkSharedTokenSecret(short, "Test")).toThrow(
       /^The Test webhook secret is too short: it needs 128 bits\.$/,
     );
-    await expect(both(headers(`Bearer ${shortHex}`), shortHex)).rejects.toThrow(TypeError);
+    expect(await both(headers(`Bearer ${short}`), short)).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
+    expect(await both(headers(`Bearer ${shortHex}`), shortHex)).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
   });
 
   it("throws TypeError at setup for no scheme, a bad username, or a weak previous secret", () => {

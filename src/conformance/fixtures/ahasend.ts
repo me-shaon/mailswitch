@@ -25,7 +25,10 @@ const NOW = Date.parse("2026-10-27T12:00:30.000Z");
 export const AHASEND_FIXTURE_ACCOUNT_ID = "00000000-0000-4000-8000-000000000001";
 /** The made-up API key of the fixture. */
 export const AHASEND_FIXTURE_API_KEY = "aha-sk-test-not-real-not-real-not-real";
-/** The made-up webhook secret of the fixture, with its prefix. */
+/**
+ * The made-up webhook secret of the fixture, with its prefix.
+ * For tests only. Never use it in production config.
+ */
 export const AHASEND_FIXTURE_SECRET = "aha-whsec-test-fixture-not-real";
 /** The `webhook-id` of every signed sample. */
 export const AHASEND_FIXTURE_DELIVERY_ID = "ahasend-delivery-0001";
@@ -182,16 +185,45 @@ export function ahasendFixture(): ConformanceFixture {
         {
           label: "bounce",
           body: ahasendEvent("message.bounced", {
-            delivery_attempt: { smtp_code: 550, enhanced_status_code: "5.1.1" },
+            delivery_attempt: {
+              smtp_code: 550,
+              enhanced_status_code: "5.1.1",
+              response: "550 5.1.1 The email account that you tried to reach does not exist",
+            },
           }),
-          expected: [{ type: "bounced", rawType: "message.bounced" }],
+          expected: [
+            {
+              type: "bounced",
+              rawType: "message.bounced",
+              bounceDetail: {
+                text: "550 5.1.1 The email account that you tried to reach does not exist",
+                smtpCode: 550,
+                enhancedCode: "5.1.1",
+              },
+            },
+          ],
         },
         {
           label: "transient error",
           body: ahasendEvent("message.transient_error", {
-            delivery_attempt: { smtp_code: 452, enhanced_status_code: "4.2.2" },
+            delivery_attempt: {
+              smtp_code: 452,
+              enhanced_status_code: "4.2.2",
+              response: "452 4.2.2 Mailbox full",
+            },
           }),
-          expected: [{ type: "bounced", bounce: "soft", rawType: "message.transient_error" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              rawType: "message.transient_error",
+              bounceDetail: {
+                text: "452 4.2.2 Mailbox full",
+                smtpCode: 452,
+                enhancedCode: "4.2.2",
+              },
+            },
+          ],
         },
         {
           label: "complaint",

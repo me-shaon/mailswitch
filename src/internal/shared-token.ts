@@ -36,17 +36,24 @@ const AUTHORIZATION = /^([A-Za-z]+) (\S+)$/;
 const USERNAME = /^[\x21-\x39\x3b-\x7e]{1,128}$/;
 
 /**
- * Checks that a webhook secret holds at least 128 bits of entropy, as far as its length
+ * Tells whether a webhook secret holds at least 128 bits of entropy, as far as its length
  * shows: 22 characters, or 32 characters for a hex-only secret. A long secret of one
  * repeated character also passes, so make the secret with `generateSharedTokenSecret`.
+ */
+export function isStrongSharedTokenSecret(secret: string): boolean {
+  return (
+    typeof secret === "string" &&
+    secret.length >= (HEX_ONLY.test(secret) ? SHARED_TOKEN_MIN_HEX_LENGTH : SHARED_TOKEN_MIN_LENGTH)
+  );
+}
+
+/**
+ * Checks a webhook secret with `isStrongSharedTokenSecret`.
  *
  * @throws TypeError for a secret that is too short. The message never holds the secret.
  */
 export function checkSharedTokenSecret(secret: string, name: string): void {
-  if (
-    typeof secret !== "string" ||
-    secret.length < (HEX_ONLY.test(secret) ? SHARED_TOKEN_MIN_HEX_LENGTH : SHARED_TOKEN_MIN_LENGTH)
-  ) {
+  if (!isStrongSharedTokenSecret(secret)) {
     throw new TypeError(`The ${name} webhook secret is too short: it needs 128 bits.`);
   }
 }
@@ -80,9 +87,9 @@ function basicPair(value: string): [string, string] | null {
  *
  * The check gives `bad_signature` for an empty secret, a missing header, another scheme,
  * or a wrong username or secret. It gives `malformed` for a header that it cannot parse.
+ * It gives `invalid_secret` for a secret that is too short.
  *
- * @throws TypeError for no scheme, an invalid username, or a weak `previousSecret`. The
- * check itself throws TypeError for a weak secret, because that is a setup error.
+ * @throws TypeError for no scheme, an invalid username, or a weak `previousSecret`.
  */
 export function sharedTokenVerifier(
   options: SharedTokenOptions,
@@ -98,7 +105,8 @@ export function sharedTokenVerifier(
 
   return async (headers, secret) => {
     if (secret === "") return { ok: false, reason: "bad_signature" };
-    checkSharedTokenSecret(secret, name);
+    // A weak secret is a setup error on this side. It is not the sender's fault.
+    if (!isStrongSharedTokenSecret(secret)) return { ok: false, reason: "invalid_secret" };
     const header = headers.get("authorization");
     if (header === null) return { ok: false, reason: "bad_signature" };
     const match = AUTHORIZATION.exec(header);

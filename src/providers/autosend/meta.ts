@@ -58,5 +58,10 @@ export const autosendMeta: ProviderMeta = defineProviderMeta({
   // doc states that the message did not go out.
   statusMap: defineStatusMap({}),
   webhooks: true,
+  webhookSecret: {
+    label: "Webhook secret",
+    source: "provider",
+    hint: "The secret of the webhook in AutoSend.",
+  },
   nativeIdempotency: false,
 });

@@ -178,7 +178,7 @@ Brevo signs nothing. It sends a bearer token that you set on the webhook. mailsw
 
 The token must hold at least 128 bits. A token of only hex characters needs at least 32 characters. Any other token needs at least 22 characters. Make it with `generateBrevoWebhookToken()`, which gives 256 random bits as 43 base64url characters.
 
-A token that is too short is a setup error. The webhook check throws a `TypeError`. The message does not hold the token.
+A token that is too short is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the token.
 
 ### Set up the webhook in Brevo
 
@@ -243,6 +243,14 @@ The token does not cover the body. Use HTTPS for the webhook URL, so nobody can 
 `rawType` is the Brevo event name. One request can hold one event, or a list when Brevo batching is on.
 
 Brevo sends no event id. The event key is `<event>:<message-id>:<recipient>:<time>`. The time is `ts_epoch` in milliseconds, or `ts_event` in seconds. These fields do not change when Brevo sends the same event again.
+
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Brevo sends these fields:
+
+- `text`: `reason`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
 
 ## Links
 

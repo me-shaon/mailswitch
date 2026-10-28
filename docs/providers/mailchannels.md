@@ -88,7 +88,7 @@ MailChannels signs each webhook request with Ed25519, as an HTTP Message Signatu
 3. Get the key with `GET https://api.mailchannels.net/tx/v1/webhook/public-key?id=<keyid>`.
 4. Store the key as the webhook secret, for example in `MAILCHANNELS_WEBHOOK_PUBLIC_KEY`.
 
-mailswitch accepts the key as base64 SubjectPublicKeyInfo text or as a PEM block. A key that is not base64 is a setup error. The webhook check then throws a `TypeError`, and the message does not hold the key.
+mailswitch accepts the key as base64 SubjectPublicKeyInfo text or as a PEM block. A key that is not base64 is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the key.
 
 mailswitch does not fetch the key, and it does not read the `keyid`. If MailChannels rotates its key, requests signed with the new key fail as `bad_signature`. Then get the key for the new `keyid` and update the secret.
 
@@ -161,6 +161,17 @@ One request holds a JSON array of up to 1000 events. mailswitch gives one normal
 MailChannels gives no event id. The event key is `<request_id>:<event>:<recipients>:<timestamp>:<url>`. The recipients are in lowercase, sorted, and joined with commas. The `url` part is set only for a `click` event.
 
 A webhook event carries the `request_id` of the send request and no message id. So mailswitch does not set `providerMessageId` on an event. The send result holds the `message_id` of the personalization, which is a different id. To match an event to a send, use the recipient and the time.
+
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when MailChannels sends these fields:
+
+- `text`: `reason`.
+- `enhancedCode`: `status`.
+
+The MailChannels docs do not confirm these field names. mailswitch reads them as optional. The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
+To check the field names, put a raw bounce body from MailChannels in `MAILSWITCH_LIVE_MAILCHANNELS_BOUNCE_BODY` and run the live smoke test. The test logs which fields are present. It never logs their values.
 
 ## Live smoke test
 

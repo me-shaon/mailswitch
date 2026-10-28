@@ -422,6 +422,31 @@ describe("createMailer: daily caps", () => {
     expect((await mailer.send(message())).status).toBe("sent");
     expect(await mailer.send(message())).toMatchObject({ reason: "daily_cap" });
   });
+
+  it("uses the meta default daily cap, and a preset cap takes precedence", async () => {
+    const meta = defineProviderMeta({
+      ...fakeMeta("metacap"),
+      defaultDailyCap: 1,
+      presets: [{ id: "big", name: "Big", fixed: {}, defaultDailyCap: 2 }],
+    });
+    const adapter = defineProvider({ ...fakeProvider({ id: "metacap" }), meta });
+    const make = (preset?: string) =>
+      createMailer({
+        providers: [{ adapter, credentials: { apiKey: "fk_a" }, ...(preset ? { preset } : {}) }],
+        dailyCaps: new MemoryDailyCapStore(),
+        now: () => T0,
+      });
+    const plain = make();
+    expect((await plain.send(message())).status).toBe("sent");
+    expect(await plain.send(message())).toMatchObject({ reason: "daily_cap" });
+    const big = make("big");
+    expect((await big.send(message())).status).toBe("sent");
+    expect((await big.send(message())).status).toBe("sent");
+    expect(await big.send(message())).toMatchObject({ reason: "daily_cap" });
+    const unstored = createMailer({ providers: [{ adapter, credentials: { apiKey: "fk_a" } }] });
+    expect((await unstored.send(message())).status).toBe("sent");
+    expect((await unstored.send(message())).status).toBe("sent");
+  });
 });
 
 describe("createMailer: capability check", () => {
@@ -557,6 +582,9 @@ describe("createMailer: options", () => {
       }),
     ).toThrow(TypeError);
     expect(() => createMailer({ providers: [{ ...a(), dailyCap: 5 }] })).toThrow(/dailyCaps/);
+    expect(() => createMailer({ providers: [{ ...a(), preset: "nope" }] })).toThrow(
+      /invalid credentials: preset \(preset\)/,
+    );
     expect(() =>
       createMailer({
         providers: [{ ...a(), dailyCap: 0 }],
@@ -721,10 +749,94 @@ describe("createMailer: claim fence", () => {
       idempotency,
       now: () => T0,
     });
-    await mailer.send(message({ idempotencyKey: "beat" }));
-    expect(touch).toHaveBeenCalledTimes(2);
-    expect(touch.mock.calls[0]?.[0].attempt).toBeUndefined();
-    expect(touch.mock.calls[1]?.[0].attempt).toMatchObject({ provider: "a", status: "not_sent" });
+    expect(await mailer.send(message({ idempotencyKey: "beat" }))).toMatchObject({
+      status: "sent",
+      provider: "b",
+    });
+    // The fresh claim needs no heartbeat. The fallback gets one, with the first attempt.
+    expect(touch).toHaveBeenCalledTimes(1);
+    expect(touch.mock.calls[0]?.[0].attempt).toMatchObject({ provider: "a", status: "not_sent" });
+  });
+
+  it("makes no heartbeat call for a keyed send that succeeds on the first provider", async () => {
+    const idempotency = new MemoryIdempotencyStore();
+    const touch = vi.spyOn(idempotency, "touch");
+    const a = fakeProvider({ id: "a" });
+    const mailer = createMailer({
+      providers: [{ adapter: a, credentials: { apiKey: "fk_a" } }],
+      namespace: NAMESPACE,
+      idempotency,
+      now: () => T0,
+    });
+    const result = await mailer.send(message({ idempotencyKey: "once" }));
+    expect(result).toMatchObject({ status: "sent", provider: "a" });
+    expect(touch).not.toHaveBeenCalled();
+    const record = await idempotency.get(`${NAMESPACE}:once`);
+    expect(record?.state).toBe("sent");
+    expect(record?.attempts).toMatchObject([{ provider: "a", status: "sent" }]);
+    expect(record?.providerMessageId).toBe(result.status === "sent" && result.providerMessageId);
+  });
+
+  it("stops with unknown/stale_pending when the claim is lost before the second provider call", async () => {
+    const warn = vi.fn();
+    const idempotency = new MemoryIdempotencyStore();
+    const touch = vi.spyOn(idempotency, "touch").mockResolvedValue(false);
+    const a = fakeProvider({ id: "a", outcomes: ["not_sent"] });
+    const b = fakeProvider({ id: "b" });
+    const mailer = createMailer({
+      providers: [
+        { adapter: a, credentials: { apiKey: "fk_a" } },
+        { adapter: b, credentials: { apiKey: "fk_b" } },
+      ],
+      namespace: NAMESPACE,
+      idempotency,
+      now: () => T0,
+      logger: { warn },
+    });
+    const result = await mailer.send(message({ idempotencyKey: "lost" }));
+    expect(result).toMatchObject({ status: "unknown", reason: "stale_pending" });
+    expect(a.sends).toHaveLength(1);
+    expect(b.sends).toHaveLength(0);
+    expect(touch).toHaveBeenCalledTimes(1);
+    expect((await idempotency.get(`${NAMESPACE}:lost`))?.state).toBe("pending");
+  });
+
+  it("keeps the heartbeat of each keyed sendBatch message before its chunk and its single send", async () => {
+    const mock = mockFetch([
+      exchange(`${RESEND_URL}/batch`, {
+        status: 200,
+        body: { data: [{ id: "b-1" }, { id: "b-2" }] },
+      }),
+      exchange(RESEND_URL, { status: 200, body: { id: "s-1" } }),
+    ]);
+    const idempotency = new MemoryIdempotencyStore();
+    const touch = vi.spyOn(idempotency, "touch");
+    const mailer = createMailer({
+      providers: [{ adapter: resend(), credentials: { apiKey: RESEND_KEY } }],
+      namespace: NAMESPACE,
+      idempotency,
+      fetch: mock.fetch,
+      now: () => T0,
+    });
+    const results = await mailer.sendBatch([
+      message({ idempotencyKey: "k-1" }),
+      message({
+        idempotencyKey: "k-2",
+        attachments: [
+          { filename: "a.pdf", content: "JVBERi0xLjQK", contentType: "application/pdf" },
+        ],
+      }),
+      message({ idempotencyKey: "k-3" }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["sent", "sent", "sent"]);
+    expect(callsTo(mock, RESEND_URL)).toBe(1);
+    // k-1 and k-3 get a heartbeat before their chunk. k-2 gets one before its single send.
+    expect(touch.mock.calls.map((call) => call[0].key).sort()).toEqual([
+      `${NAMESPACE}:k-1`,
+      `${NAMESPACE}:k-2`,
+      `${NAMESPACE}:k-3`,
+    ]);
+    expect(touch.mock.calls.every((call) => call[0].attempt === undefined)).toBe(true);
   });
 });
 
@@ -779,7 +891,7 @@ describe("createMailer: store failures", () => {
     let touches = 0;
     idempotency.touch = async (input) => {
       touches++;
-      if (touches === 2) throw new Error("D1 down");
+      if (touches === 1) throw new Error("D1 down");
       return touch(input);
     };
     const a = fakeProvider({ id: "a", outcomes: ["not_sent"] });

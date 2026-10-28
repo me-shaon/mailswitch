@@ -22,6 +22,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { basicAuthorization } from "../../internal/encoding";
 import { asRecord, stringField } from "../../internal/json";
 import {
@@ -175,6 +176,13 @@ export function parseMailjetEvents(provider: string, body: Uint8Array): Normaliz
     else if (rawType === "bounce") {
       event.type = "bounced";
       event.bounce = item.hard_bounce === true ? "hard" : "soft";
+      // The Mailjet docs do not confirm these field names, so both stay optional.
+      const error = stringField(item, "error");
+      const related = stringField(item, "error_related_to");
+      const detail = bounceDetail({
+        text: error !== undefined && related !== undefined ? `${error} (${related})` : error,
+      });
+      if (detail !== undefined) event.bounceDetail = detail;
     }
     if (recipient !== undefined) event.recipient = recipient;
     const guid = stringField(item, "Message_GUID") ?? messageId;

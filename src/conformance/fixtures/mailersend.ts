@@ -16,13 +16,18 @@ import type { ConformanceFixture, WebhookSample } from "../types";
 const NOW = Date.parse("2026-10-27T12:00:00.000Z");
 const MESSAGE_ID = "6892766ae78995a317577aa1";
 
-/** The webhook signing secret of the fixture. It protects nothing. */
+/**
+ * The webhook signing secret of the fixture. It protects nothing.
+ * For tests only. Never use it in production config.
+ */
 export const MAILERSEND_FIXTURE_SECRET = "fixture-signing-secret-AbCdEf0123456789";
 
 /** Signs a body the way MailerSend does. MailerSend signs no timestamp. */
 export async function signMailersendWebhook(input: {
   body: Uint8Array;
   secret: string;
+  /** The signing time. This provider signs no time, so the helper ignores it. */
+  at?: number;
 }): Promise<WebhookSample> {
   return {
     headers: new Headers({
@@ -163,6 +168,7 @@ export function mailersendFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: "550 5.1.1 unknown user", smtpCode: 550 },
               rawType: "activity.hard_bounced",
               eventKey: "act-hard_bounced-0001",
             },
@@ -171,9 +177,23 @@ export function mailersendFixture(): ConformanceFixture {
         {
           label: "soft bounce",
           body: JSON.stringify(
-            mailersendEvent("activity.soft_bounced", { recipient: "bo@example.org" }),
+            mailersendEvent("activity.soft_bounced", {
+              recipient: "bo@example.org",
+              meta: {
+                bounce_reason: "452 4.2.2 mailbox full",
+                bounce_code: 452,
+                bounce_type: "soft",
+              },
+            }),
           ),
-          expected: [{ type: "bounced", bounce: "soft", recipient: "bo@example.org" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              recipient: "bo@example.org",
+              bounceDetail: { text: "452 4.2.2 mailbox full", smtpCode: 452 },
+            },
+          ],
         },
         {
           label: "spam complaint",

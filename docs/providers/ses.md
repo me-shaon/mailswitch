@@ -199,6 +199,15 @@ The event key is the SNS `MessageId`. SNS keeps it across retries of one deliver
 
 The signature covers the `Timestamp`, and the adapter refuses an old message. So the default dedupe TTL is 7 days.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when SES sends these fields:
+
+- `text`: `bouncedRecipients[i].diagnosticCode`.
+- `enhancedCode`: `bouncedRecipients[i].status`.
+
+Each recipient gets the fields of its own entry. The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Sources
 
 - [SES v2 SendEmail](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html)

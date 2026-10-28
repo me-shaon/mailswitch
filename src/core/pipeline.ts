@@ -49,7 +49,7 @@ export interface MailerProvider {
   preset?: string;
   /**
    * The most sends in a rolling 24 hours. It needs the `dailyCaps` store. It defaults to
-   * the `defaultDailyCap` of the preset when a `dailyCaps` store is set.
+   * the `defaultDailyCap` of the preset, then of the meta, when a `dailyCaps` store is set.
    */
   dailyCap?: number;
   /**
@@ -133,6 +133,11 @@ export interface MessageRun {
   result?: SendResult;
   /** True when a store failure or a lost claim stopped the run. No further provider call. */
   done?: boolean;
+  /**
+   * True when the claim was just written. The first `fence` runs right after the claim,
+   * so `fence` skips that heartbeat. Only `send` sets it.
+   */
+  freshClaim?: boolean;
 }
 
 /** The outcome of the capability check and the cap reserve. Internal. */
@@ -202,7 +207,9 @@ function prepareEntries(options: MailerOptions): Entry[] {
       defaulted: parsed.defaulted,
       scope: item.scope ?? id,
     };
-    const presetCap = adapter.meta.presets?.find((p) => p.id === item.preset)?.defaultDailyCap;
+    const presetCap =
+      adapter.meta.presets?.find((p) => p.id === item.preset)?.defaultDailyCap ??
+      adapter.meta.defaultDailyCap;
     if (item.dailyCap !== undefined && !options.dailyCaps) {
       throw new TypeError(`createMailer: provider "${id}" has a dailyCap but no dailyCaps store.`);
     }
@@ -270,9 +277,11 @@ function checkResult(result: unknown, provider: string): SendResult {
  * only the `not_sent` messages go to the fallbacks. A key used twice in one call gives
  * `unknown/in_flight` for the second message.
  *
- * Before each provider call, the claim gets a heartbeat (`IdempotencyStore.touch`). When
- * the claim is lost, for example after a stale conversion and a release, the message
- * makes no further provider call and gets `unknown/stale_pending`.
+ * Before each provider call, the claim gets a heartbeat (`IdempotencyStore.touch`). In
+ * `send`, the first provider call has no heartbeat, because the claim has just written
+ * the same time. `sendBatch` keeps the heartbeat before each provider call. When the
+ * claim is lost, for example after a stale conversion and a release, the message makes
+ * no further provider call and gets `unknown/stale_pending`.
  *
  * A store failure is a result, not an exception, in `send` and in `sendBatch`. The message
  * stops at the failed store call. It keeps the result of its last attempt, or gets
@@ -534,6 +543,8 @@ export function createMailer(options: MailerOptions): Mailer {
    */
   async function fence(run: MessageRun): Promise<boolean> {
     if (!run.claim) return true;
+    // The claim has just written the heartbeat time, so a touch would add nothing.
+    if (run.freshClaim && run.attempts.length === 0) return true;
     const last = run.attempts.at(-1);
     try {
       const store = idempotency as IdempotencyStore;
@@ -579,6 +590,7 @@ export function createMailer(options: MailerOptions): Mailer {
   async function send(message: OutgoingMessage): Promise<SendResult> {
     const run = await start(message);
     if (!("attempts" in run)) return run;
+    run.freshClaim = true;
     await chain(run, 0);
     return finish(run);
   }

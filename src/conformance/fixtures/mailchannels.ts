@@ -8,9 +8,8 @@
 // https://docs.mailchannels.com/email-api/webhooks
 // https://docs.mailchannels.com/email-api/webhook-schema
 //
-// The webhook keys are two Ed25519 key pairs that the module makes when it loads. The
-// fixture function is synchronous and the secret must be known when it returns, so the
-// keys are made by a top-level await and not inside the function. They protect nothing.
+// The webhook keys are two fixed Ed25519 key pairs, made once for tests. They protect
+// nothing. The sign helper imports a private key on its first call.
 
 import { bytesToBase64 } from "../../internal/encoding";
 import {
@@ -22,31 +21,34 @@ import {
   mailchannelsSignatureBase,
 } from "../../providers/mailchannels/index";
 import type { ConformanceFixture, WebhookSample } from "../types";
+import { importPrivateKey } from "./private-keys";
 
 const NOW = Date.parse("2026-10-27T12:00:30.000Z");
 const MESSAGE_ID = "mc-message-0001";
 const REQUEST_ID = "mc-request-0001";
 
-/** Makes one Ed25519 key pair, with its public key as a base64 SubjectPublicKeyInfo. */
-async function keyPair(): Promise<{ publicKey: string; privateKey: CryptoKey }> {
-  const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
-    "sign",
-    "verify",
-  ])) as CryptoKeyPair;
-  const spki = (await crypto.subtle.exportKey("spki", pair.publicKey)) as ArrayBuffer;
-  return { publicKey: bytesToBase64(new Uint8Array(spki)), privateKey: pair.privateKey };
-}
+/**
+ * The public key of the fixture: a base64 SubjectPublicKeyInfo.
+ * For tests only. Never use it in production config.
+ */
+export const MAILCHANNELS_FIXTURE_PUBLIC_KEY =
+  "MCowBQYDK2VwAyEAsVNKmTiPGI0tgSii8QwJicAjgOJGOd8+VIN14oOE9wo=";
+/**
+ * The public key of a second key pair. Its signatures do not match the fixture key.
+ * For tests only. Never use it in production config.
+ */
+export const MAILCHANNELS_FIXTURE_OTHER_PUBLIC_KEY =
+  "MCowBQYDK2VwAyEAlGHpqE6tJ9T0svYhzzLsObt8rKBKfYTDkXN3SnstLgo=";
 
-const FIXTURE_PAIR = await keyPair();
-const OTHER_PAIR = await keyPair();
+// The PKCS #8 private keys of the two pairs. Test-only values that protect nothing.
+const FIXTURE_PRIVATE_KEY = "MC4CAQAwBQYDK2VwBCIEIJ7LELDYV+fs8DqakGIXZ0R29VfFv2MfnIVonXCFANGJ";
+const OTHER_PRIVATE_KEY = "MC4CAQAwBQYDK2VwBCIEIBEpfeLBiZ5jwEcvzwlXycBEwSYH+i+NJl5RoT/rgSNK";
 
-/** The public key of the fixture: a base64 SubjectPublicKeyInfo. */
-export const MAILCHANNELS_FIXTURE_PUBLIC_KEY: string = FIXTURE_PAIR.publicKey;
-/** The public key of a second key pair. Its signatures do not match the fixture key. */
-export const MAILCHANNELS_FIXTURE_OTHER_PUBLIC_KEY: string = OTHER_PAIR.publicKey;
-
-function privateKeyOf(publicKey: string): CryptoKey {
-  return publicKey === OTHER_PAIR.publicKey ? OTHER_PAIR.privateKey : FIXTURE_PAIR.privateKey;
+function privateKeyOf(publicKey: string): Promise<CryptoKey> {
+  return importPrivateKey(
+    publicKey === MAILCHANNELS_FIXTURE_OTHER_PUBLIC_KEY ? OTHER_PRIVATE_KEY : FIXTURE_PRIVATE_KEY,
+    { name: "Ed25519" },
+  );
 }
 
 /** Options of `signMailchannelsWebhook`, to build broken requests in tests. */
@@ -77,7 +79,7 @@ export async function signMailchannelsWebhook(
   const digest = await mailchannelsContentDigest(input.body);
   const signature = await crypto.subtle.sign(
     { name: "Ed25519" },
-    privateKeyOf(input.secret),
+    await privateKeyOf(input.secret),
     mailchannelsSignatureBase(digest, params) as Uint8Array<ArrayBuffer>,
   );
   return {
@@ -206,6 +208,7 @@ export function mailchannelsFixture(): ConformanceFixture {
               type: "bounced",
               bounce: "hard",
               rawType: "hard-bounced",
+              bounceDetail: { text: "550 unknown recipient", enhancedCode: "5.1.1" },
               recipient: "ana@example.org",
               eventKey: `${REQUEST_ID}:hard-bounced:ana@example.org:1793102340:`,
             },
@@ -213,6 +216,7 @@ export function mailchannelsFixture(): ConformanceFixture {
               type: "bounced",
               bounce: "soft",
               rawType: "soft-bounced",
+              bounceDetail: { text: "452 mailbox full", enhancedCode: "4.2.2" },
               recipient: "bo@example.org",
               eventKey: `${REQUEST_ID}:soft-bounced:bo@example.org:1793102340:`,
             },

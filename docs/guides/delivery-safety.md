@@ -90,7 +90,7 @@ This means that the fallback runs less often during network faults. That is the 
 1. **Validation.** A message that breaks a rule returns `not_sent/invalid_message`. No provider runs.
 2. **One idempotency claim.** This step runs only when the mailer has an `idempotency` store and the message has an `idempotencyKey`. A claim that does not proceed returns the store answer from the table above.
 3. **The provider chain.** For each provider, in order:
-   1. The claim heartbeat, when step 2 made a claim. See [Claim heartbeat](#claim-heartbeat).
+   1. The claim heartbeat, when step 2 made a claim. In `send`, the first provider skips this step. See [Claim heartbeat](#claim-heartbeat).
    2. The capability check.
    3. The daily cap reserve, when the provider has a cap.
    4. The rate limit, when the provider has a rate.
@@ -124,19 +124,19 @@ The `onAttempt` hook gets a redacted view: the provider ID, the status, the reas
 
 In `sendBatch`, the store calls of different messages run at the same time, at most 8 at once. These are the claims, the cap reserves, the heartbeats, and the final records. The provider calls stay sequential. The results keep the input order. A key that is used twice in one call waits for the first claim, so the second message gets `unknown/in_flight`.
 
-Each message still makes its own store calls. With the D1 stores, a keyed message that goes out on the first try uses these statements:
+Each message still makes its own store calls. D1 counts one `batch` call as one query, so count store calls, not SQL statements. With the D1 stores, a keyed message that goes out on the first try makes these queries:
 
-| Step | D1 statements | When |
+| Step | D1 queries | When |
 |---|---|---|
-| Claim | 4, in one `batch` call | The message has a key and the mailer has an `idempotency` store. |
-| Cap reserve | 3, in one `batch` call | The provider has a daily cap. |
-| Heartbeat | 1 | The message has a claim. |
+| Claim | 1 (a `batch` of 4 statements) | The message has a key and the mailer has an `idempotency` store. |
+| Cap reserve | 1 (a `batch` of 3 statements) | The provider has a daily cap. |
+| Heartbeat | 1 | The message has a claim. `send` skips the heartbeat before its first provider call. |
 | Final record | 1 | The message has a claim. |
 | Cap refund | 1, or 2 after a `quota` answer | The provider has a cap and the result is `not_sent`. |
 
-A keyed message with a daily cap therefore uses 9 statements. Each fallback attempt adds 1 heartbeat and, when that provider has a cap, 3 more for its reserve.
+A keyed `send` with a daily cap therefore makes 3 queries. In `sendBatch`, the same message makes 4, because it keeps the first heartbeat. Each fallback attempt adds 1 heartbeat and, when that provider has a cap, 1 reserve.
 
-D1 limits the queries of one Worker invocation: 50 on the Workers Free plan and 1,000 on the Workers Paid plan. Count each statement as one query. Divide the limit by the statements per message to size a batch. For example, on the Paid plan, send at most about 100 keyed messages with a cap in one invocation. A batch that goes over the limit fails partway, and its later messages get `not_sent/store_error` or keep a `pending` record. See the [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
+D1 limits the queries of one Worker invocation: 50 on the Workers Free plan and 1,000 on the Workers Paid plan. Divide the limit by the queries per message to size a batch. For example, on the Free plan, send at most about 12 keyed messages with a cap in one invocation. A batch that goes over the limit fails partway, and its later messages get `not_sent/store_error` or keep a `pending` record. See the [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
 
 ## Fallback
 
@@ -182,6 +182,8 @@ Each claim writes a random claim ID. The final record is written only where the 
 ### Claim heartbeat
 
 Before each provider call, mailswitch calls `IdempotencyStore.touch`. The call sets `updatedAt` to the current time, and it writes the attempt that ended since the last call. It applies only where the claim ID matches and the state is still `pending`.
+
+In `send`, the first provider call has no heartbeat. The claim has just set `updatedAt`, so a heartbeat would change nothing. `sendBatch` calls `touch` before each provider call, including the first.
 
 - The stale check measures from `updatedAt`, not from the claim time. A long `sendBatch` therefore keeps the claims of its later messages current.
 - When `touch` returns `false`, the claim is lost. For example, a retry found it stale and an operator released the key. The message then makes no further provider call. It gets `unknown/stale_pending`, and mailswitch writes no further record for it. The logger gets a warning.

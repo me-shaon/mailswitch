@@ -11,6 +11,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail, cleanBounceText } from "../../internal/bounce-detail";
 import { base64ToBytes, bytesToBase64, utf8 } from "../../internal/encoding";
 import { decodeJsonBytes, timingSafeEqualText } from "../../internal/webhook-bytes";
 
@@ -34,10 +35,15 @@ const USERNAME = /^[\x21-\x39\x3b-\x7e]{1,128}$/;
  * @throws TypeError for a secret that is too short. The message never holds the secret.
  */
 export function checkPostmarkWebhookSecret(secret: string): void {
-  const min = HEX_ONLY.test(secret) ? POSTMARK_MIN_HEX_SECRET_LENGTH : POSTMARK_MIN_SECRET_LENGTH;
-  if (typeof secret !== "string" || secret.length < min) {
+  if (!isStrongSecret(secret)) {
     throw new TypeError("The Postmark webhook secret is too short: it needs 128 bits.");
   }
+}
+
+function isStrongSecret(secret: string): boolean {
+  if (typeof secret !== "string") return false;
+  const min = HEX_ONLY.test(secret) ? POSTMARK_MIN_HEX_SECRET_LENGTH : POSTMARK_MIN_SECRET_LENGTH;
+  return secret.length >= min;
 }
 
 /** Makes a webhook secret of 32 random bytes, as 43 base64url characters (256 bits). */
@@ -93,8 +99,8 @@ function verifier(
 
   return async (input) => {
     if (input.secret === "") return { ok: false, reason: "bad_signature" };
-    // A weak secret is a setup error, not a bad request.
-    checkPostmarkWebhookSecret(input.secret);
+    // A weak secret is a setup error on this side. It is not the sender's fault.
+    if (!isStrongSecret(input.secret)) return { ok: false, reason: "invalid_secret" };
     const header = input.headers.get("authorization");
     if (header === null) return { ok: false, reason: "bad_signature" };
     const match = AUTHORIZATION.exec(header.trim());
@@ -204,7 +210,14 @@ export function parsePostmarkEvents(provider: string, body: Uint8Array): Normali
   const eventKey =
     id === undefined ? parts.filter((part) => part !== undefined).join(":") : `${rawType}:${id}`;
   const event: NormalizedEvent = { type, provider, eventKey, rawType };
-  if (bounce !== undefined) event.bounce = bounce;
+  if (bounce !== undefined) {
+    event.bounce = bounce;
+    // Postmark puts the full SMTP reply in `Details` and a short summary in `Description`.
+    const detail = bounceDetail({
+      text: cleanBounceText(record.Details) ?? record.Description,
+    });
+    if (detail !== undefined) event.bounceDetail = detail;
+  }
   if (recipient !== undefined) event.recipient = recipient;
   if (messageId !== undefined) event.providerMessageId = messageId;
   const at = Date.parse(time ?? "");

@@ -73,7 +73,7 @@ The secret must hold at least 128 bits. mailswitch checks the length:
 
 mailswitch cannot measure the real randomness of a secret. A long secret of one repeated character passes the length check. Do not type a secret by hand. Make it with `generatePostmarkWebhookSecret()`, which gives 256 random bits as 43 base64url characters.
 
-A secret that is too short is a setup error. The webhook check throws a `TypeError`, and the message does not hold the secret.
+A secret that is too short is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the secret. A weak `previousWebhookSecret` throws a `TypeError` when you create the adapter. The message does not hold the secret.
 
 ### Set up the webhook in Postmark
 
@@ -150,6 +150,14 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 `rawType` is the Postmark `RecordType`.
 
 The event key is `RecordType:ID`, for example `Bounce:692560173`. mailswitch reads the ID digits from the raw body, because a bounce ID can be larger than a safe JavaScript number. A `Delivery` record has no ID, so its key is `Delivery:<MessageID>:<recipient>`. Postmark reports one delivery for each recipient of a message. Any other record without an ID, for example `Open`, gets `<RecordType>:<MessageID>:<recipient>:<time>`. A `Click` record also adds its link. These fields do not change when Postmark sends the same request again.
+
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Postmark sends these fields:
+
+- `text`: `Details`, or `Description` when `Details` is empty.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
 
 ## Links
 

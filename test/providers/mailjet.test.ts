@@ -634,9 +634,12 @@ describe("mailjet webhooks", () => {
     }
   });
 
-  it("throws for a weak secret, which is a setup error", async () => {
+  it("refuses a weak secret as invalid_secret, which is a setup error", async () => {
     const headers = new Headers({ authorization: mailjetWebhookAuthorization("short") });
-    await expect(verify(headers, utf8("{}"), "short")).rejects.toThrow(TypeError);
+    expect(await verify(headers, utf8("{}"), "short")).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
   });
 
   it("accepts the previous secret and a custom username during a rotation", async () => {
@@ -703,5 +706,37 @@ describe("mailjet webhooks", () => {
     expect(first.events).toMatchObject([{ type: "bounced", bounce: "soft" }]);
     await first.ack();
     expect(await send()).toMatchObject({ ok: true, events: [] });
+  });
+});
+
+describe("mailjet bounce detail", () => {
+  const parse = (event: Record<string, unknown>) =>
+    parseMailjetEvents("mailjet", utf8(JSON.stringify(event)));
+
+  it("reads error for a hard bounce", () => {
+    const events = parse(mailjetEvent("bounce", { hard_bounce: true, error: "user unknown" }));
+    expect(events[0]?.bounceDetail).toEqual({ text: "user unknown" });
+  });
+
+  it("adds error_related_to in parentheses when it is present", () => {
+    const events = parse(
+      mailjetEvent("bounce", {
+        hard_bounce: true,
+        error: "user unknown",
+        error_related_to: "recipient",
+      }),
+    );
+    expect(events[0]?.bounceDetail).toEqual({ text: "user unknown (recipient)" });
+  });
+
+  it("gives no detail and no error for a bounce with neither field", () => {
+    const events = parse(mailjetEvent("bounce", { hard_bounce: false }));
+    expect(events[0]?.type).toBe("bounced");
+    expect(events[0]?.bounceDetail).toBeUndefined();
+  });
+
+  it("gives no detail to a blocked event that carries error", () => {
+    const events = parse(mailjetEvent("blocked", { error: "preblocked" }));
+    expect(events[0]?.bounceDetail).toBeUndefined();
   });
 });

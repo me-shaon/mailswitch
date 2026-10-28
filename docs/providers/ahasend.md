@@ -135,6 +135,16 @@ One request holds one event: `{ type, webhook_id, timestamp, data }`.
 
 `message.bounced` has no bounce class, because the AhaSend docs do not say if it is always permanent. Read `data.delivery_attempt` in your own code when you need the SMTP code.
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when AhaSend sends these fields:
+
+- `text`: `data.delivery_attempt.response`.
+- `smtpCode`: `data.delivery_attempt.smtp_code`, when it is not 0.
+- `enhancedCode`: `data.delivery_attempt.enhanced_status_code`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Live smoke test
 
 The live smoke test sends with `sandbox: true`, so AhaSend delivers no email. It runs only when these environment variables are set:

@@ -3,8 +3,11 @@
 
 import type { ProviderMeta } from "./meta";
 
-/** Why a credential value was refused. */
-export type CredentialErrorCode = "required" | "pattern" | "option" | "type";
+/**
+ * Why a credential value was refused. `preset` means that the meta has no preset with the
+ * given id. Its error has the field name `preset`.
+ */
+export type CredentialErrorCode = "required" | "pattern" | "option" | "type" | "preset";
 
 /** One refused credential field. It never holds the submitted value. */
 export interface CredentialError {
@@ -20,7 +23,8 @@ export type CredentialParseResult =
 /**
  * Checks credentials against the fields of a provider. It applies preset fixed values
  * first, then the defaults of empty optional fields. Keys that no field declares are
- * dropped. Values are trimmed. An unknown preset id is a programmer error and throws.
+ * dropped. Values are trimmed. An unknown preset id gives one error with the field
+ * `preset` and the code `preset`.
  */
 export function parseCredentials(
   meta: ProviderMeta,
@@ -51,7 +55,8 @@ export function checkCredentials(
   let fixed: Readonly<Record<string, string>> = {};
   if (presetId !== undefined) {
     const preset = meta.presets?.find((item) => item.id === presetId);
-    if (!preset) throw new RangeError(`Provider "${meta.id}" has no preset "${presetId}".`);
+    // The id often comes from saved settings, so it is input, not a programmer error.
+    if (!preset) return { ok: false, errors: [{ field: "preset", code: "preset" }] };
     fixed = preset.fixed;
   }
   const values: Record<string, string> = {};

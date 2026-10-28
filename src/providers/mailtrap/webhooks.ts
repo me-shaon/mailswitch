@@ -10,6 +10,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { bytesToHex } from "../../internal/encoding";
 import { checkHexHmac } from "../../internal/hex-hmac-webhook";
 import { hmacSign } from "../../internal/hmac";
@@ -86,7 +87,11 @@ export function parseMailtrapEvents(provider: string, body: Uint8Array): Normali
       eventKey = `${bodyHash}:${index}`;
     }
     const event: NormalizedEvent = { type, provider, eventKey, rawType };
-    if (type === "bounced") event.bounce = rawType === "bounce" ? "hard" : "soft";
+    if (type === "bounced") {
+      event.bounce = rawType === "bounce" ? "hard" : "soft";
+      const detail = bounceDetail({ text: entry.response, smtpCode: entry.response_code });
+      if (detail !== undefined) event.bounceDetail = detail;
+    }
     const recipient = stringField(entry, "email");
     if (recipient !== undefined) event.recipient = recipient;
     const messageId = stringField(entry, "message_id");

@@ -10,7 +10,10 @@ const NOW = Date.parse("2026-10-26T12:00:30.000Z");
 const MESSAGE_ID = "4ef9a417-02e9-4d39-ad75-9611e0fcc33c";
 /** The `svix-id` of every signed sample. */
 export const RESEND_FIXTURE_SVIX_ID = "msg_2Lh9KRb0pzN4lczuHvSw5cRtVnT";
-/** A test signing secret: 24 bytes, base64, after `whsec_`. */
+/**
+ * A test signing secret: 24 bytes, base64, after `whsec_`.
+ * For tests only. Never use it in production config.
+ */
 export const RESEND_FIXTURE_SECRET = "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYX";
 
 /** Signs a body the way Resend does, with Svix headers. */
@@ -140,6 +143,7 @@ export function resendFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: "Mailbox does not exist." },
               recipient: "ana@example.org",
               providerMessageId: MESSAGE_ID,
               eventKey: RESEND_FIXTURE_SVIX_ID,
@@ -153,7 +157,14 @@ export function resendFixture(): ConformanceFixture {
           body: resendEvent("email.bounced", {
             bounce: { message: "Mailbox full.", subType: "MailboxFull", type: "Transient" },
           }),
-          expected: [{ type: "bounced", bounce: "soft", eventKey: RESEND_FIXTURE_SVIX_ID }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              bounceDetail: { text: "Mailbox full." },
+              eventKey: RESEND_FIXTURE_SVIX_ID,
+            },
+          ],
         },
         {
           label: "complaint",

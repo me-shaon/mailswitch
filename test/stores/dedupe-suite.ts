@@ -118,3 +118,164 @@ export function dedupeStoreSuite(name: string, make: () => Promise<DedupeStore>)
     });
   });
 }
+
+/** A `DedupeStore` with the three optional bulk methods. */
+export type BulkDedupeStore = DedupeStore &
+  Required<Pick<DedupeStore, "claimMany" | "commitMany" | "releaseMany">>;
+
+/** A small seeded random number generator, so a failure repeats. */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
+    return state / 2 ** 32;
+  };
+}
+
+type KeyState = "free" | "held" | "committed" | "expired_lease" | "expired_commit";
+const KEY_STATES: readonly KeyState[] = [
+  "free",
+  "held",
+  "committed",
+  "expired_lease",
+  "expired_commit",
+];
+
+/** Puts a key in a state for a claim at `T0 + LEASE * 2`. */
+async function setState(store: DedupeStore, key: string, state: KeyState): Promise<void> {
+  if (state === "free") return;
+  const at = state === "held" ? T0 + LEASE + 1 : T0;
+  const leaseId = leaseOf(await store.claim({ key, leaseMs: LEASE, now: at }));
+  if (state === "committed") await store.commit({ key, leaseId, ttlMs: TTL, now: at });
+  if (state === "expired_commit") await store.commit({ key, leaseId, ttlMs: 10, now: at });
+}
+
+/** Returns the leases of a list of `new` outcomes. */
+function leasesOf(keys: readonly string[], outcomes: readonly DedupeClaimOutcome[]) {
+  return outcomes.map((outcome, i) => ({ key: keys[i] as string, leaseId: leaseOf(outcome) }));
+}
+
+/**
+ * The shared behavior of the optional bulk methods of a `DedupeStore`. A store that
+ * implements them must give the same results as its single methods.
+ */
+export function dedupeBulkSuite(name: string, make: () => Promise<BulkDedupeStore>): void {
+  describe(`${name} DedupeStore bulk methods`, () => {
+    it("claims 3 new keys with distinct lease ids", async () => {
+      const store = await make();
+      const outcomes = await store.claimMany({ keys: ["a", "b", "c"], leaseMs: LEASE, now: T0 });
+      expect(new Set(outcomes.map(leaseOf)).size).toBe(3);
+    });
+
+    it("gives in_flight, duplicate, and new in input order", async () => {
+      const store = await make();
+      await store.claim({ key: "held", leaseMs: LEASE, now: T0 });
+      const done = leaseOf(await store.claim({ key: "done", leaseMs: LEASE, now: T0 }));
+      await store.commit({ key: "done", leaseId: done, ttlMs: TTL, now: T0 });
+      const outcomes = await store.claimMany({
+        keys: ["held", "done", "fresh"],
+        leaseMs: LEASE,
+        now: T0 + 1,
+      });
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(["in_flight", "duplicate", "new"]);
+    });
+
+    it("throws a TypeError for a repeated key and claims no key", async () => {
+      const store = await make();
+      await expect(
+        store.claimMany({ keys: ["a", "b", "a"], leaseMs: LEASE, now: T0 }),
+      ).rejects.toThrow(TypeError);
+      const after = await store.claimMany({ keys: ["a", "b"], leaseMs: LEASE, now: T0 + 1 });
+      expect(after.map((outcome) => outcome.status)).toEqual(["new", "new"]);
+    });
+
+    it("gives new with a fresh lease id for a key whose lease expired", async () => {
+      const store = await make();
+      const [first] = await store.claimMany({ keys: ["k"], leaseMs: LEASE, now: T0 });
+      const [second] = await store.claimMany({ keys: ["k"], leaseMs: LEASE, now: T0 + LEASE });
+      if (!first || !second) throw new Error("Expected one outcome for each key.");
+      expect(leaseOf(second)).not.toBe(leaseOf(first));
+    });
+
+    it("gives duplicate for each key after commitMany", async () => {
+      const store = await make();
+      const keys = ["a", "b", "c"];
+      const leases = leasesOf(keys, await store.claimMany({ keys, leaseMs: LEASE, now: T0 }));
+      expect(await store.commitMany({ leases, ttlMs: TTL, now: T0 + 1 })).toEqual([
+        true,
+        true,
+        true,
+      ]);
+      const again = await store.claimMany({ keys, leaseMs: LEASE, now: T0 + LEASE * 2 });
+      expect(again.map((outcome) => outcome.status)).toEqual([
+        "duplicate",
+        "duplicate",
+        "duplicate",
+      ]);
+    });
+
+    it("refuses the commit of a stale holder in commitMany and keeps the others", async () => {
+      const store = await make();
+      const a = leaseOf(await store.claim({ key: "a", leaseMs: LEASE, now: T0 }));
+      const b = leaseOf(await store.claim({ key: "b", leaseMs: LEASE, now: T0 }));
+      await store.claim({ key: "a", leaseMs: LEASE, now: T0 + LEASE + 1 });
+      const leases = [
+        { key: "a", leaseId: a },
+        { key: "b", leaseId: b },
+      ];
+      expect(await store.commitMany({ leases, ttlMs: TTL, now: T0 + LEASE + 2 })).toEqual([
+        false,
+        true,
+      ]);
+    });
+
+    it("frees each key on releaseMany and keeps a newer lease", async () => {
+      const store = await make();
+      const keys = ["a", "b"];
+      const leases = leasesOf(keys, await store.claimMany({ keys, leaseMs: LEASE, now: T0 }));
+      await store.releaseMany(leases);
+      const again = await store.claimMany({ keys, leaseMs: LEASE, now: T0 + 1 });
+      expect(again.map((outcome) => outcome.status)).toEqual(["new", "new"]);
+
+      // A stale holder releases after a newer request claimed the key.
+      const stale = leaseOf(await store.claim({ key: "s", leaseMs: LEASE, now: T0 }));
+      await store.claim({ key: "s", leaseMs: LEASE, now: T0 + LEASE + 1 });
+      await store.releaseMany([{ key: "s", leaseId: stale }]);
+      const third = await store.claim({ key: "s", leaseMs: LEASE, now: T0 + LEASE + 2 });
+      expect(third.status).toBe("in_flight");
+    });
+
+    it("accepts empty lists", async () => {
+      const store = await make();
+      expect(await store.claimMany({ keys: [], leaseMs: LEASE, now: T0 })).toEqual([]);
+      expect(await store.commitMany({ leases: [], ttlMs: TTL, now: T0 })).toEqual([]);
+      await store.releaseMany([]);
+    });
+
+    it("gives the same outcomes as claim in a loop for random key states", async () => {
+      const store = await make();
+      const random = seeded(20_261_027);
+      const states = Array.from(
+        { length: 40 },
+        () => KEY_STATES[Math.floor(random() * KEY_STATES.length)] as KeyState,
+      );
+      for (const [i, state] of states.entries()) {
+        await setState(store, `bulk:${i}`, state);
+        await setState(store, `loop:${i}`, state);
+      }
+      const at = T0 + LEASE * 2;
+      const bulk = await store.claimMany({
+        keys: states.map((_, i) => `bulk:${i}`),
+        leaseMs: LEASE,
+        now: at,
+      });
+      const loop: DedupeClaimOutcome[] = [];
+      for (const i of states.keys()) {
+        loop.push(await store.claim({ key: `loop:${i}`, leaseMs: LEASE, now: at }));
+      }
+      const statuses = bulk.map((outcome) => outcome.status);
+      expect(statuses).toEqual(loop.map((outcome) => outcome.status));
+      expect(new Set(statuses)).toEqual(new Set(["new", "in_flight", "duplicate"]));
+    });
+  });
+}

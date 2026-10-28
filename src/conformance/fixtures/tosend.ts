@@ -2,10 +2,37 @@
 // https://tosend.com/docs (checked 2026-10-26). The ids are made up.
 
 import { TOSEND_API_BASE, toSendSignature } from "../../providers/tosend/index";
-import type { ConformanceFixture } from "../types";
+import type { ConformanceFixture, WebhookSample } from "../types";
 
 const NOW = Date.parse("2026-10-26T12:00:30.000Z");
 const MESSAGE_ID = "0100019a-tosend-1";
+
+/**
+ * The webhook secret of the fixture. It protects nothing.
+ * For tests only. Never use it in production config.
+ */
+export const TOSEND_FIXTURE_SECRET = "tosend-webhook-secret-0123456789";
+
+/** Signs a body the way toSend does. toSend signs no time, so the helper ignores `at`. */
+export async function signToSendWebhook(input: {
+  body: Uint8Array;
+  secret: string;
+  at?: number;
+}): Promise<WebhookSample> {
+  return {
+    headers: new Headers({
+      "x-tosend-signature": await toSendSignature(input.secret, input.body),
+      "content-type": "application/json",
+    }),
+    body: input.body,
+  };
+}
+
+/** The `reason` of the sample hard bounce. */
+export const TOSEND_HARD_BOUNCE_REASON = "smtp; 550 5.1.1 The email account does not exist";
+
+/** The `reason` of the sample soft bounce. */
+export const TOSEND_SOFT_BOUNCE_REASON = "smtp; 452 4.2.2 The email account is over quota";
 
 /** A toSend bounce body for one recipient. */
 export function toSendBounce(
@@ -22,7 +49,7 @@ export function toSendBounce(
       bounce_sub_type: hard ? "General" : "MailboxFull",
       is_hard_bounce: hard,
       sender_fault: false,
-      reason: "smtp; 550 5.1.1 The email account does not exist",
+      reason: hard ? TOSEND_HARD_BOUNCE_REASON : TOSEND_SOFT_BOUNCE_REASON,
       timestamp: "2026-10-26T11:59:58.000Z",
       message_id: messageId,
     },
@@ -109,13 +136,8 @@ export function toSendFixture(): ConformanceFixture {
       ],
     },
     webhook: {
-      secret: "tosend-webhook-secret-0123456789",
-      async sign({ body, secret }) {
-        return {
-          headers: new Headers({ "x-tosend-signature": await toSendSignature(secret, body) }),
-          body,
-        };
-      },
+      secret: TOSEND_FIXTURE_SECRET,
+      sign: signToSendWebhook,
       // toSend signs only the body, with no timestamp.
       staleAt: null,
       samples: [
@@ -126,6 +148,7 @@ export function toSendFixture(): ConformanceFixture {
             {
               type: "bounced",
               bounce: "hard",
+              bounceDetail: { text: TOSEND_HARD_BOUNCE_REASON },
               recipient: "ana@example.org",
               providerMessageId: MESSAGE_ID,
               rawType: "bounced",
@@ -136,7 +159,14 @@ export function toSendFixture(): ConformanceFixture {
         {
           label: "soft bounce",
           body: toSendBounce("bo@example.org", false),
-          expected: [{ type: "bounced", bounce: "soft", recipient: "bo@example.org" }],
+          expected: [
+            {
+              type: "bounced",
+              bounce: "soft",
+              bounceDetail: { text: TOSEND_SOFT_BOUNCE_REASON },
+              recipient: "bo@example.org",
+            },
+          ],
         },
         {
           label: "complaint",

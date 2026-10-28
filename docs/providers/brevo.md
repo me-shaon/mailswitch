@@ -124,6 +124,14 @@ export default {
 };
 ```
 
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when Brevo sends these fields:
+
+- `text`: `reason`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
+
 ## Links
 
 - [Send a transactional email](https://developers.brevo.com/reference/sendtransacemail)

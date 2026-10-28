@@ -85,7 +85,7 @@ SendGrid signs each Event Webhook request with ECDSA P-256 and SHA-256. The sign
 6. Open the webhook again. Copy the **Verification Key**. SendGrid makes the key pair only when you save. The test button does not check the signature before you save.
 7. Store the key as the webhook secret, for example in `SENDGRID_WEBHOOK_PUBLIC_KEY`.
 
-The key is base64 text that starts with `MFkw`. mailswitch also accepts the key in PEM form. A key that is not base64 is a setup error. The webhook check then throws a `TypeError`, and the message does not hold the key.
+The key is base64 text that starts with `MFkw`. mailswitch also accepts the key in PEM form. A key that is not base64 is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the key.
 
 ### Handle a webhook
 
@@ -142,6 +142,15 @@ One request holds a JSON array of events. mailswitch gives one normalized event 
 The event key is `sg_event_id`, which SendGrid gives for dedupe. An event without it gets `<sg_message_id>:<event>:<timestamp>:<email>:<index>`.
 
 `providerMessageId` is `sg_message_id`, unchanged. It starts with the `X-Message-Id` value of the send, followed by a dot and more text. To match an event to a send, compare the part before the first dot.
+
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when SendGrid sends these fields:
+
+- `text`: `reason`.
+- `enhancedCode`: `status`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
 
 ## Links
 

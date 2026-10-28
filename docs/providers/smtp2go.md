@@ -123,7 +123,7 @@ The secret must hold at least 128 bits. mailswitch checks the length:
 
 Do not type a secret by hand. Make it with `generateSmtp2goWebhookSecret()`, which gives 256 random bits as 43 base64url characters.
 
-A secret that is too short is a setup error. The webhook check throws a `TypeError`, and the message does not hold the secret.
+A secret that is too short is a setup error. The webhook check refuses each request as `invalid_secret`, which maps to HTTP 500. The provider retries after you fix the secret. A weak `previousWebhookSecret` throws a `TypeError` when you create the adapter. The message does not hold the secret.
 
 ### Set up the webhook in SMTP2GO
 
@@ -212,6 +212,14 @@ While `previousWebhookSecret` is set, both secrets pass. The previous secret mus
 `rawType` is the `event` field. `recipient` is `rcpt`. `providerMessageId` is `email_id`, the id of the send answer. `occurredAt` is `time` in milliseconds. mailswitch reads `time` as a date text or as a Unix time.
 
 The event key is `<id>:<event>:<email_id>:<rcpt>:<time>`, with the address in lowercase. A missing field is empty. The SMTP2GO docs call `id` the id of the webhook, so mailswitch does not use `id` alone. When one request holds the same key twice, mailswitch keeps one event.
+
+### Bounce detail
+
+A `bounced` event carries `bounceDetail` when SMTP2GO sends these fields:
+
+- `text`: `message`.
+
+The text comes from a remote mail server and can hold personal data. mailswitch does not escape markup in it. Escape the text before you show it.
 
 ## Links
 

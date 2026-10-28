@@ -63,6 +63,13 @@ export const ahasendMeta: ProviderMeta = defineProviderMeta({
     422: { status: "unknown", reason: "idempotency_conflict", source: ERRORS_DOCS },
   }),
   webhooks: true,
+  webhookSecret: {
+    label: "Webhook secret",
+    source: "provider",
+    hint: "The secret of the webhook in AhaSend. Store the whole value, with the aha-whsec- prefix.",
+    placeholder: "aha-whsec-...",
+    pattern: "^aha-whsec-\\S+$",
+  },
   nativeIdempotency: true,
   // AhaSend keeps a key for 24 hours.
   nativeIdempotencyWindowMs: 86_400_000,

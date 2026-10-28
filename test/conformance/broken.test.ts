@@ -186,6 +186,47 @@ describe("conformance kit on broken adapters", () => {
     ]);
   });
 
+  it("fails events.parse for bounce detail on an event that is not a bounce", async () => {
+    const base = fakeProvider({ transport: "fetch" });
+    const parse = base.webhooks?.parse ?? (() => []);
+    const leaky: ProviderAdapter = {
+      ...base,
+      webhooks: {
+        ...(base.webhooks as NonNullable<ProviderAdapter["webhooks"]>),
+        parse: (body, headers) =>
+          parse(body, headers).map((event) => ({
+            ...event,
+            type: "delivered",
+            bounce: undefined,
+            bounceDetail: { text: "550 user unknown" },
+          })),
+      },
+    };
+    const report = await runChecks({ adapter: leaky, fixture: fakeFixture(), tier: 1 });
+    expect(failed(report)).toEqual(["events.parse"]);
+    expect(problems(report, "events.parse")).toContain("only a bounced event can set bounceDetail");
+  });
+
+  it("fails events.parse for bounce detail text longer than 1,000 characters", async () => {
+    const base = fakeProvider({ transport: "fetch" });
+    const parse = base.webhooks?.parse ?? (() => []);
+    const long: ProviderAdapter = {
+      ...base,
+      webhooks: {
+        ...(base.webhooks as NonNullable<ProviderAdapter["webhooks"]>),
+        parse: (body, headers) =>
+          parse(body, headers).map((event) =>
+            event.type === "bounced"
+              ? { ...event, bounceDetail: { text: "a".repeat(1001) } }
+              : event,
+          ),
+      },
+    };
+    const report = await runChecks({ adapter: long, fixture: fakeFixture(), tier: 1 });
+    expect(failed(report)).toEqual(["events.parse"]);
+    expect(problems(report, "events.parse")).toContain("longer than 1000 characters");
+  });
+
   it("fails a missing fixture part instead of skipping it", async () => {
     const fixture: ConformanceFixture = { ...fakeFixture() };
     delete fixture.webhook;

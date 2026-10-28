@@ -22,12 +22,14 @@ import {
   type ConformanceCheck,
   changedSecret,
   check,
+  checkBounceFields,
   cloneSample,
   decoder,
   defaultTamper,
   EVENT_TYPES,
   expectResult,
   expectVerifyFailure,
+  fieldText,
   findLeak,
   flatten,
   headerValue,
@@ -36,6 +38,7 @@ import {
   refusalCases,
   rejected,
   type SecretForm,
+  sameField,
   sampleMessage,
   secretForms,
   toBytes,
@@ -801,17 +804,15 @@ function httpChecks(
             if (typeof event.rawType !== "string" || event.rawType === "") {
               problems.push(`${at} has no rawType.`);
             }
-            if (event.bounce !== undefined && event.type !== "bounced") {
-              problems.push(`${at}: only a bounced event can set bounce.`);
-            }
+            checkBounceFields(event, at, problems);
             if (event.occurredAt !== undefined && !Number.isFinite(event.occurredAt)) {
               problems.push(`${at}: occurredAt is not a finite number.`);
             }
             const want = item.expected[index] ?? { type: event.type };
             for (const [field, value] of Object.entries(want)) {
               const actual = (event as unknown as Record<string, unknown>)[field];
-              if (actual !== value) {
-                problems.push(`${at}: ${field} is ${String(actual)}, not ${String(value)}.`);
+              if (!sameField(actual, value)) {
+                problems.push(`${at}: ${field} is ${fieldText(actual)}, not ${fieldText(value)}.`);
               }
             }
           });

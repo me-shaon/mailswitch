@@ -8,6 +8,7 @@
 
 import type { WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { base64ToBytes, utf8 } from "../../internal/encoding";
 import { hmacVerify } from "../../internal/hmac";
 import { decodeJsonBytes } from "../../internal/webhook-bytes";
@@ -46,11 +47,21 @@ export function svixSignedPayload(id: string, timestamp: string, body: Uint8Arra
  * message never holds the secret.
  */
 export function svixVerifier(secret: string): SvixVerifier {
-  const text = typeof secret === "string" ? secret.replace(/^whsec_/, "") : "";
-  const key = base64ToBytes(text);
-  if (!key || key.length === 0) {
+  const key = svixKey(secret);
+  if (key === null) {
     throw new TypeError("The Resend webhook secret is not a valid whsec_ base64 secret.");
   }
+  return keyVerifier(key);
+}
+
+/** The decoded key of a Svix signing secret, or null when it is not valid base64. */
+function svixKey(secret: string): Uint8Array | null {
+  const text = typeof secret === "string" ? secret.replace(/^whsec_/, "") : "";
+  const key = base64ToBytes(text);
+  return key && key.length > 0 ? key : null;
+}
+
+function keyVerifier(key: Uint8Array): SvixVerifier {
   return {
     async verify(headers, body, now) {
       const id = header(headers, "id");
@@ -89,15 +100,15 @@ let cached: { secret: string; verifier: SvixVerifier } | null = null;
 
 /**
  * The `webhooks.verify` method of the Resend adapter. An empty secret is refused as
- * `bad_signature`.
- *
- * @throws TypeError when the secret is set but is not a valid `whsec_` secret. That is a
- * setup error, not a bad request.
+ * `bad_signature`. A secret that is not a valid `whsec_` secret is refused as
+ * `invalid_secret`, because that is a setup error on this side.
  */
 export function verifyResendWebhook(input: WebhookVerifyInput): Promise<WebhookVerifyResult> {
   if (input.secret === "") return Promise.resolve({ ok: false, reason: "bad_signature" });
   if (cached?.secret !== input.secret) {
-    cached = { secret: input.secret, verifier: svixVerifier(input.secret) };
+    const key = svixKey(input.secret);
+    if (key === null) return Promise.resolve({ ok: false, reason: "invalid_secret" });
+    cached = { secret: input.secret, verifier: keyVerifier(key) };
   }
   return cached.verifier.verify(input.headers, input.body, input.now);
 }
@@ -108,7 +119,7 @@ interface ResendEvent {
   data?: {
     email_id?: unknown;
     to?: unknown;
-    bounce?: { type?: unknown };
+    bounce?: { type?: unknown; message?: unknown };
   };
 }
 
@@ -137,7 +148,11 @@ export function parseResendEvents(body: Uint8Array, headers: Headers): Normalize
   const eventKey = header(headers, "id") || `${messageId ?? ""}:${rawType}:${createdAt}`;
   const type = TYPES[rawType] ?? "unknown";
   const out: NormalizedEvent = { type, provider: PROVIDER, eventKey, rawType };
-  if (type === "bounced") out.bounce = data.bounce?.type === "Permanent" ? "hard" : "soft";
+  if (type === "bounced") {
+    out.bounce = data.bounce?.type === "Permanent" ? "hard" : "soft";
+    const detail = bounceDetail({ text: data.bounce?.message });
+    if (detail !== undefined) out.bounceDetail = detail;
+  }
   const to = typeof data.to === "string" ? [data.to] : Array.isArray(data.to) ? data.to : [];
   if (to.length === 1 && typeof to[0] === "string") out.recipient = to[0];
   if (messageId !== undefined) out.providerMessageId = messageId;

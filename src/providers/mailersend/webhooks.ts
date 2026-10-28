@@ -8,6 +8,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { bytesToHex } from "../../internal/encoding";
 import { hmacSign, hmacVerify } from "../../internal/hmac";
 import { asRecord } from "../../internal/json";
@@ -81,7 +82,12 @@ export function parseMailersendEvents(provider: string, body: Uint8Array): Norma
   const type = TYPES[rawType] ?? "unknown";
   const eventKey = text(data, "id") ?? sha256Hex(body);
   const event: NormalizedEvent = { type, provider, eventKey, rawType };
-  if (type === "bounced") event.bounce = rawType === "activity.hard_bounced" ? "hard" : "soft";
+  if (type === "bounced") {
+    event.bounce = rawType === "activity.hard_bounced" ? "hard" : "soft";
+    const meta = asRecord(data?.meta);
+    const detail = bounceDetail({ text: meta?.bounce_reason, smtpCode: meta?.bounce_code });
+    if (detail !== undefined) event.bounceDetail = detail;
+  }
   const recipient = text(data, "recipient") ?? text(asRecord(email?.recipient), "email");
   if (recipient !== undefined) event.recipient = recipient;
   const messageId = text(data, "message_id") ?? text(asRecord(email?.message), "id");

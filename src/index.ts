@@ -19,6 +19,7 @@ export {
 } from "./core/credentials";
 export { DAILY_CAP_WINDOW_MS } from "./core/daily-cap";
 export {
+  type BounceDetail,
   NORMALIZED_EVENT_TYPES,
   type NormalizedEvent,
   type NormalizedEventType,
@@ -38,6 +39,7 @@ export {
   type ProviderMeta,
   type ProviderPreset,
   type ProviderTier,
+  type WebhookSecretMeta,
 } from "./core/meta";
 export {
   createMailer,
@@ -79,8 +81,10 @@ export type {
   DailyCapReserveInput,
   DailyCapStore,
   DedupeClaimInput,
+  DedupeClaimManyInput,
   DedupeClaimOutcome,
   DedupeCommitInput,
+  DedupeCommitManyInput,
   DedupeReleaseInput,
   DedupeStore,
   IdempotencyAttempt,

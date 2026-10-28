@@ -34,6 +34,21 @@ export interface ProviderPreset {
   defaultDailyCap?: number;
 }
 
+/** The webhook secret, as a settings form shows it. It is not a credential field. */
+export interface WebhookSecretMeta {
+  label: string;
+  /**
+   * Where the value comes from.
+   * - `provider`: copy it from the provider, for example a signing secret or a public key.
+   * - `generated`: make it with the generate helper of the adapter, then give it to the provider.
+   */
+  source: "provider" | "generated";
+  hint?: string;
+  placeholder?: string;
+  /** The source of a regular expression that a value must match. */
+  pattern?: string;
+}
+
 /**
  * The provider tier.
  * - 1: send, attachments, verify, webhooks where offered, and a researched status map.
@@ -56,6 +71,13 @@ export interface ProviderMeta {
   statusMap: StatusMap;
   /** The adapter verifies and parses provider webhooks. */
   webhooks?: boolean;
+  /** The webhook secret that `handleWebhook` takes. It needs `webhooks`. */
+  webhookSecret?: WebhookSecretMeta;
+  /**
+   * The default daily cap of the provider. A preset `defaultDailyCap` takes precedence.
+   * The built-in providers leave it out, because free-plan limits change often.
+   */
+  defaultDailyCap?: number;
   /** The provider accepts an idempotency key and drops a repeat. */
   nativeIdempotency: boolean;
   /**
@@ -69,12 +91,18 @@ function fail(id: string, text: string): never {
   throw new TypeError(`Provider meta "${id}": ${text}`);
 }
 
-function checkPattern(id: string, field: CredentialField): void {
-  if (field.pattern === undefined) return;
+function checkPattern(id: string, pattern: string | undefined, where: string): void {
+  if (pattern === undefined) return;
   try {
-    new RegExp(field.pattern);
+    new RegExp(pattern);
   } catch {
-    fail(id, `the pattern of field "${field.name}" is not a valid regular expression.`);
+    fail(id, `the pattern of ${where} is not a valid regular expression.`);
+  }
+}
+
+function checkCap(id: string, cap: number | undefined, where: string): void {
+  if (cap !== undefined && !(Number.isSafeInteger(cap) && cap >= 1)) {
+    fail(id, `the defaultDailyCap of ${where} must be a positive integer.`);
   }
 }
 
@@ -84,7 +112,7 @@ function checkFields(id: string, fields: readonly CredentialField[]): Set<string
     if (typeof field.name !== "string" || field.name === "") fail(id, "a field has no name.");
     if (names.has(field.name)) fail(id, `the field name "${field.name}" is used twice.`);
     names.add(field.name);
-    checkPattern(id, field);
+    checkPattern(id, field.pattern, `field "${field.name}"`);
     if (field.options !== undefined) {
       if (field.options.length === 0) fail(id, `field "${field.name}" has an empty options list.`);
       const def = field.defaultValue;
@@ -102,6 +130,7 @@ function checkPresets(id: string, presets: readonly ProviderPreset[], names: Set
     if (typeof preset.id !== "string" || preset.id === "") fail(id, "a preset has no id.");
     if (ids.has(preset.id)) fail(id, `the preset id "${preset.id}" is used twice.`);
     ids.add(preset.id);
+    checkCap(id, preset.defaultDailyCap, `preset "${preset.id}"`);
     for (const key of [...Object.keys(preset.fixed), ...Object.keys(preset.fieldHints ?? {})]) {
       if (!names.has(key)) fail(id, `preset "${preset.id}" names the unknown field "${key}".`);
     }
@@ -119,8 +148,9 @@ function deepFreeze<T>(value: T): T {
 /**
  * Checks and freezes provider meta. It throws for a programmer error: a missing id, name,
  * or docs URL, a tier that is not 1 or 2, a duplicate field or preset, an invalid pattern,
- * a tier 2 status map that maps a 5xx code to `not_sent`, or a `nativeIdempotencyWindowMs`
- * that is not a positive integer or has no native idempotency.
+ * a tier 2 status map that maps a 5xx code to `not_sent`, a `nativeIdempotencyWindowMs`
+ * that is not a positive integer or has no native idempotency, a `defaultDailyCap` that is
+ * not a positive integer, or an invalid `webhookSecret` or one without `webhooks`.
  */
 export function defineProviderMeta(meta: ProviderMeta): ProviderMeta {
   const id = typeof meta.id === "string" ? meta.id : "";
@@ -145,6 +175,18 @@ export function defineProviderMeta(meta: ProviderMeta): ProviderMeta {
   }
   const names = checkFields(id, meta.credentialFields);
   if (meta.presets !== undefined) checkPresets(id, meta.presets, names);
+  checkCap(id, meta.defaultDailyCap, "the provider");
+  const secret = meta.webhookSecret;
+  if (secret !== undefined) {
+    if (meta.webhooks !== true) fail(id, "webhookSecret needs webhooks to be true.");
+    if (typeof secret.label !== "string" || secret.label === "") {
+      fail(id, "the webhookSecret has no label.");
+    }
+    if (secret.source !== "provider" && secret.source !== "generated") {
+      fail(id, 'the webhookSecret source must be "provider" or "generated".');
+    }
+    checkPattern(id, secret.pattern, "the webhookSecret");
+  }
   if (meta.tier === 2) {
     for (const key of Object.keys(meta.statusMap)) {
       const code = Number(key);

@@ -56,5 +56,10 @@ export const mailersendMeta: ProviderMeta = defineProviderMeta({
     421: { status: "unknown", reason: "provider_error", source: GENERAL },
   }),
   webhooks: true,
+  webhookSecret: {
+    label: "Signing secret",
+    source: "provider",
+    hint: "The signing secret of the webhook in MailerSend. Open the webhook after you save it.",
+  },
   nativeIdempotency: false,
 });

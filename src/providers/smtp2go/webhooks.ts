@@ -24,6 +24,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { bytesToBase64, utf8 } from "../../internal/encoding";
 import { asRecord } from "../../internal/json";
 import {
@@ -166,6 +167,8 @@ export function parseSmtp2goEvents(provider: string, body: Uint8Array): Normaliz
     else if (rawType === "bounce") {
       event.type = "bounced";
       if (bounce === "hard" || bounce === "soft") event.bounce = bounce;
+      const detail = bounceDetail({ text: item.message });
+      if (detail !== undefined) event.bounceDetail = detail;
     }
     if (recipient !== undefined) event.recipient = recipient;
     if (emailId !== undefined) event.providerMessageId = emailId;

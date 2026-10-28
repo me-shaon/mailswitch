@@ -552,9 +552,11 @@ describe("Brevo webhooks", () => {
       ok: false,
       reason: "bad_signature",
     });
-    await expect(hooks.verify({ headers, body, secret: "short", now: NOW })).rejects.toThrow(
-      /too short/,
-    );
+    expect(await hooks.verify({ headers, body, secret: "short", now: NOW })).toEqual({
+      ok: false,
+      reason: "invalid_secret",
+    });
+    expect(() => checkBrevoWebhookToken("short")).toThrow(/too short/);
     expect(() => checkBrevoWebhookToken(generateBrevoWebhookToken())).not.toThrow();
   });
 
@@ -589,5 +591,24 @@ describe("Brevo webhooks", () => {
         dedupe,
       }),
     ).toMatchObject({ ok: true, events: [] });
+  });
+});
+
+describe("Brevo bounce detail on the SMTP relay", () => {
+  const hooks = smtp({ webhooks: brevoWebhooks() }).webhooks;
+  const parse = (event: Record<string, unknown>) =>
+    hooks?.parse(utf8(JSON.stringify(event)), new Headers()) ?? [];
+
+  it("reads reason for a hard bounce and a soft bounce", () => {
+    const hard = parse(brevoEvent("hard_bounce", "ana@example.org", { reason: "550 unknown" }));
+    expect(hard[0]?.bounceDetail).toEqual({ text: "550 unknown" });
+    const soft = parse(brevoEvent("soft_bounce", "bo@example.org", { reason: "452 full" }));
+    expect(soft[0]?.bounceDetail).toEqual({ text: "452 full" });
+  });
+
+  it("gives no detail to a bounce without reason or to a delivery", () => {
+    expect(parse(brevoEvent("hard_bounce", "ana@example.org"))[0]?.bounceDetail).toBeUndefined();
+    const delivered = parse(brevoEvent("delivered", "ana@example.org", { reason: "sent" }));
+    expect(delivered[0]?.bounceDetail).toBeUndefined();
   });
 });

@@ -91,6 +91,8 @@ In the repository, `meta.ts` can import only `../../core/meta`, `../../core/clas
 | `docsUrl` | The provider documentation. It must start with `https://`. |
 | `statusMap` | Sourced overrides of the default status table. Build it with `defineStatusMap`. |
 | `webhooks` | `true` only when the adapter has `webhooks.verify` and `webhooks.parse`. |
+| `webhookSecret` | Set it when `webhooks` is `true`. It describes the value that `handleWebhook` takes as `secret`, so a settings form can show the input. Give a `label` and a `source`. Use `"provider"` when the user copies the value from the provider. Use `"generated"` when the user makes it with a generate helper of the adapter. Put any fixed username or format rule in `hint`. `pattern` is optional. |
+| `defaultDailyCap` | Optional. A positive integer. `createMailer` uses it when an entry has no `dailyCap` and the `dailyCaps` store is set. A preset `defaultDailyCap` takes precedence. The built-in providers leave it out, because free-plan limits change often. |
 | `nativeIdempotency` | `true` only when the provider accepts an idempotency key and drops a repeat. It must equal `capabilities.idempotency`. |
 | `nativeIdempotencyWindowMs` | Optional. How long the provider keeps a key, in milliseconds. It must be a positive integer, and it needs `nativeIdempotency: true`. Set it when the window is shorter than 7 days. `createMailer` then warns when no idempotency store is set. |
 
@@ -377,7 +379,7 @@ interface ProviderWebhooks {
 - Compare with `hmacVerify`, which uses `crypto.subtle.verify`. Do not compare signature text with `===` or with a loop.
 - Refuse an empty secret.
 - If the signature covers a timestamp, refuse a timestamp outside the window in both directions, past and future. Use `input.now`, not `Date.now()`.
-- Return a typed rejection. Do not throw for a bad request.
+- Return a typed rejection. Do not throw for a bad request or for a bad secret.
 - Decode the body with a fatal `TextDecoder`, so invalid UTF-8 is `malformed`.
 - Make no network call, except to fetch a signing certificate (SNS) with `input.fetch`.
 
@@ -386,6 +388,7 @@ interface ProviderWebhooks {
 | `bad_signature` | The signature is missing or wrong, or the secret is empty. |
 | `malformed` | A header or the body cannot be parsed. |
 | `stale` | The signed timestamp is outside the window. |
+| `invalid_secret` | The secret is set but is too short or has the wrong form. This is a setup error on the receiving side. |
 
 The router sets `too_large`, `body_used`, `replay`, `in_flight`, and `untrusted_topic`.
 
@@ -417,6 +420,7 @@ async function verifyWebhook(input: WebhookVerifyInput): Promise<WebhookVerifyRe
 - Return one `NormalizedEvent` per provider event. A body can hold more than one event.
 - Map each provider type to `bounced`, `complained`, or `delivered`. Map every other type to `unknown`. Do not drop it, and do not fail.
 - Set `bounce` to `hard` or `soft` only on a `bounced` event.
+- Set `bounceDetail` only on a `bounced` event, and only from fields that the provider sends. Put the reason text in `text`. Set `smtpCode` and `enhancedCode` only when the provider sends them as their own fields. Do not read codes out of the text. Remove control and invisible characters from the text, and cut it at 1,000 characters. The conformance suite fails an event that breaks these rules.
 - Set `rawType` to the provider type, exactly.
 - Set `provider` to `meta.id`.
 - Set `occurredAt` from the provider time, in Unix milliseconds, when the body has one.
@@ -430,6 +434,8 @@ The router dedupes on `provider:endpointId:eventKey`. The adapter gives the `eve
 - Use the provider event id when it has one. Lettermill uses `id`.
 - When the provider has no event id, use the SHA-256 of the raw body. Add the item index when one body holds many events.
 - When the provider signs no timestamp, a replay passes the signature check. Then the dedupe store is the only replay guard. Say so in the provider comments, and set `staleAt: null` in the fixture.
+
+A custom dedupe store can add `claimMany`, `commitMany`, and `releaseMany`. When a store has all three, `handleWebhook` claims and commits the keys of a body in chunks of 500, with one store call for each chunk. The bulk methods must give the same outcome for each key as `claim`, `commit`, and `release`. `claimMany` must claim all keys of a call or none. Test each bulk method against its single method with the same key states. When you subclass `MemoryDedupeStore` or `D1DedupeStore` and override `claim`, `commit`, or `release`, override the matching bulk method too. Otherwise `handleWebhook` calls the bulk method and skips your override.
 
 ## Redaction
 

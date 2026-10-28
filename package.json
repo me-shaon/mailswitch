@@ -22,7 +22,9 @@
     "dist",
     "bin",
     "templates",
-    "docs/guides/add-a-provider.md"
+    "docs/guides",
+    "docs/providers",
+    "CHANGELOG.md"
   ],
   "bin": {
     "mailswitch-scaffold": "./bin/scaffold.mjs"
@@ -63,6 +65,10 @@
     "./conformance/vitest": {
       "types": "./dist/conformance/vitest.d.ts",
       "import": "./dist/conformance/vitest.js"
+    },
+    "./conformance/fixtures": {
+      "types": "./dist/conformance/fixtures/index.d.ts",
+      "import": "./dist/conformance/fixtures/index.js"
     },
     "./resend": {
       "types": "./dist/providers/resend/index.d.ts",

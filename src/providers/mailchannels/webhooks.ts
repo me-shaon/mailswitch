@@ -28,6 +28,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { ed25519Verify } from "../../internal/ed25519";
 import { base64ToBytes, bytesToBase64, isBase64, utf8 } from "../../internal/encoding";
 import { asRecord, stringField } from "../../internal/json";
@@ -74,16 +75,11 @@ export async function mailchannelsContentDigest(body: Uint8Array): Promise<strin
 /**
  * Reads the public key text. It accepts base64 and a `PUBLIC KEY` PEM block, with the
  * armor lines and the white space removed. The armor of any other label stays in the
- * text, so the base64 check refuses it.
- *
- * @throws TypeError when the key is not base64. The message never holds the key.
+ * text, so the base64 check refuses it. Returns null when the key is not base64.
  */
-function keyText(secret: string): string {
+function keyText(secret: string): string | null {
   const text = secret.replace(/-----(?:BEGIN|END) PUBLIC KEY-----/g, "").replace(/\s+/g, "");
-  if (!isBase64(text)) {
-    throw new TypeError("The MailChannels webhook secret is not a base64 public key.");
-  }
-  return text;
+  return isBase64(text) ? text : null;
 }
 
 interface SignatureInput {
@@ -175,10 +171,10 @@ function ownEvents(events: unknown[], customerHandle: string): boolean {
  * `customer_handle` is missing or is not `customerHandle`. A header that cannot be parsed, a label that
  * differs between the two signature headers, a covered component other than
  * `content-digest`, and a missing or other `alg` are `malformed`. A `created` time more
- * than 5 minutes old, or more than 1 minute in the future, is `stale`.
+ * than 5 minutes old, or more than 1 minute in the future, is `stale`. A secret that is
+ * not base64 is `invalid_secret`, because that is a setup error on this side.
  *
- * @throws TypeError when the secret is set but is not base64, or when `customerHandle` is
- * blank. That is a setup error, not a bad request.
+ * @throws TypeError when `customerHandle` is blank. That is a programmer error.
  */
 export async function verifyMailchannelsWebhook(
   input: WebhookVerifyInput,
@@ -187,6 +183,7 @@ export async function verifyMailchannelsWebhook(
   const handle = checkHandle(customerHandle);
   if (input.secret === "") return { ok: false, reason: "bad_signature" };
   const key = keyText(input.secret);
+  if (key === null) return { ok: false, reason: "invalid_secret" };
   const digestHeader = input.headers.get(MAILCHANNELS_DIGEST_HEADER);
   const inputHeader = input.headers.get(MAILCHANNELS_SIGNATURE_INPUT_HEADER);
   const signatureHeader = input.headers.get(MAILCHANNELS_SIGNATURE_HEADER);
@@ -290,7 +287,12 @@ export function parseMailchannelsEvents(
       stringField(record, "url") ?? "",
     ].join(":");
     const event: NormalizedEvent = { type, provider, eventKey, rawType };
-    if (type === "bounced") event.bounce = rawType === "hard-bounced" ? "hard" : "soft";
+    if (type === "bounced") {
+      event.bounce = rawType === "hard-bounced" ? "hard" : "soft";
+      // The MailChannels docs do not list these field names, so both stay optional.
+      const detail = bounceDetail({ text: record.reason, enhancedCode: record.status });
+      if (detail !== undefined) event.bounceDetail = detail;
+    }
     if (recipients.length === 1) event.recipient = recipients[0] as string;
     if (typeof seconds === "number" && Number.isFinite(seconds)) event.occurredAt = seconds * 1000;
     out.push(event);

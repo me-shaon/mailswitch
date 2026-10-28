@@ -22,10 +22,66 @@ import { smtp2goMeta } from "../providers/smtp2go/meta";
 import { toSendMeta } from "../providers/tosend/meta";
 import { zeptomailMeta } from "../providers/zeptomail/meta";
 
-export type { CredentialField, ProviderMeta, ProviderPreset, ProviderTier } from "../core/meta";
+export type {
+  CredentialField,
+  ProviderMeta,
+  ProviderPreset,
+  ProviderTier,
+  WebhookSecretMeta,
+} from "../core/meta";
+
+/** The id of a built-in provider. */
+export type ProviderId =
+  | "resend"
+  | "tosend"
+  | "cloudflare-rest"
+  | "cloudflare-binding"
+  | "mailgun"
+  | "postmark"
+  | "brevo"
+  | "mailersend"
+  | "mailjet"
+  | "smtp2go"
+  | "zeptomail"
+  | "sendgrid"
+  | "ses"
+  | "smtp"
+  | "mailchannels"
+  | "ahasend"
+  | "mailtrap"
+  | "autosend"
+  | "scaleway"
+  | "http";
+
+/** The id of every built-in provider, in catalog order. */
+export const PROVIDER_IDS: readonly ProviderId[] = Object.freeze([
+  "resend",
+  "tosend",
+  "cloudflare-rest",
+  "cloudflare-binding",
+  "mailgun",
+  "postmark",
+  "brevo",
+  "mailersend",
+  "mailjet",
+  "smtp2go",
+  "zeptomail",
+  "sendgrid",
+  "ses",
+  "smtp",
+  "mailchannels",
+  "ahasend",
+  "mailtrap",
+  "autosend",
+  "scaleway",
+  "http",
+]);
+
+/** The meta of a built-in provider. Its id is a `ProviderId`. */
+export type CatalogEntry = ProviderMeta & { readonly id: ProviderId };
 
 /** Every built-in provider, in a stable order. */
-export const catalog: readonly ProviderMeta[] = Object.freeze([
+export const catalog: readonly CatalogEntry[] = Object.freeze([
   resendMeta,
   toSendMeta,
   cloudflareRestMeta,
@@ -46,9 +102,17 @@ export const catalog: readonly ProviderMeta[] = Object.freeze([
   autosendMeta,
   scalewayMeta,
   httpMeta,
-]);
+] as CatalogEntry[]);
 
+/** Tells whether a string, for example a saved setting, is the id of a built-in provider. */
+export function isProviderId(id: string): id is ProviderId {
+  return (PROVIDER_IDS as readonly string[]).includes(id);
+}
+
+/** Returns the meta of a built-in provider. For a `ProviderId`, the result is defined. */
+export function getProviderMeta(id: ProviderId): CatalogEntry;
 /** Returns the meta of a built-in provider, or undefined for an unknown id. */
-export function getProviderMeta(id: string): ProviderMeta | undefined {
+export function getProviderMeta(id: string): CatalogEntry | undefined;
+export function getProviderMeta(id: string): CatalogEntry | undefined {
   return catalog.find((meta) => meta.id === id);
 }

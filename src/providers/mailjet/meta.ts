@@ -58,5 +58,10 @@ export const mailjetMeta: ProviderMeta = defineProviderMeta({
   // that a 5xx sent nothing.
   statusMap: defineStatusMap({}),
   webhooks: true,
+  webhookSecret: {
+    label: "Webhook secret",
+    source: "generated",
+    hint: 'Make it with generateMailjetWebhookSecret(). It is the Basic auth password in the webhook URL. The username must be "mailswitch", unless you set webhookUsername.',
+  },
   nativeIdempotency: false,
 });

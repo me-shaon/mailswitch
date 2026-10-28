@@ -22,8 +22,13 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../core/adapter";
 import type { NormalizedEvent } from "../core/events";
+import { bounceDetail } from "./bounce-detail";
 import { numberField, stringField } from "./json";
-import { checkSharedTokenSecret, generateSharedTokenSecret } from "./shared-token";
+import {
+  checkSharedTokenSecret,
+  generateSharedTokenSecret,
+  isStrongSharedTokenSecret,
+} from "./shared-token";
 import { decodeJsonBytes, timingSafeEqualText } from "./webhook-bytes";
 
 /** The shortest token, in characters, when it is not hex only. 22 base64url characters hold 128 bits. */
@@ -57,8 +62,8 @@ export const generateBrevoWebhookToken: () => string = generateSharedTokenSecret
 /** Checks the bearer token and the body shape. It never throws for a bad request. */
 export async function verifyBrevoWebhook(input: WebhookVerifyInput): Promise<WebhookVerifyResult> {
   if (input.secret === "") return { ok: false, reason: "bad_signature" };
-  // A weak token is a setup error, not a bad request.
-  checkBrevoWebhookToken(input.secret);
+  // A weak token is a setup error on this side. It is not the sender's fault.
+  if (!isStrongSharedTokenSecret(input.secret)) return { ok: false, reason: "invalid_secret" };
   const header = input.headers.get("authorization");
   if (header === null) return { ok: false, reason: "bad_signature" };
   const match = BEARER.exec(header.trim());
@@ -99,6 +104,10 @@ function eventOf(provider: string, record: Fields): NormalizedEvent | null {
   } else if (rawType === "soft_bounce") {
     event.type = "bounced";
     event.bounce = "soft";
+  }
+  if (event.type === "bounced") {
+    const detail = bounceDetail({ text: record.reason });
+    if (detail !== undefined) event.bounceDetail = detail;
   }
   if (recipient !== undefined) event.recipient = recipient;
   if (messageId !== undefined) event.providerMessageId = messageId;

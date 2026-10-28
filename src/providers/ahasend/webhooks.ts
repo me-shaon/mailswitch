@@ -17,6 +17,7 @@
 
 import type { ProviderWebhooks, WebhookVerifyInput, WebhookVerifyResult } from "../../core/adapter";
 import type { NormalizedEvent, NormalizedEventType } from "../../core/events";
+import { bounceDetail } from "../../internal/bounce-detail";
 import { base64ToBytes, utf8 } from "../../internal/encoding";
 import { hmacVerify } from "../../internal/hmac";
 import { asRecord, stringField } from "../../internal/json";
@@ -124,6 +125,16 @@ export function parseAhasendEvents(
   const type = TYPES[rawType] ?? "unknown";
   const event: NormalizedEvent = { type, provider, eventKey, rawType };
   if (rawType === "message.transient_error") event.bounce = "soft";
+  if (type === "bounced") {
+    // AhaSend sends `smtp_code: 0` when no SMTP reply came. The builder drops it.
+    const attempt = asRecord(data.delivery_attempt);
+    const detail = bounceDetail({
+      text: attempt?.response,
+      smtpCode: attempt?.smtp_code,
+      enhancedCode: attempt?.enhanced_status_code,
+    });
+    if (detail !== undefined) event.bounceDetail = detail;
+  }
   const recipient = stringField(data, "recipient");
   if (recipient !== undefined) event.recipient = recipient;
   if (messageId !== undefined) event.providerMessageId = messageId;

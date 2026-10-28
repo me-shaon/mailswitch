@@ -41,5 +41,12 @@ export const resendMeta: ProviderMeta = defineProviderMeta({
     409: { status: "unknown", reason: "idempotency_conflict", source: IDEMPOTENCY_DOCS },
   }),
   webhooks: true,
+  webhookSecret: {
+    label: "Signing secret",
+    source: "provider",
+    hint: "The signing secret of the webhook in Resend. It starts with whsec_.",
+    placeholder: "whsec_...",
+    pattern: "^(?:whsec_)?[A-Za-z0-9+/]+={0,2}$",
+  },
   nativeIdempotency: true,
 });
